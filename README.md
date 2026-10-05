@@ -1,4 +1,4 @@
-# ASMT: Fleet Miles
+# aslog.dev
 
 A simple web app that lists every truck in the fleet with its model and current miles. The data comes from Samsara.
 

@@ -27,11 +27,11 @@ const dutyModels = () => assignments?.dutyModels ?? {};
 const settings = () => effectiveSettings(assignments?.settings, savedSettings);
 let serviceLog = []; // serviceLog docs (one per Mark done)
 let trailers = []; // trailers docs
-let trSortKey = 'name';
-let trSortDir = 1;
+let trSortKey = 'lastReportedAt'; // most recently reported first
+let trSortDir = -1;
 let openTruckId = null; // truck shown in the detail dialog
 let openFormKey = null; // item whose "Mark done" form is open
-let sortKey = 'nextRank'; // most urgent first
+let sortKey = 'name';
 let sortDir = 1;
 let unsubscribers = [];
 
