@@ -17,8 +17,10 @@
 
 import { commit, deleteWrite, listDocs, mergeWrite, setWrite } from './firestore-rest.mjs';
 import {
-  assignmentsDoc, missingBaselines, scheduleDocs, scheduleIdsFor, schedulesVersion, validate,
+  assignmentsDoc, dutyModels, missingBaselines, scheduleById, scheduleDocs, scheduleIdsFor,
+  schedulesVersion, validate,
 } from './schedules.mjs';
+import { WINDOW_DAYS, classify, metricsFromReport, nextState } from './duty.mjs';
 
 const SAMSARA_BASE = 'https://api.samsara.com';
 const METERS_PER_MILE = 1609.344;
@@ -125,6 +127,69 @@ async function fetchContainers() {
   };
 }
 
+// Samsara fuel & energy report for the last WINDOW_DAYS: vehicleId -> metrics.
+async function fetchDutyMetrics() {
+  const end = new Date();
+  const start = new Date(end.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const reports = [];
+  let after;
+  do {
+    const url = new URL('/fleet/reports/vehicles/fuel-energy', SAMSARA_BASE);
+    url.searchParams.set('startDate', start.toISOString());
+    url.searchParams.set('endDate', end.toISOString());
+    if (after) url.searchParams.set('after', after);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Samsara fuel-energy report failed: ${res.status} ${await res.text()}`);
+    const body = await res.json();
+    reports.push(...(body.data?.vehicleReports ?? []));
+    after = body.pagination?.hasNextPage ? body.pagination.endCursor : undefined;
+  } while (after);
+  return new Map(reports.map((r) => [r.vehicle.id, metricsFromReport(r)]));
+}
+
+const dutyLabel = (model, duty) =>
+  dutyModels[model]?.options.find((o) => o.id === duty)?.label ?? duty;
+
+// Classifies every truck's duty cycle per duty model and applies the
+// stability window. Returns the dutyCycles docs to write and log entries for
+// classifications that changed (or were first set away from the default).
+function classifyFleet(fleet, metricsById, existing, now = new Date()) {
+  const docs = {};
+  const changes = [];
+  for (const v of fleet) {
+    const metrics = metricsById?.get(v.id) ?? null;
+    const prev = existing[v.id] ?? {};
+    const models = [...new Set(v.scheduleIds.map((id) => scheduleById.get(id)?.dutyModel).filter(Boolean))];
+    const current = {};
+    const state = {};
+    for (const model of models) {
+      const candidate = classify(model, metrics, v.engineHours);
+      const r = nextState(prev.state?.[model], candidate, now);
+      state[model] = { ...r.state, candidate: candidate ?? null };
+      if (r.state.current) current[model] = r.state.current;
+      const from = r.changed ? r.from : r.initial ? dutyModels[model].default : null;
+      if (from && r.state.current !== from) {
+        changes.push({
+          id: `duty-${v.id}-${model}-${now.getTime()}`,
+          type: 'duty',
+          vehicleId: v.id,
+          vehicleName: v.name,
+          itemName: `Duty cycle: ${dutyLabel(model, from)} → ${dutyLabel(model, r.state.current)}`,
+          note: metrics
+            ? `${metrics.annualMiles.toLocaleString('en-US')} mi/yr · ${metrics.mpg ?? '—'} MPG · ${metrics.idlePct ?? '—'}% idle (last ${metrics.windowDays} days)`
+            : '',
+          miles: v.odometerMiles,
+          hours: v.engineHours ?? null,
+          date: now.toISOString().slice(0, 10),
+          source: 'auto',
+        });
+      }
+    }
+    docs[v.id] = { vehicleId: v.id, current, state, metrics, classifiedAt: now.toISOString() };
+  }
+  return { docs, changes };
+}
+
 function allowedEmails() {
   return (process.env.ALLOWED_EMAILS ?? '')
     .split(',')
@@ -133,7 +198,7 @@ function allowedEmails() {
 }
 
 // Writes with admin credentials, which bypass the Firestore rules.
-async function writeWithServiceAccount(fleet, staleIds, containers, serviceAccountJson) {
+async function writeWithServiceAccount(fleet, staleIds, containers, metricsById, serviceAccountJson) {
   const { initializeApp, cert } = await import('firebase-admin/app');
   const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
 
@@ -143,8 +208,19 @@ async function writeWithServiceAccount(fleet, staleIds, containers, serviceAccou
   const recordsSnap = await db.collection('serviceRecords').get();
   const records = Object.fromEntries(recordsSnap.docs.map((d) => [d.id, d.data()]));
   const baselines = missingBaselines(fleet, records);
+  const dutySnap = await db.collection('dutyCycles').get();
+  const duty = metricsById
+    ? classifyFleet(fleet, metricsById, Object.fromEntries(dutySnap.docs.map((d) => [d.id, d.data()])))
+    : { docs: {}, changes: [] };
 
   const batch = db.batch();
+  for (const [vehicleId, d] of Object.entries(duty.docs)) {
+    // merge keeps the app's manual `override` field
+    batch.set(db.collection('dutyCycles').doc(vehicleId), d, { mergeFields: Object.keys(d) });
+  }
+  for (const { id, ...entry } of duty.changes) {
+    batch.set(db.collection('serviceLog').doc(id), { ...entry, loggedAt: FieldValue.serverTimestamp() });
+  }
   for (const [vehicleId, items] of Object.entries(baselines)) {
     batch.set(db.collection('serviceRecords').doc(vehicleId), { vehicleId, items }, { merge: true });
   }
@@ -177,13 +253,19 @@ async function writeWithServiceAccount(fleet, staleIds, containers, serviceAccou
     schedulesVersion,
   });
   await batch.commit();
-  return baselines;
+  return { baselines, dutyChanges: duty.changes, dutyClassified: Object.keys(duty.docs).length };
 }
 
 // Writes with the public web API key (see firestore-rest.mjs).
-async function writeWithPublicApi(fleet, staleIds, containers) {
+async function writeWithPublicApi(fleet, staleIds, containers, metricsById) {
   const baselines = missingBaselines(fleet, await listDocs('serviceRecords'));
+  const duty = metricsById
+    ? classifyFleet(fleet, metricsById, await listDocs('dutyCycles'))
+    : { docs: {}, changes: [] };
   await commit([
+    // updateMask leaves the app's manual `override` field alone
+    ...Object.entries(duty.docs).map(([vehicleId, d]) => mergeWrite(`dutyCycles/${vehicleId}`, d)),
+    ...duty.changes.map(({ id, ...entry }) => setWrite(`serviceLog/${id}`, entry, 'loggedAt')),
     ...Object.entries(baselines).map(([vehicleId, items]) => mergeWrite(`serviceRecords/${vehicleId}`, {
       vehicleId,
       ...Object.fromEntries(Object.entries(items).map(([key, rec]) => [`items.\`${key}\``, rec])),
@@ -199,11 +281,16 @@ async function writeWithPublicApi(fleet, staleIds, containers) {
       vehicleCount: fleet.length, containerCount: containers.active.length, schedulesVersion,
     }, 'lastRun'),
   ]);
-  return baselines;
+  return { baselines, dutyChanges: duty.changes, dutyClassified: Object.keys(duty.docs).length };
 }
 
 validate();
-const [{ active: fleet, staleIds }, containers] = await Promise.all([fetchFleet(), fetchContainers()]);
+const [{ active: fleet, staleIds }, containers, metricsById] = await Promise.all([
+  fetchFleet(),
+  fetchContainers(),
+  // Duty classification is best-effort: if the report fails, the sync still runs.
+  fetchDutyMetrics().catch((err) => { console.warn(`Skipping duty classification: ${err.message}`); return null; }),
+]);
 console.log(
   `Fetched ${fleet.length + staleIds.length} vehicles from Samsara: ` +
   `${fleet.length} reported in the last ${STALE_AFTER_DAYS} days, ${staleIds.length} stale (removed)`,
@@ -221,16 +308,24 @@ if (unmatched.length) {
 }
 
 if (dryRun) {
+  const { docs } = metricsById ? classifyFleet(fleet, metricsById, {}) : { docs: {} };
   console.table(
-    fleet.map(({ name, year, make, model, odometerMiles, lastReportedAt, scheduleIds }) => ({
-      name, year, make, model, odometerMiles, lastReportedAt, schedules: scheduleIds.join(' + '),
-    })),
+    fleet.map(({ id, name, year, make, model, odometerMiles, engineHours }) => {
+      const d = docs[id];
+      return {
+        name, year, make, model, odometerMiles, engineHours,
+        miPerYr: d?.metrics?.annualMiles, mpg: d?.metrics?.mpg, idle: d?.metrics?.idlePct,
+        duty: d ? Object.entries(d.current).map(([m, x]) => `${m}:${x}`).join(' ') || 'default (not enough data)' : '—',
+      };
+    }),
   );
 } else {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
-  const baselines = serviceAccount
-    ? await writeWithServiceAccount(fleet, staleIds, containers, serviceAccount)
-    : await writeWithPublicApi(fleet, staleIds, containers);
+  const { baselines, dutyChanges, dutyClassified } = serviceAccount
+    ? await writeWithServiceAccount(fleet, staleIds, containers, metricsById, serviceAccount)
+    : await writeWithPublicApi(fleet, staleIds, containers, metricsById);
+  console.log(`Classified duty cycles for ${dutyClassified} truck(s); ${dutyChanges.length} change(s)`);
+  for (const c of dutyChanges) console.log(`  ${c.vehicleName}: ${c.itemName} (${c.note})`);
   const added = Object.values(baselines).reduce((n, items) => n + Object.keys(items).length, 0);
   console.log(
     `Wrote fleet and schedules to Firestore (${serviceAccount ? 'service account' : 'public API'}); ` +

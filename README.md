@@ -91,6 +91,23 @@ To change a schedule, edit the JSON and either wait for the next sync or run `np
 
 The sync also pulls every Samsara trailer/container unit into `containers/{samsaraId}` (name, tracker model and serial, latitude/longitude, address, speed, `lastReportedAt`), skipping units silent for 100+ days. The **Containers** tab (`aslog.dev/#containers`) lists them with moving / parked / quiet 7+ days counts, search, sorting and a map link per unit.
 
+## Duty cycles (automatic)
+
+Every sync classifies each truck's duty cycle from its last 90 days in Samsara (fuel & energy report: annual miles, MPG including idle, idle %) using each manufacturer's rules (`scripts/duty.mjs`):
+
+| Model | Rules |
+|---|---|
+| Detroit | Severe: under 30k mi/yr or under 5.0 MPG · Short Haul: under 60k mi/yr or under 6.0 MPG · Efficient Long Haul: 7.0+ MPG with under 20% idle · else Long Haul |
+| Cummins X15 2020+ | Severe under 5 MPG · Short Haul 5-5.9 · Normal 6-6.9 · Light 7+; idle over 40% drops Light/Normal/Short Haul one level |
+| Cummins X15 EPA 2017 | Severe under 5.5 MPG · Normal 5.5-6.5 · Light over 6.5 |
+| Freightliner chassis | Schedule I under 60k mi/yr · else Schedule II |
+
+- Trucks with under 500 lifetime engine hours, or no Samsara report, keep the default (normal OTR: Long Haul / Normal / Schedule II).
+- The first classification applies right away; after that a truck only switches once the new duty cycle has held for 14 days in a row.
+- Results are stored in `dutyCycles/{vehicleId}` (`current`, `state` with any pending change, `metrics`). Changes are written to the service log with an **Auto** badge.
+- In the truck popup, each duty model can be overridden ("Always Severe"); overrides live in `dutyCycles/{vehicleId}.override` and the sync never touches them.
+- Schedule items hold the default duty cycle's intervals plus `byDuty` overrides for the others. The Schedules popup has a switcher to view any duty cycle.
+
 ## Service tracking
 
 Tracking starts from the first sync after schedules are assigned: for every service item a truck doesn't have a record for yet, the sync writes a **baseline** ("treat as done today at the current miles and engine hours"). It never overwrites existing records.

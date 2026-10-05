@@ -445,3 +445,40 @@ details.setup > p { padding-bottom: 8px; font-size: 13px; }
   .dlg-head { padding: 12px; }
   #t-body, #s-body { padding: 4px 12px 24px; }
 }
+
+/* ---- Duty cycle ---- */
+.duty {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 12px 0 4px;
+}
+.duty-title { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.duty-metrics { margin: 2px 0 6px; font-size: 13px; }
+.duty-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; padding: 6px 0; }
+.duty-model { font-weight: 600; font-size: 14px; }
+.duty-row select {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  max-width: 100%;
+}
+.segmented { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+.segmented button {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.segmented button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.seg-rule { margin: 2px 0 8px; }
+.badge-auto { margin-left: 0; background: var(--chip); color: var(--muted); }

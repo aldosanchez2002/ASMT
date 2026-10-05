@@ -28,6 +28,7 @@ export function validate() {
     if (ids.has(s.id)) problems.push(`duplicate schedule id ${s.id}`);
     ids.add(s.id);
     if (!data.sources[s.source]) problems.push(`${s.id}: unknown source "${s.source}"`);
+    if (s.dutyModel && !data.dutyModels?.[s.dutyModel]) problems.push(`${s.id}: unknown duty model "${s.dutyModel}"`);
     const itemIds = new Set();
     for (const item of s.items) {
       if (itemIds.has(item.id)) problems.push(`${s.id}: duplicate item id ${item.id}`);
@@ -38,6 +39,10 @@ export function validate() {
       for (const v of item.variants ?? []) {
         if (!v.when) problems.push(`${s.id}/${item.id}: variant without "when"`);
         checkWhen(`${s.id}/${item.id} variant`, v.when, settingIds, problems);
+      }
+      const dutyIds = new Set((data.dutyModels?.[s.dutyModel]?.options ?? []).map((o) => o.id));
+      for (const duty of Object.keys(item.byDuty ?? {})) {
+        if (!dutyIds.has(duty)) problems.push(`${s.id}/${item.id}: unknown duty cycle "${duty}" for model "${s.dutyModel}"`);
       }
     }
   }
@@ -72,11 +77,14 @@ export function assignmentsDoc() {
     dutyCycle: data.dutyCycle,
     notes: data.notes,
     settings: data.settings ?? [],
+    dutyModels: data.dutyModels ?? {},
     assignments: data.assignments,
   };
 }
 
 export const schedulesVersion = data.version;
+export const dutyModels = data.dutyModels ?? {};
+export const scheduleById = new Map(data.schedules.map((s) => [s.id, s]));
 
 // For each truck, the service items that have no record yet, as baseline
 // records ("treat as done today at the current miles/hours"). Existing

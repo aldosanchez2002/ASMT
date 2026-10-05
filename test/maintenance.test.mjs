@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  effectiveSettings, mostUrgent, nextDue, recordKey, resolveItems, truckMaintenance,
+  dutyFor, effectiveSettings, mostUrgent, nextDue, recordKey, resolveItems, truckMaintenance,
 } from '../web/maintenance.js';
 
 const now = new Date('2026-10-05T12:00:00Z');
@@ -119,4 +119,37 @@ test('settings: defaults apply unless saved, variants and onlyWhen follow them',
     { approvedOil: false, frameFilter: true },
   );
   assert.equal(rows.find((r) => r.item.id === 'oil').status, 'overdue');
+});
+
+test('duty cycle: byDuty overrides the base, settings variants scale or add on top', () => {
+  const schedule = {
+    dutyModel: 'detroit',
+    items: [
+      {
+        id: 'oil', name: 'Oil', intervalMiles: 60000,
+        byDuty: { shortHaul: { intervalMiles: 45000, intervalHours: 1000, intervalMonths: 12 }, severe: { intervalMiles: 35000, intervalHours: 750 } },
+        variants: [{ when: { approvedOil: false }, scale: 0.5 }, { when: { premium: true }, addMiles: 5000 }],
+      },
+      { id: 'lash', name: 'Lash', intervalMiles: 200000, byDuty: { efficientLongHaul: { intervalMiles: 500000 } } },
+      { id: 'hours', name: 'Hours', intervalMiles: 1, intervalHours: 10, byDuty: { shortHaul: { intervalHours: null } } },
+    ],
+  };
+  const byId = (items) => Object.fromEntries(items.map((i) => [i.id, i]));
+  const on = { approvedOil: true, premium: false };
+
+  assert.equal(byId(resolveItems(schedule, on, 'longHaul')).oil.intervalMiles, 60000);
+  const sh = byId(resolveItems(schedule, on, 'shortHaul'));
+  assert.deepEqual([sh.oil.intervalMiles, sh.oil.intervalHours, sh.oil.intervalMonths], [45000, 1000, 12]);
+  assert.equal(sh.hours.intervalHours, undefined); // null removes a field
+  assert.equal(byId(resolveItems(schedule, on, 'efficientLongHaul')).lash.intervalMiles, 500000);
+
+  const halved = byId(resolveItems(schedule, { approvedOil: false }, 'shortHaul')).oil;
+  assert.deepEqual([halved.intervalMiles, halved.intervalHours, halved.adjusted], [22500, 500, true]);
+  assert.equal(byId(resolveItems(schedule, { approvedOil: true, premium: true }, 'severe')).oil.intervalMiles, 40000);
+
+  const models = { detroit: { default: 'longHaul' } };
+  assert.equal(dutyFor(schedule, models, null), 'longHaul');
+  assert.equal(dutyFor(schedule, models, { current: { detroit: 'shortHaul' } }), 'shortHaul');
+  assert.equal(dutyFor(schedule, models, { current: { detroit: 'shortHaul' }, override: { detroit: 'severe' } }), 'severe');
+  assert.equal(dutyFor({ items: [] }, models, null), null);
 });

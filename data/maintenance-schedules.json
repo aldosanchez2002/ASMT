@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "dutyCycle": "OTR / normal: Detroit 'Long Haul' (6.0-6.9 mpg, 60k+ mi/yr), Cummins 'Normal', Freightliner 'Schedule II', PACCAR 'On Highway'",
+  "version": 2,
+  "dutyCycle": "Each truck's duty cycle is classified automatically from its last 90 days in Samsara (MPG including idle, idle %, annual miles) using each manufacturer's rules; the default column is Detroit Long Haul / Cummins Normal / Freightliner Schedule II / PACCAR On Highway",
   "notes": "Intervals are 'whichever comes first'. Miles are statute miles. Sources are linked per schedule. Verify against the manual before relying on an interval.",
   "settings": [
     {
@@ -32,6 +32,102 @@
       "appliesTo": "Cummins X15 (2020 and newer)"
     }
   ],
+  "dutyModels": {
+    "detroit": {
+      "label": "Detroit service application",
+      "default": "longHaul",
+      "source": "detroit-ghg17-tables",
+      "options": [
+        {
+          "id": "efficientLongHaul",
+          "label": "Efficient Long Haul",
+          "rule": "7.0+ MPG, 60,000+ mi/yr, minimal idle (under 20%)"
+        },
+        {
+          "id": "longHaul",
+          "label": "Long Haul",
+          "rule": "6.0-6.9 MPG, 60,000+ mi/yr"
+        },
+        {
+          "id": "shortHaul",
+          "label": "Short Haul",
+          "rule": "5.0-5.9 MPG or 30,000-60,000 mi/yr"
+        },
+        {
+          "id": "severe",
+          "label": "Severe",
+          "rule": "Under 5.0 MPG or under 30,000 mi/yr"
+        }
+      ]
+    },
+    "cummins": {
+      "label": "Cummins duty cycle",
+      "default": "normal",
+      "source": "cummins-x15-2024-qrg",
+      "options": [
+        {
+          "id": "light",
+          "label": "Light",
+          "rule": "7+ MPG"
+        },
+        {
+          "id": "normal",
+          "label": "Normal",
+          "rule": "6-6.9 MPG"
+        },
+        {
+          "id": "shortHaul",
+          "label": "Short Haul",
+          "rule": "5-5.9 MPG"
+        },
+        {
+          "id": "severe",
+          "label": "Severe",
+          "rule": "Under 5 MPG"
+        }
+      ],
+      "idleRule": "If idle + PTO time is over 40%, Light, Normal and Short Haul drop to the next lower duty cycle"
+    },
+    "cummins2017": {
+      "label": "Cummins duty cycle (EPA 2017)",
+      "default": "normal",
+      "source": "cummins-x15-2017-qrg",
+      "options": [
+        {
+          "id": "light",
+          "label": "Light",
+          "rule": "Over 6.5 MPG"
+        },
+        {
+          "id": "normal",
+          "label": "Normal",
+          "rule": "5.5-6.5 MPG"
+        },
+        {
+          "id": "severe",
+          "label": "Severe",
+          "rule": "Under 5.5 MPG"
+        }
+      ]
+    },
+    "freightliner": {
+      "label": "Freightliner service schedule",
+      "default": "schedule2",
+      "source": "freightliner-new-cascadia-mm",
+      "options": [
+        {
+          "id": "schedule2",
+          "label": "Schedule II (long haul)",
+          "rule": "Over 60,000 mi/yr"
+        },
+        {
+          "id": "schedule1",
+          "label": "Schedule I (short haul)",
+          "rule": "Under 60,000 mi/yr"
+        }
+      ]
+    }
+  },
   "sources": {
     "detroit-ghg17-tables": {
       "title": "Detroit DD Heavy Duty Platform Operators Manual - Preventive Maintenance Tables (EPA07/EPA10/GHG14/GHG17, 93K222/93K223 oils)",
@@ -81,21 +177,37 @@
   "schedules": [
     {
       "id": "detroit-dd13-epa10-longhaul",
-      "name": "Detroit DD13 (EPA10) - Long Haul",
+      "name": "Detroit DD13 (EPA10)",
       "category": "engine",
+      "dutyModel": "detroit",
       "source": "detroit-ghg17-tables",
       "items": [
         {
           "id": "oil",
           "name": "Engine oil & oil filter",
           "intervalMiles": 55000,
-          "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval",
+          "notes": "Requires DFS 93K222/93K223-approved oil",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 65000
+            },
+            "shortHaul": {
+              "intervalMiles": 40000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
           "variants": [
             {
               "when": {
                 "detroitApprovedOil": false
               },
-              "intervalMiles": 27500,
+              "scale": 0.5,
               "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
             }
           ]
@@ -104,31 +216,73 @@
           "id": "fuel-filter-engine",
           "name": "Engine fuel filter (with frame-mounted filter)",
           "intervalMiles": 100000,
-          "notes": "Without a frame-mounted filter: every 55,000 mi",
-          "variants": [
-            {
-              "when": {
-                "frameMountedFuelFilter": false
-              },
-              "name": "Engine fuel filter",
-              "intervalMiles": 55000,
-              "notes": "No frame-mounted filter: change at every oil change. Never exceed 100k mi on engine fuel filters"
+          "notes": "Never exceed 100k mi on engine fuel filters",
+          "byDuty": {
+            "shortHaul": {
+              "intervalMiles": 80000,
+              "intervalHours": 1000
+            },
+            "severe": {
+              "intervalMiles": 70000,
+              "intervalHours": 750
             }
-          ]
-        },
-        {
-          "id": "fuel-filter-frame",
-          "name": "Frame-mounted fuel filter / water separator",
-          "intervalMiles": 55000,
+          },
           "onlyWhen": {
             "frameMountedFuelFilter": true
           }
         },
         {
+          "id": "fuel-filter-frame",
+          "name": "Frame-mounted fuel filter / water separator",
+          "intervalMiles": 55000,
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 65000
+            },
+            "shortHaul": {
+              "intervalMiles": 40000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
+          "onlyWhen": {
+            "frameMountedFuelFilter": true
+          }
+        },
+        {
+          "id": "fuel-filter-engine-noframe",
+          "name": "Engine fuel filter (no frame-mounted filter)",
+          "intervalMiles": 55000,
+          "notes": "Change at every oil change",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 65000
+            },
+            "shortHaul": {
+              "intervalMiles": 40000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
+          "onlyWhen": {
+            "frameMountedFuelFilter": false
+          }
+        },
+        {
           "id": "valve-lash",
           "name": "Valve lash adjustment",
-          "firstDueMiles": 100000,
           "intervalMiles": 500000,
+          "firstDueMiles": 100000,
           "notes": "EPA07/EPA10/GHG14: at 100,000 mi, at 500,000 mi, then every 500,000 mi"
         },
         {
@@ -136,36 +290,75 @@
           "name": "Extended-life coolant - test/maintain",
           "intervalMiles": 110000,
           "intervalMonths": 12,
-          "variants": [
-            {
-              "when": {
-                "extendedLifeCoolant": false
-              },
-              "name": "Standard coolant - test/maintain (SCA)",
-              "intervalMiles": 55000,
-              "intervalMonths": 12,
-              "notes": "Standard-life coolant: test and add SCA at every oil change interval or 1 year"
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 130000
+            },
+            "shortHaul": {
+              "intervalMiles": 80000
+            },
+            "severe": {
+              "intervalMiles": 70000
             }
-          ]
+          },
+          "onlyWhen": {
+            "extendedLifeCoolant": true
+          }
         },
         {
           "id": "coolant-replace",
           "name": "Extended-life coolant - replace",
           "intervalMiles": 600000,
-          "variants": [
-            {
-              "when": {
-                "extendedLifeCoolant": false
-              },
-              "name": "Standard coolant - replace",
-              "intervalMiles": 300000
+          "onlyWhen": {
+            "extendedLifeCoolant": true
+          }
+        },
+        {
+          "id": "coolant-maintain-std",
+          "name": "Standard coolant - test/maintain (SCA)",
+          "intervalMiles": 55000,
+          "intervalMonths": 12,
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 65000,
+              "intervalMonths": null
+            },
+            "shortHaul": {
+              "intervalMiles": 40000,
+              "intervalHours": 895
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 640,
+              "intervalMonths": 6
             }
-          ]
+          },
+          "onlyWhen": {
+            "extendedLifeCoolant": false
+          }
+        },
+        {
+          "id": "coolant-replace-std",
+          "name": "Standard coolant - replace",
+          "intervalMiles": 300000,
+          "onlyWhen": {
+            "extendedLifeCoolant": false
+          }
         },
         {
           "id": "belts",
           "name": "Drive belts - replace (inspect at every oil change)",
-          "intervalMiles": 200000
+          "intervalMiles": 200000,
+          "byDuty": {
+            "shortHaul": {
+              "intervalMiles": 100000,
+              "intervalHours": 2600
+            },
+            "severe": {
+              "intervalMiles": 100000,
+              "intervalHours": 2600
+            }
+          }
         },
         {
           "id": "dpf",
@@ -188,21 +381,37 @@
     },
     {
       "id": "detroit-dd15-ghg14-longhaul",
-      "name": "Detroit DD15 (GHG14) - Long Haul",
+      "name": "Detroit DD15 (GHG14)",
       "category": "engine",
+      "dutyModel": "detroit",
       "source": "detroit-ghg17-tables",
       "items": [
         {
           "id": "oil",
           "name": "Engine oil & oil filter",
           "intervalMiles": 60000,
-          "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval",
+          "notes": "Requires DFS 93K222/93K223-approved oil",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
           "variants": [
             {
               "when": {
                 "detroitApprovedOil": false
               },
-              "intervalMiles": 30000,
+              "scale": 0.5,
               "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
             }
           ]
@@ -211,31 +420,73 @@
           "id": "fuel-filter-engine",
           "name": "Engine fuel filter (with frame-mounted filter)",
           "intervalMiles": 100000,
-          "notes": "Without a frame-mounted filter: every 60,000 mi",
-          "variants": [
-            {
-              "when": {
-                "frameMountedFuelFilter": false
-              },
-              "name": "Engine fuel filter",
-              "intervalMiles": 60000,
-              "notes": "No frame-mounted filter: change at every oil change. Never exceed 100k mi on engine fuel filters"
+          "notes": "Never exceed 100k mi on engine fuel filters",
+          "byDuty": {
+            "shortHaul": {
+              "intervalMiles": 90000,
+              "intervalHours": 1000
+            },
+            "severe": {
+              "intervalMiles": 70000,
+              "intervalHours": 750
             }
-          ]
-        },
-        {
-          "id": "fuel-filter-frame",
-          "name": "Frame-mounted fuel filter / water separator",
-          "intervalMiles": 60000,
+          },
           "onlyWhen": {
             "frameMountedFuelFilter": true
           }
         },
         {
+          "id": "fuel-filter-frame",
+          "name": "Frame-mounted fuel filter / water separator",
+          "intervalMiles": 60000,
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
+          "onlyWhen": {
+            "frameMountedFuelFilter": true
+          }
+        },
+        {
+          "id": "fuel-filter-engine-noframe",
+          "name": "Engine fuel filter (no frame-mounted filter)",
+          "intervalMiles": 60000,
+          "notes": "Change at every oil change",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
+          "onlyWhen": {
+            "frameMountedFuelFilter": false
+          }
+        },
+        {
           "id": "valve-lash",
           "name": "Valve lash adjustment",
-          "firstDueMiles": 100000,
           "intervalMiles": 500000,
+          "firstDueMiles": 100000,
           "notes": "EPA07/EPA10/GHG14: at 100,000 mi, at 500,000 mi, then every 500,000 mi"
         },
         {
@@ -243,36 +494,75 @@
           "name": "Extended-life coolant - test/maintain",
           "intervalMiles": 120000,
           "intervalMonths": 12,
-          "variants": [
-            {
-              "when": {
-                "extendedLifeCoolant": false
-              },
-              "name": "Standard coolant - test/maintain (SCA)",
-              "intervalMiles": 60000,
-              "intervalMonths": 12,
-              "notes": "Standard-life coolant: test and add SCA at every oil change interval or 1 year"
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 150000
+            },
+            "shortHaul": {
+              "intervalMiles": 90000
+            },
+            "severe": {
+              "intervalMiles": 70000
             }
-          ]
+          },
+          "onlyWhen": {
+            "extendedLifeCoolant": true
+          }
         },
         {
           "id": "coolant-replace",
           "name": "Extended-life coolant - replace",
           "intervalMiles": 600000,
-          "variants": [
-            {
-              "when": {
-                "extendedLifeCoolant": false
-              },
-              "name": "Standard coolant - replace",
-              "intervalMiles": 300000
+          "onlyWhen": {
+            "extendedLifeCoolant": true
+          }
+        },
+        {
+          "id": "coolant-maintain-std",
+          "name": "Standard coolant - test/maintain (SCA)",
+          "intervalMiles": 60000,
+          "intervalMonths": 12,
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000,
+              "intervalMonths": null
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 895
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 640,
+              "intervalMonths": 6
             }
-          ]
+          },
+          "onlyWhen": {
+            "extendedLifeCoolant": false
+          }
+        },
+        {
+          "id": "coolant-replace-std",
+          "name": "Standard coolant - replace",
+          "intervalMiles": 300000,
+          "onlyWhen": {
+            "extendedLifeCoolant": false
+          }
         },
         {
           "id": "belts",
           "name": "Drive belts - replace (inspect at every oil change)",
-          "intervalMiles": 200000
+          "intervalMiles": 200000,
+          "byDuty": {
+            "shortHaul": {
+              "intervalMiles": 100000,
+              "intervalHours": 2600
+            },
+            "severe": {
+              "intervalMiles": 100000,
+              "intervalHours": 2600
+            }
+          }
         },
         {
           "id": "dpf",
@@ -301,21 +591,37 @@
     },
     {
       "id": "detroit-dd15-ghg17-longhaul",
-      "name": "Detroit DD15 (GHG17) - Long Haul",
+      "name": "Detroit DD15 (GHG17)",
       "category": "engine",
+      "dutyModel": "detroit",
       "source": "detroit-ghg17-tables",
       "items": [
         {
           "id": "oil",
           "name": "Engine oil & oil filter",
           "intervalMiles": 60000,
-          "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval",
+          "notes": "Requires DFS 93K222/93K223-approved oil",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
           "variants": [
             {
               "when": {
                 "detroitApprovedOil": false
               },
-              "intervalMiles": 30000,
+              "scale": 0.5,
               "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
             }
           ]
@@ -324,66 +630,152 @@
           "id": "fuel-filter-engine",
           "name": "Engine fuel filter (with frame-mounted filter)",
           "intervalMiles": 100000,
-          "notes": "Without a frame-mounted filter: every 60,000 mi. Never exceed 100k mi on engine fuel filters",
-          "variants": [
-            {
-              "when": {
-                "frameMountedFuelFilter": false
-              },
-              "name": "Engine fuel filter",
-              "intervalMiles": 60000,
-              "notes": "No frame-mounted filter: change at every oil change. Never exceed 100k mi on engine fuel filters"
+          "notes": "Never exceed 100k mi on engine fuel filters",
+          "byDuty": {
+            "shortHaul": {
+              "intervalMiles": 90000,
+              "intervalHours": 1000
+            },
+            "severe": {
+              "intervalMiles": 70000,
+              "intervalHours": 750
             }
-          ]
-        },
-        {
-          "id": "fuel-filter-frame",
-          "name": "Frame-mounted fuel filter / water separator",
-          "intervalMiles": 60000,
+          },
           "onlyWhen": {
             "frameMountedFuelFilter": true
           }
         },
         {
+          "id": "fuel-filter-frame",
+          "name": "Frame-mounted fuel filter / water separator",
+          "intervalMiles": 60000,
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
+          "onlyWhen": {
+            "frameMountedFuelFilter": true
+          }
+        },
+        {
+          "id": "fuel-filter-engine-noframe",
+          "name": "Engine fuel filter (no frame-mounted filter)",
+          "intervalMiles": 60000,
+          "notes": "Change at every oil change",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
+          "onlyWhen": {
+            "frameMountedFuelFilter": false
+          }
+        },
+        {
           "id": "valve-lash",
           "name": "Valve lash adjustment",
-          "intervalMiles": 200000
+          "intervalMiles": 200000,
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 500000
+            }
+          }
         },
         {
           "id": "coolant-maintain",
           "name": "Extended-life coolant - test/maintain",
           "intervalMiles": 120000,
           "intervalMonths": 12,
-          "variants": [
-            {
-              "when": {
-                "extendedLifeCoolant": false
-              },
-              "name": "Standard coolant - test/maintain (SCA)",
-              "intervalMiles": 60000,
-              "intervalMonths": 12,
-              "notes": "Standard-life coolant: test and add SCA at every oil change interval or 1 year"
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 150000
+            },
+            "shortHaul": {
+              "intervalMiles": 90000
+            },
+            "severe": {
+              "intervalMiles": 70000
             }
-          ]
+          },
+          "onlyWhen": {
+            "extendedLifeCoolant": true
+          }
         },
         {
           "id": "coolant-replace",
           "name": "Extended-life coolant - replace",
           "intervalMiles": 600000,
-          "variants": [
-            {
-              "when": {
-                "extendedLifeCoolant": false
-              },
-              "name": "Standard coolant - replace",
-              "intervalMiles": 300000
+          "onlyWhen": {
+            "extendedLifeCoolant": true
+          }
+        },
+        {
+          "id": "coolant-maintain-std",
+          "name": "Standard coolant - test/maintain (SCA)",
+          "intervalMiles": 60000,
+          "intervalMonths": 12,
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000,
+              "intervalMonths": null
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 895
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 640,
+              "intervalMonths": 6
             }
-          ]
+          },
+          "onlyWhen": {
+            "extendedLifeCoolant": false
+          }
+        },
+        {
+          "id": "coolant-replace-std",
+          "name": "Standard coolant - replace",
+          "intervalMiles": 300000,
+          "onlyWhen": {
+            "extendedLifeCoolant": false
+          }
         },
         {
           "id": "belts",
           "name": "Drive belts - replace (inspect at every oil change)",
-          "intervalMiles": 200000
+          "intervalMiles": 200000,
+          "byDuty": {
+            "shortHaul": {
+              "intervalMiles": 100000,
+              "intervalHours": 2600
+            },
+            "severe": {
+              "intervalMiles": 100000,
+              "intervalHours": 2600
+            }
+          }
         },
         {
           "id": "dpf",
@@ -406,27 +798,55 @@
           "id": "aftertreatment-inspect",
           "name": "Aftertreatment external hardware inspection",
           "intervalMiles": 60000,
-          "intervalMonths": 6
+          "intervalMonths": 6,
+          "notes": "Every 6 months or at oil change intervals",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000
+            },
+            "severe": {
+              "intervalMiles": 35000
+            }
+          }
         }
       ]
     },
     {
       "id": "detroit-dd15-gen5-longhaul",
-      "name": "Detroit DD15 Gen 5 - Long Haul",
+      "name": "Detroit DD15 Gen 5",
       "category": "engine",
+      "dutyModel": "detroit",
       "source": "detroit-gen5-tables",
       "items": [
         {
           "id": "oil",
           "name": "Engine oil & oil filter",
           "intervalMiles": 60000,
-          "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval",
+          "notes": "Requires DFS 93K222/93K223-approved oil",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
           "variants": [
             {
               "when": {
                 "detroitApprovedOil": false
               },
-              "intervalMiles": 30000,
+              "scale": 0.5,
               "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
             }
           ]
@@ -435,68 +855,152 @@
           "id": "fuel-filter-engine",
           "name": "Engine fuel filter (with frame-mounted filter)",
           "intervalMiles": 100000,
-          "notes": "Without a frame-mounted filter: at every oil change",
-          "variants": [
-            {
-              "when": {
-                "frameMountedFuelFilter": false
-              },
-              "name": "Engine fuel filter",
-              "intervalMiles": 60000,
-              "notes": "No frame-mounted filter: change at every oil change. Never exceed 100k mi on engine fuel filters"
+          "notes": "Never exceed 100k mi on engine fuel filters",
+          "byDuty": {
+            "shortHaul": {
+              "intervalMiles": 90000,
+              "intervalHours": 1000
+            },
+            "severe": {
+              "intervalMiles": 70000,
+              "intervalHours": 750
             }
-          ]
-        },
-        {
-          "id": "fuel-filter-frame",
-          "name": "Frame-mounted fuel filter / water separator",
-          "intervalMiles": 60000,
-          "notes": "At every oil change",
+          },
           "onlyWhen": {
             "frameMountedFuelFilter": true
           }
         },
         {
+          "id": "fuel-filter-frame",
+          "name": "Frame-mounted fuel filter / water separator",
+          "intervalMiles": 60000,
+          "notes": "At every oil change interval",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
+          "onlyWhen": {
+            "frameMountedFuelFilter": true
+          }
+        },
+        {
+          "id": "fuel-filter-engine-noframe",
+          "name": "Engine fuel filter (no frame-mounted filter)",
+          "intervalMiles": 60000,
+          "notes": "Change at every oil change",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000,
+              "intervalMonths": 12
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
+            }
+          },
+          "onlyWhen": {
+            "frameMountedFuelFilter": false
+          }
+        },
+        {
           "id": "valve-lash",
           "name": "Valve lash adjustment",
-          "intervalMiles": 200000
+          "intervalMiles": 200000,
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 500000
+            }
+          }
         },
         {
           "id": "coolant-maintain",
           "name": "Extended-life coolant - test/maintain",
           "intervalMiles": 120000,
           "intervalMonths": 12,
-          "notes": "Every other oil change or 1 year",
-          "variants": [
-            {
-              "when": {
-                "extendedLifeCoolant": false
-              },
-              "name": "Standard coolant - test/maintain (SCA)",
-              "intervalMiles": 60000,
-              "intervalMonths": 12,
-              "notes": "Standard-life coolant: test and add SCA at every oil change interval or 1 year"
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 150000
+            },
+            "shortHaul": {
+              "intervalMiles": 90000
+            },
+            "severe": {
+              "intervalMiles": 70000
             }
-          ]
+          },
+          "onlyWhen": {
+            "extendedLifeCoolant": true
+          }
         },
         {
           "id": "coolant-replace",
           "name": "Extended-life coolant - replace",
           "intervalMiles": 600000,
-          "variants": [
-            {
-              "when": {
-                "extendedLifeCoolant": false
-              },
-              "name": "Standard coolant - replace",
-              "intervalMiles": 300000
+          "onlyWhen": {
+            "extendedLifeCoolant": true
+          }
+        },
+        {
+          "id": "coolant-maintain-std",
+          "name": "Standard coolant - test/maintain (SCA)",
+          "intervalMiles": 60000,
+          "intervalMonths": 12,
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000,
+              "intervalHours": 1000
+            },
+            "severe": {
+              "intervalMiles": 35000,
+              "intervalHours": 750,
+              "intervalMonths": 6
             }
-          ]
+          },
+          "onlyWhen": {
+            "extendedLifeCoolant": false
+          }
+        },
+        {
+          "id": "coolant-replace-std",
+          "name": "Standard coolant - replace",
+          "intervalMiles": 300000,
+          "onlyWhen": {
+            "extendedLifeCoolant": false
+          }
         },
         {
           "id": "belts",
           "name": "Drive belts - replace (inspect at every oil change)",
-          "intervalMiles": 200000
+          "intervalMiles": 200000,
+          "byDuty": {
+            "shortHaul": {
+              "intervalMiles": 100000,
+              "intervalHours": 2600
+            },
+            "severe": {
+              "intervalMiles": 100000,
+              "intervalHours": 2600
+            }
+          }
         },
         {
           "id": "dpf",
@@ -507,7 +1011,33 @@
             550000,
             640000
           ],
-          "notes": "Estimated 550k-640k mi / 12,000-14,000 h, or when the check-engine lamp indicates"
+          "notes": "Detroit's estimate by duty cycle (Severe: under 455k mi / 10,000 h), or when the check-engine lamp indicates",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 640000,
+              "intervalHours": 14000,
+              "rangeMiles": [
+                640000,
+                700000
+              ]
+            },
+            "shortHaul": {
+              "intervalMiles": 455000,
+              "intervalHours": 10000,
+              "rangeMiles": [
+                455000,
+                550000
+              ]
+            },
+            "severe": {
+              "intervalMiles": 400000,
+              "intervalHours": 10000,
+              "rangeMiles": [
+                350000,
+                455000
+              ]
+            }
+          }
         },
         {
           "id": "def-filter",
@@ -519,14 +1049,27 @@
           "id": "aftertreatment-inspect",
           "name": "Aftertreatment external hardware inspection",
           "intervalMiles": 60000,
-          "intervalMonths": 6
+          "intervalMonths": 6,
+          "notes": "Every 6 months or at oil change intervals",
+          "byDuty": {
+            "efficientLongHaul": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 45000
+            },
+            "severe": {
+              "intervalMiles": 35000
+            }
+          }
         }
       ]
     },
     {
       "id": "cummins-x15-epa2017-normal",
-      "name": "Cummins X15 (EPA 2017) - Normal duty",
+      "name": "Cummins X15 (EPA 2017)",
       "category": "engine",
+      "dutyModel": "cummins2017",
       "source": "cummins-x15-2017-qrg",
       "items": [
         {
@@ -535,12 +1078,54 @@
           "intervalMiles": 35000,
           "intervalHours": 500,
           "intervalMonths": 6,
-          "notes": "Normal duty = 5.5-6.5 mpg. Up to 80,000 mi with Cummins OilGuard"
+          "notes": "Up to 80,000 mi with Cummins OilGuard",
+          "byDuty": {
+            "light": {
+              "intervalMiles": 50000
+            },
+            "severe": {
+              "intervalMiles": 25000
+            }
+          }
         },
         {
           "id": "fuel-filter",
-          "name": "Fuel filter",
-          "intervalMiles": 35000
+          "name": "Fuel filter(s)",
+          "intervalMiles": 35000,
+          "byDuty": {
+            "light": {
+              "intervalMiles": 50000
+            },
+            "severe": {
+              "intervalMiles": 25000
+            }
+          }
+        },
+        {
+          "id": "dpf",
+          "name": "DPF cleaning",
+          "intervalMiles": 400000,
+          "rangeMiles": [
+            400000,
+            600000
+          ],
+          "notes": "Or when the ash load monitor flags it",
+          "byDuty": {
+            "light": {
+              "intervalMiles": 600000,
+              "rangeMiles": [
+                600000,
+                800000
+              ]
+            },
+            "severe": {
+              "intervalMiles": 250000,
+              "rangeMiles": [
+                250000,
+                400000
+              ]
+            }
+          }
         },
         {
           "id": "sca-check",
@@ -555,16 +1140,6 @@
           "intervalMiles": 50000,
           "intervalHours": 1500,
           "intervalMonths": 12
-        },
-        {
-          "id": "dpf",
-          "name": "DPF cleaning",
-          "intervalMiles": 400000,
-          "rangeMiles": [
-            400000,
-            600000
-          ],
-          "notes": "Or when the ash load monitor flags it"
         },
         {
           "id": "def-filter",
@@ -582,8 +1157,9 @@
     },
     {
       "id": "cummins-x15-2020-normal",
-      "name": "Cummins X15 (2020-2021) - Normal duty",
+      "name": "Cummins X15 (2020-2021)",
       "category": "engine",
+      "dutyModel": "cummins",
       "source": "cummins-x15-2020-qrg",
       "items": [
         {
@@ -591,14 +1167,24 @@
           "name": "Engine oil & oil filter",
           "intervalMiles": 60000,
           "intervalMonths": 12,
-          "notes": "Normal duty = 6-6.9 mpg. +5,000 mi with Valvoline Premium Blue. If idle + PTO > 40%, use the short-haul interval (50,000 mi)",
+          "byDuty": {
+            "light": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 50000
+            },
+            "severe": {
+              "intervalMiles": 25000
+            }
+          },
           "variants": [
             {
               "when": {
                 "premiumBlue": true
               },
-              "intervalMiles": 65000,
-              "notes": "Valvoline Premium Blue: +5,000 mi. If idle + PTO > 40%, use the short-haul interval (55,000 mi with Premium Blue)"
+              "addMiles": 5000,
+              "notes": "Valvoline Premium Blue: +5,000 mi"
             }
           ]
         },
@@ -606,7 +1192,18 @@
           "id": "fuel-filter",
           "name": "Fuel filter(s)",
           "intervalMiles": 60000,
-          "notes": "Up to 100,000 mi with FF5971NN"
+          "notes": "Up to 100,000 mi with FF5971NN",
+          "byDuty": {
+            "light": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 50000
+            },
+            "severe": {
+              "intervalMiles": 25000
+            }
+          }
         },
         {
           "id": "dpf",
@@ -616,7 +1213,23 @@
             400000,
             600000
           ],
-          "notes": "Or when the ash load monitor flags it. The guide's DPF columns don't line up with the duty columns; the conservative 400k-600k band is used"
+          "notes": "Or when the ash load monitor flags it",
+          "byDuty": {
+            "light": {
+              "intervalMiles": 600000,
+              "rangeMiles": [
+                600000,
+                800000
+              ]
+            },
+            "severe": {
+              "intervalMiles": 250000,
+              "rangeMiles": [
+                250000,
+                400000
+              ]
+            }
+          }
         },
         {
           "id": "def-filter",
@@ -642,8 +1255,9 @@
     },
     {
       "id": "cummins-x15-epa2024-normal",
-      "name": "Cummins X15 (EPA 2024) - Normal duty",
+      "name": "Cummins X15 (EPA 2024)",
       "category": "engine",
+      "dutyModel": "cummins",
       "source": "cummins-x15-2024-qrg",
       "items": [
         {
@@ -651,14 +1265,24 @@
           "name": "Engine oil & oil filter",
           "intervalMiles": 60000,
           "intervalMonths": 12,
-          "notes": "Normal duty = 6-6.9 mpg. +5,000 mi with Valvoline Premium Blue. If idle + PTO > 40%, use the short-haul interval (50,000 mi)",
+          "byDuty": {
+            "light": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 50000
+            },
+            "severe": {
+              "intervalMiles": 25000
+            }
+          },
           "variants": [
             {
               "when": {
                 "premiumBlue": true
               },
-              "intervalMiles": 65000,
-              "notes": "Valvoline Premium Blue: +5,000 mi. If idle + PTO > 40%, use the short-haul interval (55,000 mi with Premium Blue)"
+              "addMiles": 5000,
+              "notes": "Valvoline Premium Blue: +5,000 mi"
             }
           ]
         },
@@ -666,7 +1290,18 @@
           "id": "fuel-filter",
           "name": "Fuel filter(s)",
           "intervalMiles": 60000,
-          "notes": "Up to 100,000 mi with FF5971NN"
+          "notes": "Up to 100,000 mi with FF5971NN",
+          "byDuty": {
+            "light": {
+              "intervalMiles": 75000
+            },
+            "shortHaul": {
+              "intervalMiles": 50000
+            },
+            "severe": {
+              "intervalMiles": 25000
+            }
+          }
         },
         {
           "id": "dpf",
@@ -676,7 +1311,23 @@
             400000,
             600000
           ],
-          "notes": "Or when the ash load monitor flags it"
+          "notes": "Or when the ash load monitor flags it",
+          "byDuty": {
+            "light": {
+              "intervalMiles": 600000,
+              "rangeMiles": [
+                600000,
+                800000
+              ]
+            },
+            "severe": {
+              "intervalMiles": 250000,
+              "rangeMiles": [
+                250000,
+                400000
+              ]
+            }
+          }
         },
         {
           "id": "def-filter",
@@ -702,7 +1353,7 @@
     },
     {
       "id": "freightliner-cascadia-schedule2",
-      "name": "Freightliner Cascadia (CA113/CA125) - Schedule II long haul",
+      "name": "Freightliner Cascadia (CA113/CA125)",
       "category": "chassis",
       "source": "freightliner-cascadia-mm",
       "items": [
@@ -718,7 +1369,12 @@
             "All-axle alignment check",
             "Bendix automatic drain valve tests",
             "Fuel tank band-nut tightening"
-          ]
+          ],
+          "byDuty": {
+            "schedule1": {
+              "firstDueMiles": 10000
+            }
+          }
         },
         {
           "id": "m1",
@@ -735,7 +1391,12 @@
             "Fuel/water separator check",
             "Exhaust system inspection",
             "Cab shock bracket torque, aero component inspection"
-          ]
+          ],
+          "byDuty": {
+            "schedule1": {
+              "intervalMiles": 10000
+            }
+          }
         },
         {
           "id": "m2",
@@ -752,7 +1413,12 @@
             "Drag link, power steering fluid & gear",
             "Trailer cable, mirror, door latch checks",
             "A/C inspection & cabin air filter replacement"
-          ]
+          ],
+          "byDuty": {
+            "schedule1": {
+              "intervalMiles": 50000
+            }
+          }
         },
         {
           "id": "m3",
@@ -767,7 +1433,12 @@
             "Air dryer desiccant replacement",
             "Bendix E-6 foot valve inspection & lubrication",
             "Power steering fluid & filter change"
-          ]
+          ],
+          "byDuty": {
+            "schedule1": {
+              "intervalMiles": 150000
+            }
+          }
         },
         {
           "id": "air-dryer-coalescing",
@@ -781,11 +1452,12 @@
           "intervalHours": 1500,
           "intervalMonths": 6
         }
-      ]
+      ],
+      "dutyModel": "freightliner"
     },
     {
       "id": "freightliner-new-cascadia-schedule2",
-      "name": "Freightliner New Cascadia (PT126) - Schedule II long haul",
+      "name": "Freightliner New Cascadia (PT126)",
       "category": "chassis",
       "source": "freightliner-new-cascadia-mm",
       "items": [
@@ -801,7 +1473,12 @@
             "All-axle alignment check",
             "Bendix automatic drain valve tests",
             "Fuel tank band-nut tightening"
-          ]
+          ],
+          "byDuty": {
+            "schedule1": {
+              "firstDueMiles": 10000
+            }
+          }
         },
         {
           "id": "m1",
@@ -818,7 +1495,12 @@
             "Fuel filter & fuel/water separator check",
             "Exhaust system inspection",
             "Cab shock bracket torque, aero component & BPHS inspection"
-          ]
+          ],
+          "byDuty": {
+            "schedule1": {
+              "intervalMiles": 10000
+            }
+          }
         },
         {
           "id": "m2",
@@ -836,7 +1518,12 @@
             "Drag link, power steering fluid & gear",
             "Trailer cable, mirror, door latch checks",
             "A/C inspection & cabin air filter replacement"
-          ]
+          ],
+          "byDuty": {
+            "schedule1": {
+              "intervalMiles": 50000
+            }
+          }
         },
         {
           "id": "m3",
@@ -851,7 +1538,12 @@
             "Air dryer desiccant replacement",
             "Bendix E-6 foot valve inspection & lubrication",
             "Power steering fluid & filter change"
-          ]
+          ],
+          "byDuty": {
+            "schedule1": {
+              "intervalMiles": 150000
+            }
+          }
         },
         {
           "id": "air-dryer-coalescing",
@@ -865,7 +1557,8 @@
           "intervalHours": 1500,
           "intervalMonths": 6
         }
-      ]
+      ],
+      "dutyModel": "freightliner"
     },
     {
       "id": "kenworth-t680-onhighway",

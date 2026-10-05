@@ -3,11 +3,11 @@ import {
   getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
-  getFirestore, addDoc, collection, doc, onSnapshot, serverTimestamp, setDoc,
+  getFirestore, addDoc, collection, deleteField, doc, onSnapshot, serverTimestamp, setDoc,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig, requireSignIn } from './firebase-config.js';
 import {
-  effectiveSettings, matchesRule, mostUrgent, resolveItems, truckMaintenance,
+  dutyFor, effectiveSettings, matchesRule, mostUrgent, resolveItems, truckMaintenance,
 } from './maintenance.js';
 
 const app = initializeApp(firebaseConfig);
@@ -22,6 +22,8 @@ let schedules = new Map(); // scheduleId -> maintenanceSchedules doc
 let records = {}; // vehicleId -> serviceRecords doc
 let assignments = null; // meta/schedules doc: year/model groups
 let savedSettings = {}; // meta/settings doc: fleet setup toggles
+let dutyDocs = {}; // vehicleId -> dutyCycles doc ({ current, state, metrics, override })
+const dutyModels = () => assignments?.dutyModels ?? {};
 const settings = () => effectiveSettings(assignments?.settings, savedSettings);
 let serviceLog = []; // serviceLog docs (one per Mark done)
 let containers = []; // containers docs (Samsara trailers)
@@ -62,7 +64,7 @@ const STATUS_LABEL = {
 
 // Attaches each truck's maintenance rows and its most urgent item.
 function withMaintenance(v) {
-  const rows = truckMaintenance(v, schedules, records[v.id]?.items, new Date(), settings());
+  const rows = truckMaintenance(v, schedules, records[v.id]?.items, new Date(), settings(), dutyModels(), dutyDocs[v.id]);
   const next = mostUrgent(rows);
   const rank = next ? STATUS_RANK[next.status] : 3;
   return { ...v, rows, next, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)) };
@@ -82,6 +84,16 @@ function limitingText(r) {
   if (!o) return STATUS_LABEL[r.status];
   const amount = o.unit === 'day' ? plural(Math.abs(o.n), 'day') : `${fmt.format(Math.abs(o.n))} ${o.unit}`;
   return o.n < 0 ? `${amount} overdue` : `in ${amount}`;
+}
+
+function dutyLabel(model, duty) {
+  return dutyModels()[model]?.options.find((o) => o.id === duty)?.label ?? duty;
+}
+
+// Duty models that apply to a truck, from its schedules, engine first.
+function truckDutyModels(v) {
+  const ids = (v.scheduleIds ?? []).map((id) => schedules.get(id)).filter((s) => s?.dutyModel);
+  return [...new Set(ids.map((s) => s.dutyModel))];
 }
 
 function intervalText(item) {
@@ -271,10 +283,13 @@ function renderLog() {
     .filter((e) => (!from || e.date >= from) && (!to || e.date <= to) && (!unit || e.vehicleId === unit))
     .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.loggedAtMs ?? 0) - (a.loggedAtMs ?? 0));
 
-  const trucks = new Set(rows.map((e) => e.vehicleId)).size;
-  $('log-summary').textContent = rows.length
-    ? `${plural(rows.length, 'service')} on ${plural(trucks, 'truck')}`
-    : '';
+  const services = rows.filter((e) => e.type !== 'duty');
+  const dutyChanges = rows.length - services.length;
+  const trucks = new Set(services.map((e) => e.vehicleId)).size;
+  $('log-summary').textContent = [
+    services.length && `${plural(services.length, 'service')} on ${plural(trucks, 'truck')}`,
+    dutyChanges && plural(dutyChanges, 'duty cycle change'),
+  ].filter(Boolean).join(' · ');
   $('log-empty').hidden = rows.length > 0;
   $('log-rows').closest('.table-wrap').hidden = rows.length === 0;
   $('log-empty').textContent = serviceLog.length
@@ -291,6 +306,7 @@ function renderLog() {
     });
     unitCell.append(link);
     const service = el('td', 'wrap-cell', e.itemName || e.itemId);
+    if (e.type === 'duty') service.prepend(el('span', 'badge badge-auto', 'Auto'), ' ');
     const sched = schedules.get(e.scheduleId);
     if (sched) service.append(el('div', 'item-meta', sched.name));
     if (e.note) service.append(el('div', 'item-meta show-sm', `"${e.note}"`));
@@ -335,7 +351,7 @@ function groupTitle(match, trucks) {
   return `${range} ${titleCase(match.make)} ${match.model.length <= 4 ? match.model : titleCase(match.model)}`;
 }
 
-function scheduleTable(schedule) {
+function scheduleTable(schedule, duty = null) {
   const wrap = el('div', 'sched-block');
   const head = el('div', 'sched-head');
   head.append(el('h3', null, schedule.name));
@@ -350,7 +366,7 @@ function scheduleTable(schedule) {
   ['Service', 'Interval', 'Details'].forEach((h) => hr.append(el('th', null, h)));
   thead.append(hr);
   const tbody = el('tbody');
-  for (const item of resolveItems(schedule, settings())) {
+  for (const item of resolveItems(schedule, settings(), duty)) {
     const tr = el('tr');
     const nameCell = el('td', 'strong', item.name);
     if (item.adjusted) nameCell.append(el('span', 'badge', 'Adjusted'));
@@ -407,6 +423,7 @@ function renderSetup() {
 }
 
 let openGroupKey = null; // year/model group shown in the schedule popup
+let groupDutyView = {}; // dutyModel -> duty shown in the schedule popup
 
 function scheduleGroups() {
   const groups = assignments.assignments.map((a) => ({
@@ -451,6 +468,7 @@ function renderSchedules() {
 
 function openGroup(key) {
   openGroupKey = key;
+  groupDutyView = {};
   renderSchedules();
   if (!$('schedule').open) $('schedule').showModal();
 }
@@ -466,10 +484,14 @@ function renderGroup(g) {
 
   const body = $('s-body');
   body.replaceChildren();
+  const engine = groupEngine(g);
+  const engineDuty = (v) => (engine?.dutyModel ? dutyFor(engine, dutyModels(), dutyDocs[v.id]) : null);
   if (g.trucks.length) {
     const chips = el('div', 'truck-chips');
     for (const v of g.trucks) {
-      const b = el('button', 'chip chip-btn', `${v.name} · ${v.year}`);
+      const duty = engineDuty(v);
+      const label = [v.name, v.year, duty && dutyLabel(engine.dutyModel, duty)].filter(Boolean).join(' · ');
+      const b = el('button', 'chip chip-btn', label);
       b.type = 'button';
       b.addEventListener('click', () => { $('schedule').close(); openTruck(v.id); });
       chips.append(b);
@@ -480,7 +502,38 @@ function renderGroup(g) {
   }
   for (const id of g.schedules) {
     const schedule = schedules.get(id);
-    if (schedule) body.append(scheduleTable(schedule));
+    if (!schedule) continue;
+    const model = schedule.dutyModel && dutyModels()[schedule.dutyModel];
+    if (!model) {
+      body.append(scheduleTable(schedule));
+      continue;
+    }
+    // Show the duty cycle most of this group's trucks are on, switchable.
+    if (!groupDutyView[schedule.dutyModel]) {
+      const counts = {};
+      for (const v of g.trucks) {
+        const d = dutyFor(schedule, dutyModels(), dutyDocs[v.id]);
+        counts[d] = (counts[d] ?? 0) + 1;
+      }
+      groupDutyView[schedule.dutyModel] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? model.default;
+    }
+    const shown = groupDutyView[schedule.dutyModel];
+    const table = scheduleTable(schedule, shown);
+    const seg = el('div', 'segmented');
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', model.label);
+    for (const o of model.options) {
+      const n = g.trucks.filter((v) => dutyFor(schedule, dutyModels(), dutyDocs[v.id]) === o.id).length;
+      const b = el('button', o.id === shown ? 'active' : '', n ? `${o.label} · ${n}` : o.label);
+      b.type = 'button';
+      b.setAttribute('aria-pressed', String(o.id === shown));
+      b.addEventListener('click', () => { groupDutyView[schedule.dutyModel] = o.id; renderSchedules(); });
+      seg.append(b);
+    }
+    // The switcher sits right under the schedule's heading.
+    const rule = el('p', 'item-meta seg-rule', model.options.find((o) => o.id === shown)?.rule ?? '');
+    table.querySelector('.sched-head').after(seg, rule);
+    body.append(table);
   }
   body.append(el('p', 'muted footnote', `Duty cycle: ${assignments.dutyCycle}. ${assignments.notes}`));
 }
@@ -552,6 +605,56 @@ function openTruck(id) {
   if (!$('truck').open) $('truck').showModal();
 }
 
+function dutySection(v, models) {
+  const dutyDoc = dutyDocs[v.id] ?? {};
+  const section = el('section', 'duty');
+  section.append(el('h3', 'duty-title', 'Duty cycle'));
+  const m = dutyDoc.metrics;
+  section.append(el('p', 'muted duty-metrics', m
+    ? `Last ${m.windowDays} days: ${fmt.format(m.annualMiles)} mi/yr · ${m.mpg ?? '—'} MPG · ${m.idlePct ?? '—'}% idle`
+    : 'Not classified yet. Using the default (normal OTR) schedule until the sync has enough Samsara data.'));
+
+  for (const model of models) {
+    const def = dutyModels()[model];
+    const auto = dutyDoc.current?.[model];
+    const override = dutyDoc.override?.[model];
+    const effective = override ?? auto ?? def.default;
+    const row = el('label', 'duty-row');
+    row.append(el('span', 'duty-model', def.label));
+    const select = el('select');
+    select.append(Object.assign(
+      el('option', null, `Auto: ${dutyLabel(model, auto ?? def.default)}${auto ? '' : ' (default)'}`),
+      { value: '' },
+    ));
+    for (const o of def.options) select.append(Object.assign(el('option', null, `Always ${o.label}`), { value: o.id }));
+    select.value = override ?? '';
+    select.addEventListener('change', async () => {
+      select.disabled = true;
+      try {
+        await setDoc(doc(db, 'dutyCycles', v.id), {
+          vehicleId: v.id,
+          override: { [model]: select.value || deleteField() },
+        }, { merge: true });
+      } catch (err) {
+        showAppError(`Could not save: ${err.message}`);
+      } finally {
+        select.disabled = false;
+      }
+    });
+    row.append(select);
+    section.append(row);
+
+    const st = dutyDoc.state?.[model];
+    if (!override && st?.pending && st.pendingSince) {
+      const on = new Date(new Date(st.pendingSince).getTime() + 14 * DAY_MS).toLocaleDateString();
+      section.append(el('p', 'item-meta', `Switching to ${dutyLabel(model, st.pending)} on ${on} if it holds.`));
+    }
+    const rule = def.options.find((o) => o.id === effective)?.rule;
+    if (rule) section.append(el('p', 'item-meta', `${dutyLabel(model, effective)}: ${rule}`));
+  }
+  return section;
+}
+
 function lastText(last) {
   if (!last) return 'No record yet';
   const what = last.source === 'baseline' ? 'Starting point' : 'Last done';
@@ -579,6 +682,8 @@ function renderTruck(v) {
 
   const body = $('t-body');
   body.replaceChildren();
+  const models = truckDutyModels(v);
+  if (models.length) body.append(dutySection(v, models));
   if (!v.rows.length) {
     body.append(el('p', 'muted', v.scheduleIds?.length
       ? 'Schedules are loading, or the sync has not recorded a starting point yet.'
@@ -591,7 +696,8 @@ function renderTruck(v) {
     if (!schedule) continue;
     const section = el('section', 'sched');
     const head = el('div', 'sched-head');
-    head.append(el('h3', null, schedule.name));
+    const duty = v.rows.find((x) => x.schedule.id === scheduleId)?.duty;
+    head.append(el('h3', null, duty ? `${schedule.name} · ${dutyLabel(schedule.dutyModel, duty)}` : schedule.name));
     const link = el('a', 'muted', 'Manual');
     link.href = schedule.sourceUrl;
     link.target = '_blank';
@@ -728,6 +834,10 @@ function watchFleet() {
         return { ...e, id: d.id, loggedAtMs: e.loggedAt?.toMillis?.() ?? 0 };
       });
       renderLog();
+    }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'dutyCycles'), (snap) => {
+      dutyDocs = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+      render();
     }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'settings'), (snap) => {
       savedSettings = snap.data() ?? {};

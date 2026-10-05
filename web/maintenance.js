@@ -24,19 +24,48 @@ export function effectiveSettings(definitions = [], saved = {}) {
 
 const matches = (when, settings) => Object.entries(when).every(([k, v]) => settings[k] === v);
 
-// A schedule's items for the current fleet setup: drops items whose
-// `onlyWhen` doesn't match, and applies the first matching `variant`.
-// Each resolved item carries `adjusted: true` when a variant was applied.
-export function resolveItems(schedule, settings = {}) {
+// Rounds an adjusted mileage to a sensible shop number (nearest 500 mi).
+const roundMiles = (n) => Math.round(n / 500) * 500;
+
+// Applies field overrides; a null value removes the field.
+function applyOverrides(item, overrides) {
+  const out = { ...item, ...overrides };
+  for (const [k, v] of Object.entries(overrides)) if (v === null) delete out[k];
+  return out;
+}
+
+// A schedule's items for one truck:
+//  1. drops items whose `onlyWhen` doesn't match the fleet setup,
+//  2. applies the truck's duty cycle (`byDuty[duty]` overrides the base,
+//     which is the schedule's default duty cycle),
+//  3. applies the first fleet-setup `variant` whose `when` matches. A variant
+//     can override fields, `scale` the interval (e.g. 0.5) or `addMiles`.
+// Resolved items carry `adjusted: true` when a fleet-setup variant applied.
+export function resolveItems(schedule, settings = {}, duty = null) {
   return schedule.items
     .filter((item) => !item.onlyWhen || matches(item.onlyWhen, settings))
     .map((item) => {
-      const { variants, onlyWhen, ...base } = item;
+      const { variants, onlyWhen, byDuty, ...base } = item;
+      let resolved = duty && byDuty?.[duty] ? applyOverrides(base, byDuty[duty]) : base;
       const variant = variants?.find((v) => matches(v.when, settings));
-      if (!variant) return base;
-      const { when, ...overrides } = variant;
-      return { ...base, ...overrides, adjusted: true };
+      if (!variant) return resolved;
+      const { when, scale, addMiles, ...overrides } = variant;
+      resolved = applyOverrides(resolved, overrides);
+      if (scale) {
+        if (resolved.intervalMiles) resolved.intervalMiles = roundMiles(resolved.intervalMiles * scale);
+        if (resolved.intervalHours) resolved.intervalHours = Math.round(resolved.intervalHours * scale);
+      }
+      if (addMiles && resolved.intervalMiles) resolved.intervalMiles += addMiles;
+      return { ...resolved, adjusted: true };
     });
+}
+
+// The duty cycle to use for a schedule on a truck: a manual override, else
+// the automatic classification, else the schedule's default.
+export function dutyFor(schedule, dutyModels, dutyDoc) {
+  const model = schedule.dutyModel && dutyModels?.[schedule.dutyModel];
+  if (!model) return null;
+  return dutyDoc?.override?.[schedule.dutyModel] ?? dutyDoc?.current?.[schedule.dutyModel] ?? model.default;
 }
 
 function addMonths(isoDate, months) {
@@ -110,17 +139,22 @@ export function nextDue(item, last, current) {
  * @param schedules  Map of scheduleId -> maintenanceSchedules doc
  * @param records    serviceRecords doc's `items` map (or undefined)
  * @param settings   fleet setup (see effectiveSettings)
+ * @param dutyModels dutyModels from meta/schedules
+ * @param dutyDoc    dutyCycles/{vehicleId} doc ({ current, override })
  */
-export function truckMaintenance(vehicle, schedules, records = {}, now = new Date(), settings = {}) {
+export function truckMaintenance(
+  vehicle, schedules, records = {}, now = new Date(), settings = {}, dutyModels = {}, dutyDoc = null,
+) {
   const current = { miles: vehicle.odometerMiles, hours: vehicle.engineHours, now };
   const rows = [];
   for (const scheduleId of vehicle.scheduleIds ?? []) {
     const schedule = schedules.get(scheduleId);
     if (!schedule) continue;
-    for (const item of resolveItems(schedule, settings)) {
+    const duty = dutyFor(schedule, dutyModels, dutyDoc);
+    for (const item of resolveItems(schedule, settings, duty)) {
       const key = recordKey(scheduleId, item.id);
       const last = records[key];
-      rows.push({ key, schedule, item, last, ...nextDue(item, last, current) });
+      rows.push({ key, schedule, duty, item, last, ...nextDue(item, last, current) });
     }
   }
   return rows.sort((a, b) => a.urgency - b.urgency);
