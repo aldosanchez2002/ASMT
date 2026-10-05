@@ -546,3 +546,17 @@ details.duty { padding: 0 12px 6px; }
   .segmented button { min-height: 40px; }
   .btn { min-height: 44px; }
 }
+
+/* ---- Trucks table: all columns, scrolls sideways, truck number pinned ---- */
+.trucks-table .pin {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border);
+}
+.trucks-table tbody tr:hover .pin { background: var(--row-hover); }
+.trucks-table .next-cell { min-width: 190px; }
+@media (max-width: 640px) {
+  .trucks-table .next-cell { min-width: 170px; }
+}

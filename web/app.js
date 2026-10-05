@@ -626,14 +626,14 @@ function row(v) {
   const milesCell = cell(miles, 'num strong');
   if (v.odometerSource === 'gps') milesCell.title = 'GPS odometer (no ECU reading)';
   tr.append(
-    cell(v.name || '—', 'strong nowrap'),
-    cell(v.year || '—', 'hide-sm'),
-    cell(titleCase(v.make || '—'), 'hide-sm'),
-    cell(titleCase(v.model || '—'), 'hide-sm'),
+    cell(v.name || '—', 'strong nowrap pin'),
     milesCell,
     nextCell(v),
-    cell(v.engineHours == null ? '—' : fmt.format(v.engineHours), 'num hide-sm'),
-    cell(timeAgo(v.lastReportedAt), 'muted-cell hide-sm'),
+    cell(v.year || '—'),
+    cell(titleCase(v.make || '—'), 'nowrap'),
+    cell(titleCase(v.model || '—'), 'nowrap'),
+    cell(v.engineHours == null ? '—' : fmt.format(v.engineHours), 'num'),
+    cell(timeAgo(v.lastReportedAt), 'muted-cell nowrap'),
   );
   return tr;
 }
