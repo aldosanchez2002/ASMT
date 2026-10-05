@@ -317,43 +317,6 @@ dialog#truck::backdrop { background: rgba(0, 0, 0, .45); }
 }
 .setup h3 { margin: 0 0 2px; font-size: 16px; }
 .setup > p { margin: 0 0 10px; font-size: 13px; }
-.toggle {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
-  cursor: pointer;
-}
-.toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.switch {
-  flex: none;
-  position: relative;
-  width: 40px;
-  height: 22px;
-  margin-top: 1px;
-  border-radius: 999px;
-  background: var(--gray);
-  transition: background .15s;
-}
-.switch::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform .15s;
-}
-.toggle input:checked + .switch { background: var(--accent); }
-.toggle input:checked + .switch::after { transform: translateX(18px); }
-.toggle input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
-.toggle input:disabled + .switch { opacity: .6; }
-.toggle-text { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
-.toggle-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text); }
 .badge {
   display: inline-block;
   margin-left: 6px;
@@ -413,7 +376,8 @@ details.setup > summary {
   padding: 12px 16px;
 }
 details.setup > summary::-webkit-details-marker { display: none; }
-details.setup > summary::after { content: "▾"; margin-left: auto; color: var(--muted); }
+details.setup > summary { position: relative; padding-right: 36px; }
+details.setup > summary::after { content: "▾"; position: absolute; top: 12px; right: 16px; color: var(--muted); }
 details.setup[open] > summary::after { content: "▴"; }
 .setup-title { font-weight: 700; }
 #setup-summary { font-size: 13px; }
@@ -482,3 +446,30 @@ details.setup > p { padding-bottom: 8px; font-size: 13px; }
 .segmented button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
 .seg-rule { margin: 2px 0 8px; }
 .badge-auto { margin-left: 0; background: var(--chip); color: var(--muted); }
+
+/* ---- Category tags + fleet setup choices ---- */
+.cat-tag {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  background: var(--chip);
+  color: var(--muted);
+}
+.cat-engine { background: var(--accent); color: var(--accent-text); }
+.cat-chassis { background: var(--amber-bg); color: var(--amber); }
+.sched-head h3 { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; }
+.group-line { display: flex; align-items: center; gap: 0; font-size: 13px; }
+.group-line .cat-tag { font-size: 10px; padding: 0 5px; margin-right: 6px; min-width: 56px; text-align: center; }
+
+.setting { padding: 10px 0; border-top: 1px solid var(--border); }
+.setting-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; }
+.segmented.choice { margin: 8px 0 4px; }
+.segmented.choice button { font-size: 14px; padding: 7px 12px; }
+.setting-desc { margin: 4px 0 0; font-size: 12px; }
+#setup-summary { flex-basis: 100%; }

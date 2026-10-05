@@ -86,6 +86,13 @@ function limitingText(r) {
   return o.n < 0 ? `${amount} overdue` : `in ${amount}`;
 }
 
+const CATEGORY_LABEL = { engine: 'Engine', chassis: 'Chassis', regulatory: 'DOT' };
+
+// "ENGINE" / "CHASSIS" / "DOT" tag shown before a schedule's name.
+function categoryTag(schedule) {
+  return el('span', `cat-tag cat-${schedule.category}`, CATEGORY_LABEL[schedule.category] ?? schedule.category);
+}
+
 function dutyLabel(model, duty) {
   return dutyModels()[model]?.options.find((o) => o.id === duty)?.label ?? duty;
 }
@@ -354,7 +361,9 @@ function groupTitle(match, trucks) {
 function scheduleTable(schedule, duty = null) {
   const wrap = el('div', 'sched-block');
   const head = el('div', 'sched-head');
-  head.append(el('h3', null, schedule.name));
+  const h3 = el('h3');
+  h3.append(categoryTag(schedule), el('span', null, schedule.name));
+  head.append(h3);
   const link = el('a', 'muted', 'Manual');
   Object.assign(link, { href: schedule.sourceUrl, target: '_blank', rel: 'noopener', title: schedule.sourceTitle });
   head.append(link);
@@ -395,29 +404,43 @@ function renderSetup() {
   const defs = assignments?.settings ?? [];
   $('fleet-setup').hidden = defs.length === 0;
   const current = settings();
-  const changed = defs.filter((d) => current[d.id] !== d.default);
-  $('setup-summary').textContent = changed.length
-    ? changed.map((d) => (current[d.id] ? d.label : `No ${d.label.charAt(0).toLowerCase()}${d.label.slice(1)}`)).join(' · ')
-    : 'Manufacturer defaults';
+  // Collapsed, the box lists the current answers so it's clear what's set here.
+  $('setup-summary').textContent = defs
+    .map((d) => d.short?.[current[d.id] ? 'on' : 'off'] ?? `${d.label}: ${current[d.id] ? 'yes' : 'no'}`)
+    .join(' · ');
+
+  const save = async (d, value, buttons) => {
+    buttons.forEach((b) => { b.disabled = true; });
+    try {
+      await setDoc(doc(db, 'meta', 'settings'), { [d.id]: value, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (err) {
+      showAppError(`Could not save the setting: ${err.message}`);
+    } finally {
+      buttons.forEach((b) => { b.disabled = false; });
+    }
+  };
+
   $('setup-toggles').replaceChildren(...defs.map((d) => {
-    const row = el('label', 'toggle');
-    const input = Object.assign(el('input'), { type: 'checkbox', checked: current[d.id] });
-    input.addEventListener('change', async () => {
-      input.disabled = true;
-      try {
-        await setDoc(doc(db, 'meta', 'settings'), { [d.id]: input.checked, updatedAt: serverTimestamp() }, { merge: true });
-      } catch (err) {
-        input.checked = !input.checked;
-        showAppError(`Could not save the setting: ${err.message}`);
-      } finally {
-        input.disabled = false;
-      }
-    });
-    const text = el('span', 'toggle-text');
-    const title = el('span', 'toggle-title', d.label);
+    const row = el('div', 'setting');
+    const title = el('div', 'setting-title', d.question ?? d.label);
     title.append(el('span', 'chip', d.appliesTo));
-    text.append(title, el('span', 'muted', d.description));
-    row.append(input, el('span', 'switch'), text);
+    const seg = el('div', 'segmented choice');
+    seg.setAttribute('role', 'radiogroup');
+    seg.setAttribute('aria-label', d.question ?? d.label);
+    const buttons = [true, false].map((value) => {
+      const label = d.choices?.[value ? 'on' : 'off'] ?? (value ? 'Yes' : 'No');
+      const b = el('button', current[d.id] === value ? 'active' : '', label);
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(current[d.id] === value));
+      return b;
+    });
+    buttons.forEach((b, i) => b.addEventListener('click', () => {
+      const value = i === 0;
+      if (current[d.id] !== value) save(d, value, buttons);
+    }));
+    seg.append(...buttons);
+    row.append(title, seg, el('p', 'muted setting-desc', d.description));
     return row;
   }));
 }
@@ -450,14 +473,21 @@ function renderSchedules() {
     groupsEl.replaceChildren();
     return;
   }
-  $('sched-intro').textContent = 'Manufacturer schedules at the OTR / normal duty cycle. Tap a model to see its schedule.';
+  $('sched-intro').textContent = 'Tap a model to see its engine, chassis and DOT schedules. Set your oil, fuel filter and coolant in Fleet setup above.';
 
   const groups = scheduleGroups();
   groupsEl.replaceChildren(...groups.map((g) => {
     const b = el('button', `group-row${g.trucks.length ? '' : ' group-empty'}`);
     b.type = 'button';
     const main = el('span', 'group-main');
-    main.append(el('span', 'group-name', groupTitle(g.match, g.trucks)), el('span', 'muted', groupEngine(g)?.name ?? ''));
+    main.append(el('span', 'group-name', groupTitle(g.match, g.trucks)));
+    for (const category of ['engine', 'chassis']) {
+      const sched = g.schedules.map((id) => schedules.get(id)).find((s) => s?.category === category);
+      if (!sched) continue;
+      const line = el('span', 'group-line');
+      line.append(categoryTag(sched), el('span', 'muted', sched.name));
+      main.append(line);
+    }
     b.append(main, el('span', 'chip', g.trucks.length ? plural(g.trucks.length, 'truck') : 'None'), el('span', 'chev', '›'));
     b.addEventListener('click', () => openGroup(g.key));
     return b;
@@ -697,7 +727,9 @@ function renderTruck(v) {
     const section = el('section', 'sched');
     const head = el('div', 'sched-head');
     const duty = v.rows.find((x) => x.schedule.id === scheduleId)?.duty;
-    head.append(el('h3', null, duty ? `${schedule.name} · ${dutyLabel(schedule.dutyModel, duty)}` : schedule.name));
+    const h3 = el('h3');
+    h3.append(categoryTag(schedule), el('span', null, duty ? `${schedule.name} · ${dutyLabel(schedule.dutyModel, duty)}` : schedule.name));
+    head.append(h3);
     const link = el('a', 'muted', 'Manual');
     link.href = schedule.sourceUrl;
     link.target = '_blank';

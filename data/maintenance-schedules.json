@@ -6,30 +6,66 @@
     {
       "id": "detroitApprovedOil",
       "label": "Detroit-approved engine oil",
-      "description": "Oil on Detroit's DFS 93K222 / 93K223 approval list (look for it on the jug or data sheet). Off = oil change intervals are cut in half: Detroit says non-approved oil gets 'reduced' intervals without giving a number, so this is a conservative assumption; confirm with your dealer.",
+      "description": "Approved oils say DFS 93K222 or 93K223 on the jug or data sheet (e.g. approved versions of Shell Rotella T4, Mobil Delvac 1300 Super). Generic: oil change intervals are cut in half, a conservative assumption since Detroit only says 'reduced'; confirm with your dealer.",
       "default": true,
-      "appliesTo": "Detroit engines"
+      "appliesTo": "Detroit engines",
+      "question": "Engine oil in Detroit engines",
+      "choices": {
+        "on": "Detroit-approved (DFS 93K222 / 93K223)",
+        "off": "Generic / not approved"
+      },
+      "short": {
+        "on": "Approved oil",
+        "off": "Generic oil"
+      }
     },
     {
       "id": "frameMountedFuelFilter",
       "label": "Frame-mounted fuel filter",
-      "description": "Detroit fuel filter / water separator or Davco 385/482/485/487 on the frame rail. Off = the engine fuel filter is changed at every oil change.",
+      "description": "Detroit fuel filter / water separator or Davco 385/482/485/487 on the frame rail. No: the engine fuel filter is changed at every oil change.",
       "default": true,
-      "appliesTo": "Detroit engines"
+      "appliesTo": "Detroit engines",
+      "question": "Frame-mounted fuel filter on Detroit trucks",
+      "choices": {
+        "on": "Yes (Detroit or Davco)",
+        "off": "No"
+      },
+      "short": {
+        "on": "Frame filter",
+        "off": "No frame filter"
+      }
     },
     {
       "id": "extendedLifeCoolant",
       "label": "Extended-life coolant",
-      "description": "Off = standard-life coolant: tested at every oil change interval and replaced every 300,000 mi.",
+      "description": "Standard-life coolant is tested at every oil change interval and replaced every 300,000 mi.",
       "default": true,
-      "appliesTo": "Detroit engines"
+      "appliesTo": "Detroit engines",
+      "question": "Coolant in Detroit engines",
+      "choices": {
+        "on": "Extended-life",
+        "off": "Standard-life"
+      },
+      "short": {
+        "on": "Extended-life coolant",
+        "off": "Standard coolant"
+      }
     },
     {
       "id": "premiumBlue",
       "label": "Valvoline Premium Blue oil",
       "description": "Cummins adds 5,000 mi to X15 oil change intervals with Valvoline Premium Blue.",
       "default": false,
-      "appliesTo": "Cummins X15 (2020 and newer)"
+      "appliesTo": "Cummins X15 (2020 and newer)",
+      "question": "Oil in Cummins X15 engines",
+      "choices": {
+        "on": "Valvoline Premium Blue",
+        "off": "Other CES 20086 oil"
+      },
+      "short": {
+        "on": "Premium Blue",
+        "off": "Standard Cummins oil"
+      }
     }
   ],
   "dutyModels": {
