@@ -5,7 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fleet Miles</title>
   <link rel="stylesheet" href="styles.css">
-  <script type="module" src="app.js"></script>
+  <script>
+    // Shows startup / sign-in failures on the page instead of a blank screen.
+    function showAppError(msg) {
+      const box = document.getElementById('app-error');
+      if (!box) return;
+      document.getElementById('app-error-msg').textContent = msg;
+      box.hidden = false;
+    }
+    addEventListener('error', (e) => showAppError(e.message));
+    addEventListener('unhandledrejection', (e) => showAppError(e.reason?.message ?? String(e.reason)));
+  </script>
+  <script type="module" src="app.js" onerror="showAppError('Could not load the app. Check your internet connection and refresh.')"></script>
 </head>
 <body>
   <header class="top">
@@ -17,6 +28,15 @@
   </header>
 
   <main>
+    <section id="app-error" class="panel center error" hidden>
+      <p><strong>Something went wrong.</strong></p>
+      <p id="app-error-msg" class="mono"></p>
+    </section>
+
+    <section id="loading" class="panel center muted" hidden>
+      <p>Loading fleet…</p>
+    </section>
+
     <section id="signed-out" class="panel center" hidden>
       <p>Sign in to see your fleet.</p>
       <button id="sign-in" class="btn">Sign in with Google</button>
@@ -52,7 +72,7 @@
           <tbody id="rows"></tbody>
         </table>
       </div>
-      <p id="empty" class="muted center" hidden>No trucks match.</p>
+      <p id="empty" class="muted center" hidden></p>
     </section>
   </main>
 </body>

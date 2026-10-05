@@ -14,7 +14,8 @@ A simple web app that lists every truck in the fleet with its model and current 
 ```
 
 - The **Samsara key is stored only as a GitHub Secret**. GitHub encrypts it, it never appears in the code or the website, and it doesn't show in Action logs.
-- The **website only reads Firestore**. Firestore's security rules allow reads only for signed-in Google accounts listed in `ALLOWED_EMAILS`. Nobody can write from the browser.
+- The **website only reads Firestore**. Nobody can write from the browser.
+- **Prototype mode (current):** anyone with the link can view the list, with no sign-in. To lock it down later, set `requireSignIn = true` in `web/firebase-config.js`, set the `ALLOWED_EMAILS` secret, and follow the note at the top of `firestore.rules`.
 - `web/firebase-config.js` holds Firebase's *public* web config. Every Firebase site ships these values to the browser, so they aren't secrets.
 
 ## One-time setup
@@ -22,11 +23,10 @@ A simple web app that lists every truck in the fleet with its model and current 
 ### 1. Create the Firebase project
 1. Go to [console.firebase.google.com](https://console.firebase.google.com) → **Add project**.
 2. **Build → Firestore Database → Create database**. Choose production mode and a US region.
-3. **Build → Authentication → Get started → Sign-in method → Google → Enable**.
-4. **Authentication → Settings → Authorized domains**: add your domain, e.g. `yourdomain.com`.
-5. **Project settings → General → Your apps → Web (`</>`)**: register an app, then copy the config values into `web/firebase-config.js`.
-6. **Firestore → Rules**: paste in the contents of `firestore.rules` and click **Publish**.
-7. **Project settings → Service accounts → Generate new private key**. This downloads a JSON file. **Don't commit it.** You'll paste it into a GitHub secret next, then delete the file.
+3. *(Only if you turn on sign-in)* **Build → Authentication → Get started → Sign-in method → Google → Enable**, then add your domain under **Authentication → Settings → Authorized domains**.
+4. **Project settings → General → Your apps → Web (`</>`)**: register an app, then copy the config values into `web/firebase-config.js`.
+5. **Firestore → Rules**: paste in the contents of `firestore.rules` and click **Publish**.
+6. **Project settings → Service accounts → Generate new private key**. This downloads a JSON file. **Don't commit it.** You'll paste it into a GitHub secret next, then delete the file.
 
 ### 2. Add GitHub secrets
 In the repo: **Settings → Secrets and variables → Actions → New repository secret**
@@ -35,7 +35,7 @@ In the repo: **Settings → Secrets and variables → Actions → New repository
 |---|---|
 | `SAMSARA_API_KEY` | Your Samsara API token (read-only is enough) |
 | `FIREBASE_SERVICE_ACCOUNT` | The entire contents of the service-account JSON file |
-| `ALLOWED_EMAILS` | Google account(s) allowed to view the site, comma-separated |
+| `ALLOWED_EMAILS` | *(Only if sign-in is on)* Google account(s) allowed to view the site, comma-separated |
 
 ### 3. Run the first sync
 **Actions → Sync Samsara to Firestore → Run workflow.** After that it runs every 30 minutes on its own. You should then see a `vehicles` collection in Firestore.
@@ -71,4 +71,4 @@ npm run serve                          # serves web/ locally
 | `engineHours` | From the ECU |
 | `updatedAt` | When the sync last wrote this truck |
 
-`meta/sync`: `lastRun`, `vehicleCount` · `allowedUsers/{email}`: viewer allowlist (managed by the sync job)
+`meta/sync`: `lastRun`, `vehicleCount` · `allowedUsers/{email}`: viewer allowlist, used only when sign-in is on (managed by the sync job)

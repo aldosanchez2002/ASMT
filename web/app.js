@@ -5,7 +5,7 @@ import {
 import {
   getFirestore, collection, doc, onSnapshot,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
-import { firebaseConfig } from './firebase-config.js';
+import { firebaseConfig, requireSignIn } from './firebase-config.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -20,7 +20,7 @@ let sortDir = 1;
 let unsubscribers = [];
 
 function show(section) {
-  for (const id of ['signed-out', 'not-allowed', 'fleet']) $(id).hidden = id !== section;
+  for (const id of ['loading', 'signed-out', 'not-allowed', 'fleet']) $(id).hidden = id !== section;
 }
 
 // Trucks Samsara still lists but that are no longer reporting.
@@ -60,6 +60,9 @@ function render() {
 
   $('rows').replaceChildren(...visible.map(row));
   $('empty').hidden = visible.length > 0;
+  $('empty').textContent = vehicles.length
+    ? 'No trucks match.'
+    : 'No trucks in the database yet. On GitHub, run Actions → "Sync Samsara to Firestore".';
 
   for (const th of document.querySelectorAll('th[data-sort]')) {
     th.classList.toggle('sorted', th.dataset.sort === sortKey);
@@ -107,14 +110,21 @@ function watchFleet() {
   unsubscribers.push(
     onSnapshot(
       collection(db, 'vehicles'),
+      { includeMetadataChanges: true },
       (snap) => {
+        // An empty result from the local cache just means we haven't
+        // reached Firestore yet; keep showing "Loading…".
+        if (snap.empty && snap.metadata.fromCache) return;
         vehicles = snap.docs.map((d) => d.data());
         show('fleet');
         render();
       },
       (err) => {
         console.error(err);
-        if (err.code === 'permission-denied') show('not-allowed');
+        if (err.code === 'permission-denied' && requireSignIn) show('not-allowed');
+        else if (err.code === 'permission-denied') {
+          showAppError('Firestore blocked the read. Paste firestore.rules into Firebase → Firestore Database → Rules and click Publish.');
+        } else showAppError(err.message);
       },
     ),
     onSnapshot(doc(db, 'meta', 'sync'), (snap) => {
@@ -124,7 +134,13 @@ function watchFleet() {
   );
 }
 
-onAuthStateChanged(auth, (user) => {
+// Prototype mode: no sign-in, the fleet loads right away (firestore.rules
+// must allow public reads). Set requireSignIn = true to lock it down.
+if (!requireSignIn) {
+  show('loading');
+  watchFleet();
+}
+else onAuthStateChanged(auth, (user) => {
   unsubscribers.forEach((u) => u());
   unsubscribers = [];
   $('user-box').hidden = !user;
@@ -136,7 +152,18 @@ onAuthStateChanged(auth, (user) => {
   watchFleet();
 });
 
-$('sign-in').addEventListener('click', () => signInWithPopup(auth, new GoogleAuthProvider()));
+$('sign-in').addEventListener('click', async () => {
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (err) {
+    if (err.code === 'auth/popup-closed-by-user') return;
+    if (err.code === 'auth/unauthorized-domain') {
+      showAppError(`${location.hostname} isn't an authorized domain. Add it in Firebase → Authentication → Settings → Authorized domains.`);
+    } else {
+      showAppError(err.message);
+    }
+  }
+});
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
 $('show-inactive').addEventListener('change', render);
