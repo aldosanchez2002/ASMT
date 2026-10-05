@@ -294,3 +294,32 @@ details.group > summary .muted { margin-left: 18px; margin-top: 2px; }
   .sched-table .details-cell { grid-column: 1 / -1; }
   .sched-table .details-cell:empty { display: none; }
 }
+
+/* ---- Service log tab ---- */
+.log-filters { align-items: flex-end; }
+.log-filters .field select, .log-filters .field input {
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+#log-summary { margin: 0 0 8px; }
+.log-table th { cursor: default; }
+.wrap-cell { white-space: normal; }
+.link-btn {
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.show-sm { display: none; }
+@media (max-width: 640px) {
+  .show-sm { display: block; }
+  .log-filters .field { flex: 1 1 140px; }
+}

@@ -96,5 +96,7 @@ On the site, the **Next service** column shows each truck's most urgent item. Cl
 | `serviceRecords/{vehicleId}` | `items` map keyed `{scheduleId}__{itemId}` → the latest `{ miles, hours, date, source: 'baseline' \| 'done', note }` |
 | `serviceLog/{autoId}` | One entry per **Mark done**: truck, item, miles, hours, date, note, `loggedAt` |
 
+The **Service log** tab (`aslog.dev/#log`) lists every logged service, newest first, filtered by period (last 7/30/90 days, 12 months, all time or a custom date range, on the service date) and by unit. Clicking a unit opens that truck.
+
 The due-date logic lives in `web/maintenance.js` and is covered by `npm test`.
 

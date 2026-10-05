@@ -19,6 +19,7 @@ let vehicles = [];
 let schedules = new Map(); // scheduleId -> maintenanceSchedules doc
 let records = {}; // vehicleId -> serviceRecords doc
 let assignments = null; // meta/schedules doc: year/model groups
+let serviceLog = []; // serviceLog docs (one per Mark done)
 let openTruckId = null; // truck shown in the detail dialog
 let openFormKey = null; // item whose "Mark done" form is open
 let sortKey = 'name';
@@ -145,18 +146,91 @@ function render() {
 
   if (openTruckId) renderTruck(all.find((v) => v.id === openTruckId));
   renderSchedules();
+  renderLog();
+}
+
+// ---- Service log tab -------------------------------------------------------
+
+const isoDay = (d) => d.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+
+// Presets fill in the From/To dates; editing either date switches to "Custom range".
+function applyLogPeriod() {
+  const period = $('log-period').value;
+  if (period === 'custom') return;
+  $('log-to').value = period === 'all' ? '' : isoDay(new Date());
+  $('log-from').value = period === 'all' ? '' : isoDay(new Date(Date.now() - Number(period) * DAY_MS));
+}
+
+function renderLogUnits() {
+  const select = $('log-unit');
+  const chosen = select.value;
+  const names = new Map(vehicles.map((v) => [v.id, v.name]));
+  for (const e of serviceLog) if (!names.has(e.vehicleId)) names.set(e.vehicleId, e.vehicleName || e.vehicleId);
+  const options = [...names].sort((a, b) => String(a[1]).localeCompare(String(b[1]), undefined, { numeric: true }));
+  select.replaceChildren(
+    Object.assign(el('option', null, 'All units'), { value: '' }),
+    ...options.map(([id, name]) => Object.assign(el('option', null, name), { value: id })),
+  );
+  select.value = names.has(chosen) ? chosen : '';
+}
+
+function renderLog() {
+  if (currentTab() !== 'log') return;
+  renderLogUnits();
+  const from = $('log-from').value;
+  const to = $('log-to').value;
+  const unit = $('log-unit').value;
+
+  const rows = serviceLog
+    .filter((e) => (!from || e.date >= from) && (!to || e.date <= to) && (!unit || e.vehicleId === unit))
+    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.loggedAtMs ?? 0) - (a.loggedAtMs ?? 0));
+
+  const trucks = new Set(rows.map((e) => e.vehicleId)).size;
+  $('log-summary').textContent = rows.length
+    ? `${plural(rows.length, 'service')} on ${plural(trucks, 'truck')}`
+    : '';
+  $('log-empty').hidden = rows.length > 0;
+  $('log-empty').textContent = serviceLog.length
+    ? 'No services match these filters.'
+    : 'No services logged yet. Open a truck on the Trucks tab and use "Mark done".';
+
+  $('log-rows').replaceChildren(...rows.map((e) => {
+    const tr = el('tr');
+    const unitCell = el('td', 'strong');
+    const link = el('button', 'link-btn', e.vehicleName || e.vehicleId);
+    link.type = 'button';
+    link.addEventListener('click', () => {
+      if (vehicles.some((v) => v.id === e.vehicleId)) openTruck(e.vehicleId);
+    });
+    unitCell.append(link);
+    const service = el('td', 'wrap-cell', e.itemName || e.itemId);
+    const sched = schedules.get(e.scheduleId);
+    if (sched) service.append(el('div', 'item-meta', sched.name));
+    if (e.note) service.append(el('div', 'item-meta show-sm', `"${e.note}"`));
+    tr.append(
+      el('td', null, e.date || '—'),
+      unitCell,
+      service,
+      el('td', 'num', e.miles == null ? '—' : fmt.format(e.miles)),
+      el('td', 'num hide-sm', e.hours == null ? '—' : fmt.format(e.hours)),
+      el('td', 'wrap-cell muted-cell hide-sm', e.note || ''),
+    );
+    return tr;
+  }));
 }
 
 // ---- Schedules tab ---------------------------------------------------------
 
+const TABS = ['trucks', 'schedules', 'log'];
+
 function currentTab() {
-  return location.hash === '#schedules' ? 'schedules' : 'trucks';
+  const tab = location.hash.slice(1);
+  return TABS.includes(tab) ? tab : 'trucks';
 }
 
 function showTab() {
   const tab = currentTab();
-  $('trucks-view').hidden = tab !== 'trucks';
-  $('schedules-view').hidden = tab !== 'schedules';
+  for (const t of TABS) $(`${t}-view`).hidden = t !== tab;
   for (const a of document.querySelectorAll('.tabs a')) {
     a.classList.toggle('active', a.dataset.tab === tab);
     a.setAttribute('aria-current', a.dataset.tab === tab ? 'page' : 'false');
@@ -491,6 +565,13 @@ function watchFleet() {
       records = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
       render();
     }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'serviceLog'), (snap) => {
+      serviceLog = snap.docs.map((d) => {
+        const e = d.data();
+        return { ...e, id: d.id, loggedAtMs: e.loggedAt?.toMillis?.() ?? 0 };
+      });
+      renderLog();
+    }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'schedules'), (snap) => {
       assignments = snap.data() ?? null;
       renderSchedules();
@@ -535,7 +616,13 @@ $('sign-in').addEventListener('click', async () => {
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
 $('filter').addEventListener('change', render);
-addEventListener('hashchange', () => { showTab(); renderSchedules(); });
+addEventListener('hashchange', () => { showTab(); renderSchedules(); renderLog(); });
+$('log-period').addEventListener('change', () => { applyLogPeriod(); renderLog(); });
+for (const id of ['log-from', 'log-to']) {
+  $(id).addEventListener('change', () => { $('log-period').value = 'custom'; renderLog(); });
+}
+$('log-unit').addEventListener('change', renderLog);
+applyLogPeriod();
 showTab();
 $('t-close').addEventListener('click', () => $('truck').close());
 $('truck').addEventListener('close', () => { openTruckId = null; openFormKey = null; });

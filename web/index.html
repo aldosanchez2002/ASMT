@@ -51,6 +51,7 @@
       <nav class="tabs" aria-label="Views">
         <a href="#" data-tab="trucks">Trucks</a>
         <a href="#schedules" data-tab="schedules">Schedules</a>
+        <a href="#log" data-tab="log">Service log</a>
       </nav>
 
       <div id="trucks-view">
@@ -83,6 +84,45 @@
         </table>
       </div>
       <p id="empty" class="muted center" hidden></p>
+      </div>
+
+      <div id="log-view" hidden>
+        <div class="toolbar log-filters">
+          <label class="field">
+            <span>Period</span>
+            <select id="log-period">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last 12 months</option>
+              <option value="all">All time</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </label>
+          <label class="field"><span>From</span><input id="log-from" type="date"></label>
+          <label class="field"><span>To</span><input id="log-to" type="date"></label>
+          <label class="field">
+            <span>Unit</span>
+            <select id="log-unit"><option value="">All units</option></select>
+          </label>
+        </div>
+        <p id="log-summary" class="muted"></p>
+        <div class="table-wrap">
+          <table class="log-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Unit</th>
+                <th>Service</th>
+                <th class="num">Miles</th>
+                <th class="num hide-sm">Engine hrs</th>
+                <th class="hide-sm">Note</th>
+              </tr>
+            </thead>
+            <tbody id="log-rows"></tbody>
+          </table>
+        </div>
+        <p id="log-empty" class="muted center" hidden></p>
       </div>
 
       <div id="schedules-view" hidden>
