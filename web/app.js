@@ -6,7 +6,7 @@ import {
   getFirestore, addDoc, collection, doc, onSnapshot, serverTimestamp, setDoc,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig, requireSignIn } from './firebase-config.js';
-import { mostUrgent, truckMaintenance } from './maintenance.js';
+import { matchesRule, mostUrgent, truckMaintenance } from './maintenance.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -18,6 +18,7 @@ const fmt = new Intl.NumberFormat('en-US');
 let vehicles = [];
 let schedules = new Map(); // scheduleId -> maintenanceSchedules doc
 let records = {}; // vehicleId -> serviceRecords doc
+let assignments = null; // meta/schedules doc: year/model groups
 let openTruckId = null; // truck shown in the detail dialog
 let openFormKey = null; // item whose "Mark done" form is open
 let sortKey = 'name';
@@ -143,6 +144,130 @@ function render() {
   }
 
   if (openTruckId) renderTruck(all.find((v) => v.id === openTruckId));
+  renderSchedules();
+}
+
+// ---- Schedules tab ---------------------------------------------------------
+
+function currentTab() {
+  return location.hash === '#schedules' ? 'schedules' : 'trucks';
+}
+
+function showTab() {
+  const tab = currentTab();
+  $('trucks-view').hidden = tab !== 'trucks';
+  $('schedules-view').hidden = tab !== 'schedules';
+  for (const a of document.querySelectorAll('.tabs a')) {
+    a.classList.toggle('active', a.dataset.tab === tab);
+    a.setAttribute('aria-current', a.dataset.tab === tab ? 'page' : 'false');
+  }
+}
+
+const yearRange = (min, max) => (min === max ? `${min}` : `${min}–${max}`);
+
+// Titled by the model years actually in the fleet (falls back to the rule's range).
+function groupTitle(match, trucks) {
+  const years = trucks.map((v) => Number(v.year)).filter(Boolean);
+  const range = years.length
+    ? yearRange(Math.min(...years), Math.max(...years))
+    : yearRange(match.yearMin, match.yearMax);
+  return `${range} ${titleCase(match.make)} ${match.model.length <= 4 ? match.model : titleCase(match.model)}`;
+}
+
+function scheduleTable(schedule) {
+  const wrap = el('div', 'sched-block');
+  const head = el('div', 'sched-head');
+  head.append(el('h3', null, schedule.name));
+  const link = el('a', 'muted', 'Manual');
+  Object.assign(link, { href: schedule.sourceUrl, target: '_blank', rel: 'noopener', title: schedule.sourceTitle });
+  head.append(link);
+  wrap.append(head);
+
+  const table = el('table', 'sched-table');
+  const thead = el('thead');
+  const hr = el('tr');
+  ['Service', 'Interval', 'Details'].forEach((h) => hr.append(el('th', null, h)));
+  thead.append(hr);
+  const tbody = el('tbody');
+  for (const item of schedule.items) {
+    const tr = el('tr');
+    tr.append(el('td', 'strong', item.name), el('td', 'interval-cell', intervalText(item)));
+    const details = el('td', 'details-cell');
+    if (item.notes) details.append(el('div', 'item-meta', item.notes));
+    if (item.tasks?.length) {
+      const d = el('details', 'item-tasks');
+      d.append(el('summary', null, `${item.tasks.length} tasks`));
+      const ul = el('ul');
+      item.tasks.forEach((t) => ul.append(el('li', null, t)));
+      d.append(ul);
+      details.append(d);
+    }
+    tr.append(details);
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+  const scroll = el('div', 'table-wrap');
+  scroll.append(table);
+  wrap.append(scroll);
+  return wrap;
+}
+
+function renderSchedules() {
+  if (currentTab() !== 'schedules') return;
+  const groupsEl = $('sched-groups');
+  if (!assignments || !schedules.size) {
+    $('sched-intro').textContent = 'Loading schedules…';
+    groupsEl.replaceChildren();
+    return;
+  }
+  $('sched-intro').textContent = `Manufacturer maintenance schedules for each model and year in the fleet, at the ${assignments.dutyCycle} duty cycle. ${assignments.notes}`;
+
+  // Remember which groups were open so live updates don't collapse them.
+  const open = new Set([...groupsEl.querySelectorAll('details.group[open]')].map((d) => d.dataset.key));
+
+  const groups = assignments.assignments.map((a) => ({
+    ...a,
+    key: a.schedules.join('|') + JSON.stringify(a.match),
+    trucks: vehicles
+      .filter((v) => matchesRule(v, a.match))
+      .sort((x, y) => String(x.name).localeCompare(String(y.name), undefined, { numeric: true })),
+  }));
+  // Groups with trucks first, then the rest.
+  groups.sort((a, b) => (b.trucks.length > 0) - (a.trucks.length > 0));
+
+  groupsEl.replaceChildren(...groups.map((g) => {
+    const details = el('details', `group${g.trucks.length ? '' : ' group-empty'}`);
+    details.dataset.key = g.key;
+    details.open = open.has(g.key);
+    const summary = el('summary');
+    const titleRow = el('div', 'group-title');
+    titleRow.append(
+      el('span', 'strong', groupTitle(g.match, g.trucks)),
+      el('span', 'chip', g.trucks.length ? plural(g.trucks.length, 'truck') : 'No trucks in fleet'),
+    );
+    const engine = g.schedules.map((id) => schedules.get(id)).find((s) => s?.category === 'engine');
+    const covers = `Applies to ${yearRange(g.match.yearMin, g.match.yearMax)} models`;
+    summary.append(titleRow, el('div', 'muted', [engine?.name, covers, g.notes].filter(Boolean).join(' · ')));
+    details.append(summary);
+
+    const body = el('div', 'group-body');
+    if (g.trucks.length) {
+      const chips = el('div', 'truck-chips');
+      for (const v of g.trucks) {
+        const b = el('button', 'chip chip-btn', `${v.name} · ${v.year}`);
+        b.type = 'button';
+        b.addEventListener('click', () => openTruck(v.id));
+        chips.append(b);
+      }
+      body.append(chips);
+    }
+    for (const id of g.schedules) {
+      const schedule = schedules.get(id);
+      if (schedule) body.append(scheduleTable(schedule));
+    }
+    details.append(body);
+    return details;
+  }));
 }
 
 function chip(text, strong = false, extraClass = '') {
@@ -366,6 +491,10 @@ function watchFleet() {
       records = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
       render();
     }, (err) => console.error(err)),
+    onSnapshot(doc(db, 'meta', 'schedules'), (snap) => {
+      assignments = snap.data() ?? null;
+      renderSchedules();
+    }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'sync'), (snap) => {
       const t = snap.data()?.lastRun?.toDate();
       $('last-sync').textContent = t ? `Synced ${t.toLocaleString()}` : '';
@@ -406,6 +535,8 @@ $('sign-in').addEventListener('click', async () => {
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
 $('filter').addEventListener('change', render);
+addEventListener('hashchange', () => { showTab(); renderSchedules(); });
+showTab();
 $('t-close').addEventListener('click', () => $('truck').close());
 $('truck').addEventListener('close', () => { openTruckId = null; openFormKey = null; });
 // Clicking the dimmed backdrop closes the dialog.

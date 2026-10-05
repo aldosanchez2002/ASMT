@@ -2,6 +2,9 @@
 // out which schedules apply to a given truck.
 
 import { readFileSync } from 'node:fs';
+import { matchesRule, recordKey } from '../web/maintenance.js';
+
+export { recordKey };
 
 const data = JSON.parse(
   readFileSync(new URL('../data/maintenance-schedules.json', import.meta.url), 'utf8'),
@@ -44,23 +47,17 @@ export function scheduleDocs() {
 }
 
 // Returns the schedule IDs for a truck, or [] if no rule matches.
-// Model matching is "contains", so "NEW CASCADIA 126\" SLEEPERCAB" matches CASCADIA.
 export function scheduleIdsFor(vehicle) {
-  const make = String(vehicle.make ?? '').toUpperCase();
-  const model = String(vehicle.model ?? '').toUpperCase();
-  const year = Number(vehicle.year);
-  const rule = data.assignments.find(({ match: m }) =>
-    make === m.make
-    && model.includes(m.model)
-    && year >= m.yearMin
-    && year <= m.yearMax);
+  const rule = data.assignments.find(({ match }) => matchesRule(vehicle, match));
   return rule ? rule.schedules : [];
 }
 
-export const schedulesVersion = data.version;
+// The year/model groups, stored as meta/schedules for the site's Schedules tab.
+export function assignmentsDoc() {
+  return { version: data.version, dutyCycle: data.dutyCycle, notes: data.notes, assignments: data.assignments };
+}
 
-// Key for an item in serviceRecords/{vehicleId}.items (matches web/maintenance.js).
-export const recordKey = (scheduleId, itemId) => `${scheduleId}__${itemId}`;
+export const schedulesVersion = data.version;
 
 // For each truck, the service items that have no record yet, as baseline
 // records ("treat as done today at the current miles/hours"). Existing

@@ -5,7 +5,7 @@
 // Usage: node scripts/seed-schedules.mjs [--dry-run]
 
 import { commit, setWrite } from './firestore-rest.mjs';
-import { scheduleDocs, validate } from './schedules.mjs';
+import { assignmentsDoc, scheduleDocs, validate } from './schedules.mjs';
 
 validate();
 const docs = scheduleDocs();
@@ -14,5 +14,8 @@ for (const d of docs) {
 }
 if (process.argv.includes('--dry-run')) process.exit(0);
 
-await commit(docs.map((d) => setWrite(`maintenanceSchedules/${d.id}`, d)));
-console.log(`Wrote ${docs.length} schedules to Firestore`);
+await commit([
+  ...docs.map((d) => setWrite(`maintenanceSchedules/${d.id}`, d)),
+  setWrite('meta/schedules', assignmentsDoc()),
+]);
+console.log(`Wrote ${docs.length} schedules and the model/year assignments to Firestore`);

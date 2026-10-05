@@ -6,6 +6,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // Key used for an item in serviceRecords/{vehicleId}.items
 export const recordKey = (scheduleId, itemId) => `${scheduleId}__${itemId}`;
 
+// Whether a truck falls under an assignment rule's { make, model, yearMin, yearMax }.
+// Model matching is "contains", so "NEW CASCADIA 126\" SLEEPERCAB" matches CASCADIA.
+// Shared by the sync (scripts/schedules.mjs) and the site's Schedules tab.
+export function matchesRule(vehicle, match) {
+  const year = Number(vehicle.year);
+  return String(vehicle.make ?? '').toUpperCase() === match.make
+    && String(vehicle.model ?? '').toUpperCase().includes(match.model)
+    && year >= match.yearMin
+    && year <= match.yearMax;
+}
+
 function addMonths(isoDate, months) {
   const d = new Date(isoDate);
   d.setUTCMonth(d.getUTCMonth() + months);

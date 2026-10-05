@@ -242,3 +242,55 @@ dialog#truck::backdrop { background: rgba(0, 0, 0, .45); }
   color: var(--text);
   min-width: 0;
 }
+
+/* ---- Tabs ---- */
+.tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.tabs a {
+  padding: 8px 14px;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tabs a.active { color: var(--text); border-bottom-color: var(--accent); }
+
+/* ---- Schedules tab ---- */
+#sched-intro { margin: 0 0 12px; }
+details.group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+details.group > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 12px 16px;
+}
+details.group > summary::-webkit-details-marker { display: none; }
+details.group > summary::before { content: "▸"; float: left; margin-right: 8px; color: var(--muted); }
+details.group[open] > summary::before { content: "▾"; }
+.group-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+details.group > summary .muted { margin-left: 18px; margin-top: 2px; }
+.group-empty { opacity: .65; }
+.group-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+.truck-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.chip-btn { border: none; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+.chip-btn:hover { background: var(--row-hover); outline: 1px solid var(--border); }
+.sched-block { margin-top: 16px; }
+.sched-table th { cursor: default; }
+.sched-table td { white-space: normal; vertical-align: top; }
+.sched-table .interval-cell { white-space: nowrap; }
+.sched-table td:first-child { min-width: 180px; }
+.details-cell { min-width: 220px; }
+@media (max-width: 640px) {
+  /* Stack each service as a small card instead of a wide table. */
+  .sched-table thead { display: none; }
+  .sched-table tr { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .sched-table tbody tr:last-child { border-bottom: none; }
+  .sched-table td { padding: 0; border: none; min-width: 0 !important; }
+  .sched-table .interval-cell { text-align: right; font-size: 13px; max-width: 42vw; }
+  .sched-table .details-cell { grid-column: 1 / -1; }
+  .sched-table .details-cell:empty { display: none; }
+}

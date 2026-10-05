@@ -17,7 +17,7 @@
 
 import { commit, deleteWrite, listDocs, mergeWrite, setWrite } from './firestore-rest.mjs';
 import {
-  missingBaselines, scheduleDocs, scheduleIdsFor, schedulesVersion, validate,
+  assignmentsDoc, missingBaselines, scheduleDocs, scheduleIdsFor, schedulesVersion, validate,
 } from './schedules.mjs';
 
 const SAMSARA_BASE = 'https://api.samsara.com';
@@ -130,6 +130,7 @@ async function writeWithServiceAccount(fleet, staleIds, serviceAccountJson) {
   for (const schedule of scheduleDocs()) {
     batch.set(db.collection('maintenanceSchedules').doc(schedule.id), schedule);
   }
+  batch.set(db.collection('meta').doc('schedules'), assignmentsDoc());
   for (const email of allowedEmails()) {
     batch.set(db.collection('allowedUsers').doc(email), { email });
   }
@@ -153,6 +154,7 @@ async function writeWithPublicApi(fleet, staleIds) {
     ...fleet.map((v) => setWrite(`vehicles/${v.id}`, v, 'updatedAt')),
     ...staleIds.map((id) => deleteWrite(`vehicles/${id}`)),
     ...scheduleDocs().map((sch) => setWrite(`maintenanceSchedules/${sch.id}`, sch)),
+    setWrite('meta/schedules', assignmentsDoc()),
     ...allowedEmails().map((email) => setWrite(`allowedUsers/${email}`, { email })),
     setWrite('meta/sync', { vehicleCount: fleet.length, schedulesVersion }, 'lastRun'),
   ]);

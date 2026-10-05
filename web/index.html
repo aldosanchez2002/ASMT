@@ -48,6 +48,12 @@
     </section>
 
     <section id="fleet" hidden>
+      <nav class="tabs" aria-label="Views">
+        <a href="#" data-tab="trucks">Trucks</a>
+        <a href="#schedules" data-tab="schedules">Schedules</a>
+      </nav>
+
+      <div id="trucks-view">
       <div class="toolbar">
         <input id="search" type="search" placeholder="Search unit, model, VIN…" autocomplete="off">
         <select id="filter" aria-label="Filter trucks">
@@ -77,6 +83,12 @@
         </table>
       </div>
       <p id="empty" class="muted center" hidden></p>
+      </div>
+
+      <div id="schedules-view" hidden>
+        <p id="sched-intro" class="muted"></p>
+        <div id="sched-groups"></div>
+      </div>
     </section>
   </main>
 
