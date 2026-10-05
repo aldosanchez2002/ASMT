@@ -17,6 +17,8 @@
 
 const SAMSARA_BASE = 'https://api.samsara.com';
 const METERS_PER_MILE = 1609.344;
+// Trucks that haven't reported in this many days are left off the site.
+const STALE_AFTER_DAYS = 100;
 const dryRun = process.argv.includes('--dry-run');
 
 const apiKey = process.env.SAMSARA_API_KEY;
@@ -47,17 +49,21 @@ async function samsaraGetAll(path, params = {}) {
   return items;
 }
 
+// Returns the trucks that reported recently, plus the IDs of the ones that
+// haven't (so they can be removed from Firestore).
 async function fetchFleet() {
-  const [vehicles, stats] = await Promise.all([
+  const [vehicles, odoStats, gpsStats] = await Promise.all([
     samsaraGetAll('/fleet/vehicles'),
     samsaraGetAll('/fleet/vehicles/stats', {
       types: 'obdOdometerMeters,gpsOdometerMeters,obdEngineSeconds',
     }),
+    samsaraGetAll('/fleet/vehicles/stats', { types: 'gps' }),
   ]);
-  const statsById = new Map(stats.map((s) => [s.id, s]));
+  const odoById = new Map(odoStats.map((s) => [s.id, s]));
+  const gpsById = new Map(gpsStats.map((s) => [s.id, s]));
 
-  return vehicles.map((v) => {
-    const s = statsById.get(v.id) ?? {};
+  const fleet = vehicles.map((v) => {
+    const s = odoById.get(v.id) ?? {};
     // ECU (OBD) odometer matches the dash; GPS odometer is the fallback.
     const odo = s.obdOdometerMeters ?? s.gpsOdometerMeters;
     return {
@@ -71,8 +77,16 @@ async function fetchFleet() {
       odometerSource: s.obdOdometerMeters ? 'obd' : s.gpsOdometerMeters ? 'gps' : null,
       odometerTime: odo?.time ?? null,
       engineHours: s.obdEngineSeconds ? Math.round(s.obdEngineSeconds.value / 3600) : null,
+      lastReportedAt: gpsById.get(v.id)?.gps?.time ?? odo?.time ?? null,
     };
   });
+
+  const cutoff = Date.now() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+  const isActive = (v) => v.lastReportedAt && Date.parse(v.lastReportedAt) >= cutoff;
+  return {
+    active: fleet.filter(isActive),
+    staleIds: fleet.filter((v) => !isActive(v)).map((v) => v.id),
+  };
 }
 
 function allowedEmails() {
@@ -83,7 +97,7 @@ function allowedEmails() {
 }
 
 // Writes with admin credentials, which bypass the Firestore rules.
-async function writeWithServiceAccount(fleet, serviceAccountJson) {
+async function writeWithServiceAccount(fleet, staleIds, serviceAccountJson) {
   const { initializeApp, cert } = await import('firebase-admin/app');
   const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
 
@@ -96,6 +110,9 @@ async function writeWithServiceAccount(fleet, serviceAccountJson) {
       ...v,
       updatedAt: FieldValue.serverTimestamp(),
     });
+  }
+  for (const id of staleIds) {
+    batch.delete(db.collection('vehicles').doc(id));
   }
   for (const email of allowedEmails()) {
     batch.set(db.collection('allowedUsers').doc(email), { email });
@@ -118,7 +135,7 @@ function toFirestoreValue(value) {
 
 // Writes with the public web API key. Firestore treats this as an
 // unauthenticated request, so the rules must allow public writes.
-async function writeWithPublicApi(fleet) {
+async function writeWithPublicApi(fleet, staleIds) {
   const { firebaseConfig } = await import('../web/firebase-config.js');
   const { projectId, apiKey: webApiKey } = firebaseConfig;
   const docsPath = `projects/${projectId}/databases/(default)/documents`;
@@ -133,6 +150,7 @@ async function writeWithPublicApi(fleet) {
 
   const writes = [
     ...fleet.map((v) => setDoc(`vehicles/${v.id}`, v, 'updatedAt')),
+    ...staleIds.map((id) => ({ delete: `${docsPath}/vehicles/${id}` })),
     ...allowedEmails().map((email) => ({
       update: { name: `${docsPath}/allowedUsers/${email}`, fields: { email: toFirestoreValue(email) } },
     })),
@@ -159,22 +177,25 @@ async function writeWithPublicApi(fleet) {
   }
 }
 
-const fleet = await fetchFleet();
-console.log(`Fetched ${fleet.length} vehicles from Samsara`);
+const { active: fleet, staleIds } = await fetchFleet();
+console.log(
+  `Fetched ${fleet.length + staleIds.length} vehicles from Samsara: ` +
+  `${fleet.length} reported in the last ${STALE_AFTER_DAYS} days, ${staleIds.length} stale (removed)`,
+);
 
 if (dryRun) {
   console.table(
-    fleet.map(({ name, year, make, model, odometerMiles, odometerSource, engineHours }) => ({
-      name, year, make, model, odometerMiles, odometerSource, engineHours,
+    fleet.map(({ name, year, make, model, odometerMiles, engineHours, lastReportedAt }) => ({
+      name, year, make, model, odometerMiles, engineHours, lastReportedAt,
     })),
   );
 } else {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (serviceAccount) {
-    await writeWithServiceAccount(fleet, serviceAccount);
+    await writeWithServiceAccount(fleet, staleIds, serviceAccount);
     console.log('Wrote fleet to Firestore (service account)');
   } else {
-    await writeWithPublicApi(fleet);
+    await writeWithPublicApi(fleet, staleIds);
     console.log('Wrote fleet to Firestore (public API, no service account)');
   }
 }

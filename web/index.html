@@ -50,7 +50,6 @@
     <section id="fleet" hidden>
       <div class="toolbar">
         <input id="search" type="search" placeholder="Search unit, model, VIN…" autocomplete="off">
-        <label class="check"><input id="show-inactive" type="checkbox"> Show inactive</label>
         <span id="last-sync" class="muted"></span>
       </div>
 
@@ -66,6 +65,7 @@
               <th data-sort="model" class="wrap-sm">Model</th>
               <th data-sort="odometerMiles" class="num">Miles</th>
               <th data-sort="engineHours" class="num hide-sm">Engine hrs</th>
+              <th data-sort="lastReportedAt" class="hide-sm">Last reported</th>
               <th class="hide-sm">VIN</th>
             </tr>
           </thead>

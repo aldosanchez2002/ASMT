@@ -23,9 +23,21 @@ function show(section) {
   for (const id of ['loading', 'signed-out', 'not-allowed', 'fleet']) $(id).hidden = id !== section;
 }
 
-// Trucks Samsara still lists but that are no longer reporting.
-function isInactive(v) {
-  return v.odometerMiles == null || /deactivated|replaced/i.test(v.name);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Trucks that haven't reported in a week are shown dimmed.
+function isQuiet(v) {
+  return !v.lastReportedAt || Date.now() - Date.parse(v.lastReportedAt) > 7 * DAY_MS;
+}
+
+function timeAgo(iso) {
+  if (!iso) return '—';
+  const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (mins < 60) return `${Math.max(mins, 0)} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
 // Natural sort so "T-9" comes before "T-10".
@@ -40,10 +52,8 @@ function compare(a, b) {
 
 function render() {
   const q = $('search').value.trim().toLowerCase();
-  const showInactive = $('show-inactive').checked;
 
   const visible = vehicles
-    .filter((v) => showInactive || !isInactive(v))
     .filter((v) => !q || [v.name, v.make, v.model, v.year, v.vin].join(' ').toLowerCase().includes(q))
     .sort(compare);
 
@@ -90,17 +100,18 @@ function cell(text, className = '') {
 
 function row(v) {
   const tr = document.createElement('tr');
-  if (isInactive(v)) tr.className = 'inactive';
+  if (isQuiet(v)) tr.className = 'quiet';
   const miles = v.odometerMiles == null ? '—' : fmt.format(v.odometerMiles);
   const milesCell = cell(miles, 'num strong');
   if (v.odometerSource === 'gps') milesCell.title = 'GPS odometer (no ECU reading)';
   tr.append(
-    cell(v.name || '—', 'strong'),
+    cell(v.name || '—', 'strong wrap-sm'),
     cell(v.year || '—'),
     cell(titleCase(v.make || '—'), 'hide-sm'),
     cell(titleCase(v.model || '—'), 'wrap-sm'),
     milesCell,
     cell(v.engineHours == null ? '—' : fmt.format(v.engineHours), 'num hide-sm'),
+    cell(timeAgo(v.lastReportedAt), 'muted-cell hide-sm'),
     cell(v.vin || '—', 'mono hide-sm'),
   );
   return tr;
@@ -166,7 +177,6 @@ $('sign-in').addEventListener('click', async () => {
 });
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
-$('show-inactive').addEventListener('change', render);
 for (const th of document.querySelectorAll('th[data-sort]')) {
   th.addEventListener('click', () => {
     sortDir = sortKey === th.dataset.sort ? -sortDir : 1;

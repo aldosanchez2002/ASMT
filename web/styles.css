@@ -118,7 +118,8 @@ th.sorted[data-dir="desc"]::after { content: " ▼"; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .strong { font-weight: 600; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--muted); }
-tr.inactive td { opacity: .5; }
+.muted-cell { color: var(--muted); font-size: 13px; }
+tr.quiet td { opacity: .55; }
 
 @media (max-width: 640px) {
   .hide-sm { display: none; }

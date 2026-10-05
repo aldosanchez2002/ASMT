@@ -69,6 +69,7 @@ npm run serve                          # serves web/ locally
 | `odometerSource` | `obd` or `gps` |
 | `odometerTime` | When Samsara last got the reading |
 | `engineHours` | From the ECU |
+| `lastReportedAt` | Last GPS ping from the truck. Trucks silent for 100+ days are skipped and removed from Firestore |
 | `updatedAt` | When the sync last wrote this truck |
 
 `meta/sync`: `lastRun`, `vehicleCount` · `allowedUsers/{email}`: viewer allowlist, used only when sign-in is on (managed by the sync job)
