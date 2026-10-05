@@ -15,8 +15,10 @@
 //   node scripts/sync-samsara.mjs            # sync to Firestore
 //   node scripts/sync-samsara.mjs --dry-run  # just print what would be written
 
-import { commit, deleteWrite, setWrite } from './firestore-rest.mjs';
-import { scheduleDocs, scheduleIdsFor, schedulesVersion, validate } from './schedules.mjs';
+import { commit, deleteWrite, listDocs, mergeWrite, setWrite } from './firestore-rest.mjs';
+import {
+  missingBaselines, scheduleDocs, scheduleIdsFor, schedulesVersion, validate,
+} from './schedules.mjs';
 
 const SAMSARA_BASE = 'https://api.samsara.com';
 const METERS_PER_MILE = 1609.344;
@@ -108,7 +110,14 @@ async function writeWithServiceAccount(fleet, staleIds, serviceAccountJson) {
   initializeApp({ credential: cert(JSON.parse(serviceAccountJson)) });
   const db = getFirestore();
 
+  const recordsSnap = await db.collection('serviceRecords').get();
+  const records = Object.fromEntries(recordsSnap.docs.map((d) => [d.id, d.data()]));
+  const baselines = missingBaselines(fleet, records);
+
   const batch = db.batch();
+  for (const [vehicleId, items] of Object.entries(baselines)) {
+    batch.set(db.collection('serviceRecords').doc(vehicleId), { vehicleId, items }, { merge: true });
+  }
   for (const v of fleet) {
     batch.set(db.collection('vehicles').doc(v.id), {
       ...v,
@@ -130,17 +139,24 @@ async function writeWithServiceAccount(fleet, staleIds, serviceAccountJson) {
     schedulesVersion,
   });
   await batch.commit();
+  return baselines;
 }
 
 // Writes with the public web API key (see firestore-rest.mjs).
 async function writeWithPublicApi(fleet, staleIds) {
+  const baselines = missingBaselines(fleet, await listDocs('serviceRecords'));
   await commit([
+    ...Object.entries(baselines).map(([vehicleId, items]) => mergeWrite(`serviceRecords/${vehicleId}`, {
+      vehicleId,
+      ...Object.fromEntries(Object.entries(items).map(([key, rec]) => [`items.\`${key}\``, rec])),
+    })),
     ...fleet.map((v) => setWrite(`vehicles/${v.id}`, v, 'updatedAt')),
     ...staleIds.map((id) => deleteWrite(`vehicles/${id}`)),
     ...scheduleDocs().map((sch) => setWrite(`maintenanceSchedules/${sch.id}`, sch)),
     ...allowedEmails().map((email) => setWrite(`allowedUsers/${email}`, { email })),
     setWrite('meta/sync', { vehicleCount: fleet.length, schedulesVersion }, 'lastRun'),
   ]);
+  return baselines;
 }
 
 validate();
@@ -165,11 +181,12 @@ if (dryRun) {
   );
 } else {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (serviceAccount) {
-    await writeWithServiceAccount(fleet, staleIds, serviceAccount);
-    console.log('Wrote fleet and schedules to Firestore (service account)');
-  } else {
-    await writeWithPublicApi(fleet, staleIds);
-    console.log('Wrote fleet and schedules to Firestore (public API, no service account)');
-  }
+  const baselines = serviceAccount
+    ? await writeWithServiceAccount(fleet, staleIds, serviceAccount)
+    : await writeWithPublicApi(fleet, staleIds);
+  const added = Object.values(baselines).reduce((n, items) => n + Object.keys(items).length, 0);
+  console.log(
+    `Wrote fleet and schedules to Firestore (${serviceAccount ? 'service account' : 'public API'}); ` +
+    `added ${added} baseline service record(s) for ${Object.keys(baselines).length} truck(s)`,
+  );
 }

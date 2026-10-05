@@ -58,3 +58,31 @@ export function scheduleIdsFor(vehicle) {
 }
 
 export const schedulesVersion = data.version;
+
+// Key for an item in serviceRecords/{vehicleId}.items (matches web/maintenance.js).
+export const recordKey = (scheduleId, itemId) => `${scheduleId}__${itemId}`;
+
+// For each truck, the service items that have no record yet, as baseline
+// records ("treat as done today at the current miles/hours"). Existing
+// records are never touched.
+export function missingBaselines(fleet, serviceRecords, today = new Date().toISOString().slice(0, 10)) {
+  const byId = new Map(data.schedules.map((s) => [s.id, s]));
+  const out = {};
+  for (const v of fleet) {
+    if (v.odometerMiles == null) continue;
+    const existing = serviceRecords[v.id]?.items ?? {};
+    for (const scheduleId of v.scheduleIds) {
+      for (const item of byId.get(scheduleId)?.items ?? []) {
+        const key = recordKey(scheduleId, item.id);
+        if (existing[key]) continue;
+        (out[v.id] ??= {})[key] = {
+          miles: v.odometerMiles,
+          hours: v.engineHours ?? null,
+          date: today,
+          source: 'baseline',
+        };
+      }
+    }
+  }
+  return out;
+}

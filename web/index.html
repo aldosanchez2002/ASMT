@@ -50,6 +50,10 @@
     <section id="fleet" hidden>
       <div class="toolbar">
         <input id="search" type="search" placeholder="Search unit, model, VIN…" autocomplete="off">
+        <select id="filter" aria-label="Filter trucks">
+          <option value="all">All trucks</option>
+          <option value="attention">Overdue or due soon</option>
+        </select>
         <span id="last-sync" class="muted"></span>
       </div>
 
@@ -60,13 +64,13 @@
           <thead>
             <tr>
               <th data-sort="name">Unit</th>
-              <th data-sort="year">Year</th>
+              <th data-sort="year" class="hide-sm">Year</th>
               <th data-sort="make" class="hide-sm">Make</th>
-              <th data-sort="model" class="wrap-sm">Model</th>
+              <th data-sort="model" class="hide-sm">Model</th>
               <th data-sort="odometerMiles" class="num">Miles</th>
+              <th data-sort="nextRank">Next service</th>
               <th data-sort="engineHours" class="num hide-sm">Engine hrs</th>
               <th data-sort="lastReportedAt" class="hide-sm">Last reported</th>
-              <th class="hide-sm">VIN</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -75,5 +79,16 @@
       <p id="empty" class="muted center" hidden></p>
     </section>
   </main>
+
+  <dialog id="truck" aria-labelledby="t-title">
+    <div class="dlg-head">
+      <div>
+        <h2 id="t-title"></h2>
+        <p id="t-sub" class="muted"></p>
+      </div>
+      <button id="t-close" class="btn btn-ghost" type="button">Close</button>
+    </div>
+    <div id="t-body"></div>
+  </dialog>
 </body>
 </html>

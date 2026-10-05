@@ -83,3 +83,16 @@ All schedules live in [`data/maintenance-schedules.json`](data/maintenance-sched
 
 To change a schedule, edit the JSON and either wait for the next sync or run `npm run seed:schedules`. Both validate the file first and fail with a list of problems if something is off (unknown schedule id, missing interval, and so on). The sync log warns about any active truck that no assignment rule matches.
 
+## Service tracking
+
+Tracking starts from the first sync after schedules are assigned: for every service item a truck doesn't have a record for yet, the sync writes a **baseline** ("treat as done today at the current miles and engine hours"). It never overwrites existing records.
+
+On the site, the **Next service** column shows each truck's most urgent item. Click a truck to see every item with its due point (miles, engine hours or date, whichever comes first) and status: overdue, due soon (within 10% of the interval, at least 2,500 mi, or 30 days) or OK. **Mark done** logs a service; miles, hours and date default to the truck's current values and can be edited to back-date a service.
+
+| Collection | Contents |
+|---|---|
+| `serviceRecords/{vehicleId}` | `items` map keyed `{scheduleId}__{itemId}` → the latest `{ miles, hours, date, source: 'baseline' \| 'done', note }` |
+| `serviceLog/{autoId}` | One entry per **Mark done**: truck, item, miles, hours, date, note, `loggedAt` |
+
+The due-date logic lives in `web/maintenance.js` and is covered by `npm test`.
+

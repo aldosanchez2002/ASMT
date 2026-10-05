@@ -22,7 +22,15 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      # GitHub Pages lets browsers cache files for hours. Stamping the commit
+      # into every asset URL makes browsers fetch fresh files after a deploy.
+      - name: Stamp asset URLs with the commit
+        run: |
+          v="${GITHUB_SHA::8}"
+          sed -i -E "s#(src|href)=\"(app\.js|styles\.css)\"#\1=\"\2?v=$v\"#g" web/index.html
+          sed -i -E "s#from '\./([a-z-]+)\.js'#from './\1.js?v=$v'#g" web/*.js
+          grep -n "?v=" web/index.html web/*.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -55,3 +55,53 @@ export async function commit(writes) {
     }
   }
 }
+
+// Merges only the listed fields into a document (creating it if needed),
+// leaving every other field untouched. `fields` is { 'a.`b-c`': value } style
+// paths mapped to values; nested maps are built from the dotted paths.
+export function mergeWrite(path, fieldValues) {
+  const fields = {};
+  for (const [fieldPath, value] of Object.entries(fieldValues)) {
+    const parts = fieldPath.match(/`[^`]+`|[^.]+/g).map((p) => p.replace(/`/g, ''));
+    let target = fields;
+    parts.slice(0, -1).forEach((p) => {
+      target[p] ??= { mapValue: { fields: {} } };
+      target = target[p].mapValue.fields;
+    });
+    target[parts.at(-1)] = toValue(value);
+  }
+  return {
+    update: { name: `${docsPath}/${path}`, fields },
+    updateMask: { fieldPaths: Object.keys(fieldValues) },
+  };
+}
+
+// Converts a Firestore REST value back to a plain JS value.
+export function fromValue(v) {
+  const [type, x] = Object.entries(v)[0];
+  if (type === 'mapValue') return Object.fromEntries(Object.entries(x.fields ?? {}).map(([k, y]) => [k, fromValue(y)]));
+  if (type === 'arrayValue') return (x.values ?? []).map(fromValue);
+  if (type === 'integerValue') return Number(x);
+  if (type === 'nullValue') return null;
+  return x;
+}
+
+// Reads every document in a collection as { id: data }.
+export async function listDocs(collection) {
+  const docs = {};
+  let pageToken;
+  do {
+    const url = new URL(`https://firestore.googleapis.com/v1/${docsPath}/${collection}`);
+    url.searchParams.set('key', apiKey);
+    url.searchParams.set('pageSize', '300');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Firestore read of ${collection} failed: ${res.status} ${await res.text()}`);
+    const body = await res.json();
+    for (const d of body.documents ?? []) {
+      docs[d.name.split('/').pop()] = fromValue({ mapValue: { fields: d.fields ?? {} } });
+    }
+    pageToken = body.nextPageToken;
+  } while (pageToken);
+  return docs;
+}

@@ -3,9 +3,10 @@ import {
   getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
-  getFirestore, collection, doc, onSnapshot,
+  getFirestore, addDoc, collection, doc, onSnapshot, serverTimestamp, setDoc,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig, requireSignIn } from './firebase-config.js';
+import { mostUrgent, truckMaintenance } from './maintenance.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -15,6 +16,10 @@ const $ = (id) => document.getElementById(id);
 const fmt = new Intl.NumberFormat('en-US');
 
 let vehicles = [];
+let schedules = new Map(); // scheduleId -> maintenanceSchedules doc
+let records = {}; // vehicleId -> serviceRecords doc
+let openTruckId = null; // truck shown in the detail dialog
+let openFormKey = null; // item whose "Mark done" form is open
 let sortKey = 'name';
 let sortDir = 1;
 let unsubscribers = [];
@@ -40,6 +45,57 @@ function timeAgo(iso) {
   return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
+const STATUS_RANK = { overdue: 0, soon: 1, ok: 2 };
+const STATUS_LABEL = {
+  overdue: 'Overdue', soon: 'Due soon', ok: 'OK', done: 'Done', 'n/a': 'N/A',
+  'as-needed': 'As needed', 'no-record': 'Waiting for sync',
+};
+
+// Attaches each truck's maintenance rows and its most urgent item.
+function withMaintenance(v) {
+  const rows = truckMaintenance(v, schedules, records[v.id]?.items);
+  const next = mostUrgent(rows);
+  const rank = next ? STATUS_RANK[next.status] : 3;
+  return { ...v, rows, next, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)) };
+}
+
+const plural = (n, word) => `${fmt.format(n)} ${word}${Math.abs(n) === 1 ? '' : 's'}`;
+
+// The dimension (miles / hours / days) that runs out first, as short text.
+function limitingText(r) {
+  const options = [];
+  if (r.milesLeft != null) {
+    options.push({ ratio: r.milesLeft / (r.item.intervalMiles || r.item.firstDueMiles), n: r.milesLeft, unit: 'mi' });
+  }
+  if (r.hoursLeft != null) options.push({ ratio: r.hoursLeft / r.item.intervalHours, n: r.hoursLeft, unit: 'h' });
+  if (r.daysLeft != null) options.push({ ratio: r.daysLeft / (r.item.intervalMonths * 30.4), n: r.daysLeft, unit: 'day' });
+  const o = options.sort((a, b) => a.ratio - b.ratio)[0];
+  if (!o) return STATUS_LABEL[r.status];
+  const amount = o.unit === 'day' ? plural(Math.abs(o.n), 'day') : `${fmt.format(Math.abs(o.n))} ${o.unit}`;
+  return o.n < 0 ? `${amount} overdue` : `in ${amount}`;
+}
+
+function intervalText(item) {
+  const parts = [];
+  if (item.intervalMiles) parts.push(`${fmt.format(item.intervalMiles)} mi`);
+  if (item.intervalHours) parts.push(`${fmt.format(item.intervalHours)} h`);
+  if (item.intervalMonths) parts.push(plural(item.intervalMonths, 'month'));
+  const every = parts.length ? `Every ${parts.join(' / ')}` : '';
+  const first = item.firstDueMiles ? `${item.intervalMiles ? 'First' : 'Once'} at ${fmt.format(item.firstDueMiles)} mi` : '';
+  return [first, every].filter(Boolean).join(' · ') || 'As needed';
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function statusDot(status) {
+  return el('span', `dot dot-${status}`);
+}
+
 // Natural sort so "T-9" comes before "T-10".
 function compare(a, b) {
   const x = a[sortKey];
@@ -52,10 +108,15 @@ function compare(a, b) {
 
 function render() {
   const q = $('search').value.trim().toLowerCase();
+  const attentionOnly = $('filter').value === 'attention';
 
-  const visible = vehicles
+  const all = vehicles.map(withMaintenance);
+  const visible = all
     .filter((v) => !q || [v.name, v.make, v.model, v.year, v.vin].join(' ').toLowerCase().includes(q))
+    .filter((v) => !attentionOnly || (v.next && v.next.status !== 'ok'))
     .sort(compare);
+  const overdue = all.filter((v) => v.next?.status === 'overdue').length;
+  const soon = all.filter((v) => v.next?.status === 'soon').length;
 
   // Count by make + model.
   const counts = new Map();
@@ -65,6 +126,8 @@ function render() {
   }
   $('summary').replaceChildren(
     chip(`${visible.length} trucks`, true),
+    chip(`${overdue} overdue`, false, overdue ? 'chip-overdue' : ''),
+    chip(`${soon} due soon`, false, soon ? 'chip-soon' : ''),
     ...[...counts].sort((a, b) => b[1] - a[1]).map(([k, n]) => chip(`${titleCase(k)} · ${n}`)),
   );
 
@@ -78,13 +141,12 @@ function render() {
     th.classList.toggle('sorted', th.dataset.sort === sortKey);
     th.dataset.dir = sortDir === 1 ? 'asc' : 'desc';
   }
+
+  if (openTruckId) renderTruck(all.find((v) => v.id === openTruckId));
 }
 
-function chip(text, strong = false) {
-  const el = document.createElement('span');
-  el.className = strong ? 'chip chip-strong' : 'chip';
-  el.textContent = text;
-  return el;
+function chip(text, strong = false, extraClass = '') {
+  return el('span', ['chip', strong && 'chip-strong', extraClass].filter(Boolean).join(' '), text);
 }
 
 function titleCase(s) {
@@ -98,23 +160,181 @@ function cell(text, className = '') {
   return td;
 }
 
+function nextCell(v) {
+  const td = el('td', 'next-cell');
+  if (!v.next) {
+    td.append(el('span', 'muted-cell', v.scheduleIds?.length ? 'Waiting for sync' : 'No schedule'));
+    return td;
+  }
+  td.append(statusDot(v.next.status), el('span', 'next-name', v.next.item.name), el('span', `next-when when-${v.next.status}`, limitingText(v.next)));
+  return td;
+}
+
 function row(v) {
   const tr = document.createElement('tr');
-  if (isQuiet(v)) tr.className = 'quiet';
+  tr.className = ['clickable', isQuiet(v) && 'quiet'].filter(Boolean).join(' ');
+  tr.tabIndex = 0;
+  tr.addEventListener('click', () => openTruck(v.id));
+  tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') openTruck(v.id); });
   const miles = v.odometerMiles == null ? '—' : fmt.format(v.odometerMiles);
   const milesCell = cell(miles, 'num strong');
   if (v.odometerSource === 'gps') milesCell.title = 'GPS odometer (no ECU reading)';
   tr.append(
     cell(v.name || '—', 'strong wrap-sm'),
-    cell(v.year || '—'),
+    cell(v.year || '—', 'hide-sm'),
     cell(titleCase(v.make || '—'), 'hide-sm'),
-    cell(titleCase(v.model || '—'), 'wrap-sm'),
+    cell(titleCase(v.model || '—'), 'hide-sm'),
     milesCell,
+    nextCell(v),
     cell(v.engineHours == null ? '—' : fmt.format(v.engineHours), 'num hide-sm'),
     cell(timeAgo(v.lastReportedAt), 'muted-cell hide-sm'),
-    cell(v.vin || '—', 'mono hide-sm'),
   );
   return tr;
+}
+
+// ---- Truck detail dialog -------------------------------------------------
+
+function openTruck(id) {
+  openTruckId = id;
+  openFormKey = null;
+  render();
+  if (!$('truck').open) $('truck').showModal();
+}
+
+function lastText(last) {
+  if (!last) return 'No record yet';
+  const what = last.source === 'baseline' ? 'Starting point' : 'Last done';
+  const miles = last.miles != null ? `${fmt.format(last.miles)} mi` : '';
+  return `${what}: ${[miles, last.date].filter(Boolean).join(' on ')}${last.note ? ` · "${last.note}"` : ''}`;
+}
+
+function dueText(r) {
+  const parts = [];
+  if (r.dueMiles != null) parts.push(`${fmt.format(r.dueMiles)} mi`);
+  if (r.dueHours != null) parts.push(`${fmt.format(r.dueHours)} h`);
+  if (r.dueDate) parts.push(r.dueDate);
+  return parts.length ? `Due at ${parts.join(' or ')} · ${limitingText(r)}` : STATUS_LABEL[r.status];
+}
+
+function renderTruck(v) {
+  if (!v) { $('truck').close(); return; }
+  $('t-title').textContent = v.name;
+  $('t-sub').textContent = [
+    [v.year, titleCase(v.make || ''), titleCase(v.model || '')].filter(Boolean).join(' '),
+    v.odometerMiles != null && `${fmt.format(v.odometerMiles)} mi`,
+    v.engineHours != null && `${fmt.format(v.engineHours)} engine h`,
+    v.vin && `VIN ${v.vin}`,
+  ].filter(Boolean).join(' · ');
+
+  const body = $('t-body');
+  body.replaceChildren();
+  if (!v.rows.length) {
+    body.append(el('p', 'muted', v.scheduleIds?.length
+      ? 'Schedules are loading, or the sync has not recorded a starting point yet.'
+      : 'No maintenance schedule matches this truck. Add a rule in data/maintenance-schedules.json.'));
+    return;
+  }
+
+  for (const scheduleId of v.scheduleIds) {
+    const schedule = schedules.get(scheduleId);
+    if (!schedule) continue;
+    const section = el('section', 'sched');
+    const head = el('div', 'sched-head');
+    head.append(el('h3', null, schedule.name));
+    const link = el('a', 'muted', 'Manual');
+    link.href = schedule.sourceUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    head.append(link);
+    section.append(head);
+
+    for (const r of v.rows.filter((x) => x.schedule.id === scheduleId)) {
+      section.append(itemRow(v, r));
+    }
+    body.append(section);
+  }
+}
+
+function itemRow(v, r) {
+  const li = el('div', `item item-${r.status}`);
+  const top = el('div', 'item-top');
+  const name = el('div', 'item-name');
+  name.append(statusDot(r.status), el('span', null, r.item.name));
+  top.append(name);
+  if (r.status !== 'as-needed') {
+    const btn = el('button', 'btn btn-ghost btn-sm', openFormKey === r.key ? 'Cancel' : 'Mark done');
+    btn.addEventListener('click', () => {
+      openFormKey = openFormKey === r.key ? null : r.key;
+      render();
+    });
+    top.append(btn);
+  }
+  li.append(top);
+  li.append(el('div', `item-due when-${r.status}`, dueText(r)));
+  li.append(el('div', 'item-meta', `${intervalText(r.item)} · ${lastText(r.last)}`));
+  if (r.item.notes) li.append(el('div', 'item-meta', r.item.notes));
+  if (r.item.tasks?.length) {
+    const details = el('details', 'item-tasks');
+    details.append(el('summary', null, `${r.item.tasks.length} tasks`));
+    const ul = el('ul');
+    r.item.tasks.forEach((t) => ul.append(el('li', null, t)));
+    details.append(ul);
+    li.append(details);
+  }
+  if (openFormKey === r.key) li.append(doneForm(v, r));
+  return li;
+}
+
+function field(label, input) {
+  const wrap = el('label', 'field');
+  wrap.append(el('span', null, label), input);
+  return wrap;
+}
+
+function doneForm(v, r) {
+  const form = el('form', 'done-form');
+  const miles = Object.assign(el('input'), { type: 'number', min: 0, required: true, value: v.odometerMiles ?? '' });
+  const hours = Object.assign(el('input'), { type: 'number', min: 0, value: v.engineHours ?? '' });
+  const date = Object.assign(el('input'), { type: 'date', required: true, value: new Date().toLocaleDateString('en-CA') });
+  const note = Object.assign(el('input'), { type: 'text', placeholder: 'Optional (shop, invoice #, notes)' });
+  const save = el('button', 'btn btn-sm', 'Save');
+  save.type = 'submit';
+  form.append(field('Miles', miles), field('Engine hours', hours), field('Date', date), field('Note', note), save);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    save.disabled = true;
+    save.textContent = 'Saving…';
+    const record = {
+      miles: Number(miles.value),
+      hours: hours.value === '' ? null : Number(hours.value),
+      date: date.value,
+      note: note.value.trim(),
+      source: 'done',
+    };
+    try {
+      await setDoc(doc(db, 'serviceRecords', v.id), {
+        vehicleId: v.id,
+        items: { [r.key]: { ...record, loggedAt: serverTimestamp() } },
+      }, { merge: true });
+      await addDoc(collection(db, 'serviceLog'), {
+        ...record,
+        vehicleId: v.id,
+        vehicleName: v.name,
+        scheduleId: r.schedule.id,
+        itemId: r.item.id,
+        itemName: r.item.name,
+        loggedAt: serverTimestamp(),
+      });
+      openFormKey = null;
+      render();
+    } catch (err) {
+      save.disabled = false;
+      save.textContent = 'Save';
+      showAppError(`Could not save: ${err.message}`);
+    }
+  });
+  return form;
 }
 
 function watchFleet() {
@@ -138,6 +358,14 @@ function watchFleet() {
         } else showAppError(err.message);
       },
     ),
+    onSnapshot(collection(db, 'maintenanceSchedules'), (snap) => {
+      schedules = new Map(snap.docs.map((d) => [d.id, d.data()]));
+      render();
+    }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'serviceRecords'), (snap) => {
+      records = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+      render();
+    }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'sync'), (snap) => {
       const t = snap.data()?.lastRun?.toDate();
       $('last-sync').textContent = t ? `Synced ${t.toLocaleString()}` : '';
@@ -177,6 +405,11 @@ $('sign-in').addEventListener('click', async () => {
 });
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
+$('filter').addEventListener('change', render);
+$('t-close').addEventListener('click', () => $('truck').close());
+$('truck').addEventListener('close', () => { openTruckId = null; openFormKey = null; });
+// Clicking the dimmed backdrop closes the dialog.
+$('truck').addEventListener('click', (e) => { if (e.target === $('truck')) $('truck').close(); });
 for (const th of document.querySelectorAll('th[data-sort]')) {
   th.addEventListener('click', () => {
     sortDir = sortKey === th.dataset.sort ? -sortDir : 1;

@@ -8,6 +8,12 @@
   --accent-text: #ffffff;
   --chip: #eef1f5;
   --row-hover: #f2f5fa;
+  --red: #c62828;
+  --red-bg: #fdecea;
+  --amber: #a15c00;
+  --amber-bg: #fff4e0;
+  --green: #2e7d32;
+  --gray: #9aa1ad;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -21,6 +27,12 @@
     --accent-text: #0b0d10;
     --chip: #252a33;
     --row-hover: #20242b;
+    --red: #ff6b6b;
+    --red-bg: #3a1d1f;
+    --amber: #f0b153;
+    --amber-bg: #3a2c16;
+    --green: #5cc46a;
+    --gray: #6c7480;
   }
 }
 
@@ -124,6 +136,109 @@ tr.quiet td { opacity: .55; }
 @media (max-width: 640px) {
   .hide-sm { display: none; }
   .wrap-sm { white-space: normal; }
+  .next-cell { min-width: 0; }
+  .next-cell .next-when { display: block; margin-left: 16px; }
   #last-sync { margin-left: 0; width: 100%; }
   th, td { padding: 8px; }
+}
+
+/* ---- Maintenance status ---- */
+.toolbar select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.chip-overdue { background: var(--red-bg); color: var(--red); font-weight: 600; }
+.chip-soon { background: var(--amber-bg); color: var(--amber); font-weight: 600; }
+
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; flex: none; background: var(--gray); }
+.dot-overdue { background: var(--red); }
+.dot-soon { background: var(--amber); }
+.dot-ok { background: var(--green); }
+
+.when-overdue { color: var(--red); font-weight: 600; }
+.when-soon { color: var(--amber); font-weight: 600; }
+
+tr.clickable { cursor: pointer; }
+tr.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.next-cell { white-space: normal; min-width: 200px; }
+.next-cell .next-name { margin-right: 8px; }
+.next-cell .next-when { font-size: 13px; color: var(--muted); }
+.next-cell .when-overdue, .next-cell .when-soon { color: inherit; }
+.next-cell .next-when.when-overdue { color: var(--red); }
+.next-cell .next-when.when-soon { color: var(--amber); }
+
+/* ---- Truck dialog ---- */
+dialog#truck {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+}
+dialog#truck::backdrop { background: rgba(0, 0, 0, .45); }
+.dlg-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+.dlg-head h2 { margin: 0 0 2px; font-size: 20px; }
+.dlg-head p { margin: 0; }
+#t-body { padding: 8px 16px 16px; }
+
+.sched { margin-top: 12px; }
+.sched-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.sched-head h3 { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+
+.item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.item-overdue { border-left-color: var(--red); }
+.item-soon { border-left-color: var(--amber); }
+.item-ok { border-left-color: var(--green); }
+.item-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.item-name { display: flex; align-items: center; font-weight: 600; }
+.item-due { margin-top: 4px; font-size: 14px; }
+.item-meta { margin-top: 2px; font-size: 13px; color: var(--muted); }
+.item-tasks { margin-top: 6px; font-size: 13px; }
+.item-tasks summary { cursor: pointer; color: var(--accent); }
+.item-tasks ul { margin: 6px 0 0; padding-left: 20px; }
+.btn-sm { padding: 4px 10px; font-size: 13px; }
+
+.done-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  align-items: end;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.field input {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  min-width: 0;
 }
