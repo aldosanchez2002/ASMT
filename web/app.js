@@ -135,9 +135,9 @@ function render() {
   }
   $('summary').replaceChildren(
     chip(`${visible.length} trucks`, true),
-    chip(`${overdue} overdue`, false, overdue ? 'chip-overdue' : ''),
-    chip(`${soon} due soon`, false, soon ? 'chip-soon' : ''),
-    ...[...counts].sort((a, b) => b[1] - a[1]).map(([k, n]) => chip(`${titleCase(k)} · ${n}`)),
+    filterChip(`${overdue} overdue`, overdue ? 'chip-overdue' : ''),
+    filterChip(`${soon} due soon`, soon ? 'chip-soon' : ''),
+    ...[...counts].sort((a, b) => b[1] - a[1]).map(([k, n]) => chip(`${titleCase(k)} · ${n}`, false, 'hide-sm')),
   );
 
   $('rows').replaceChildren(...visible.map(row));
@@ -206,13 +206,16 @@ function renderContainers() {
     } else {
       loc.textContent = c.location || '—';
     }
-    const status = el('td');
-    status.append(
-      el('span', `dot ${isMoving(c) ? 'dot-ok' : ''}`),
-      document.createTextNode(isMoving(c) ? `Moving · ${Math.round(c.speedMph)} mph` : 'Parked'),
-    );
+    const statusText = isMoving(c) ? `Moving · ${Math.round(c.speedMph)} mph` : 'Parked';
+    const status = el('td', 'hide-sm');
+    status.append(el('span', `dot ${isMoving(c) ? 'dot-ok' : ''}`), document.createTextNode(statusText));
+    // On phones the status column is hidden and shown under the unit name instead.
+    const unit = el('td', 'strong', c.name || '—');
+    const unitStatus = el('div', 'item-meta show-sm');
+    unitStatus.append(el('span', `dot ${isMoving(c) ? 'dot-ok' : ''}`), document.createTextNode(statusText));
+    unit.append(unitStatus);
     tr.append(
-      el('td', 'strong', c.name || '—'),
+      unit,
       loc,
       status,
       el('td', 'muted-cell', timeAgo(c.lastReportedAt)),
@@ -221,6 +224,7 @@ function renderContainers() {
     return tr;
   }));
   $('c-empty').hidden = visible.length > 0;
+  $('c-rows').closest('.table-wrap').hidden = visible.length === 0;
   $('c-empty').textContent = containers.length
     ? 'No containers match.'
     : 'No containers in the database yet. They are added by the next sync.';
@@ -272,6 +276,7 @@ function renderLog() {
     ? `${plural(rows.length, 'service')} on ${plural(trucks, 'truck')}`
     : '';
   $('log-empty').hidden = rows.length > 0;
+  $('log-rows').closest('.table-wrap').hidden = rows.length === 0;
   $('log-empty').textContent = serviceLog.length
     ? 'No services match these filters.'
     : 'No services logged yet. Open a truck on the Trucks tab and use "Mark done".';
@@ -374,6 +379,10 @@ function renderSetup() {
   const defs = assignments?.settings ?? [];
   $('fleet-setup').hidden = defs.length === 0;
   const current = settings();
+  const changed = defs.filter((d) => current[d.id] !== d.default);
+  $('setup-summary').textContent = changed.length
+    ? changed.map((d) => (current[d.id] ? d.label : `No ${d.label.charAt(0).toLowerCase()}${d.label.slice(1)}`)).join(' · ')
+    : 'Manufacturer defaults';
   $('setup-toggles').replaceChildren(...defs.map((d) => {
     const row = el('label', 'toggle');
     const input = Object.assign(el('input'), { type: 'checkbox', checked: current[d.id] });
@@ -397,20 +406,9 @@ function renderSetup() {
   }));
 }
 
-function renderSchedules() {
-  if (currentTab() !== 'schedules') return;
-  renderSetup();
-  const groupsEl = $('sched-groups');
-  if (!assignments || !schedules.size) {
-    $('sched-intro').textContent = 'Loading schedules…';
-    groupsEl.replaceChildren();
-    return;
-  }
-  $('sched-intro').textContent = `Manufacturer maintenance schedules for each model and year in the fleet, at the ${assignments.dutyCycle} duty cycle. ${assignments.notes}`;
+let openGroupKey = null; // year/model group shown in the schedule popup
 
-  // Remember which groups were open so live updates don't collapse them.
-  const open = new Set([...groupsEl.querySelectorAll('details.group[open]')].map((d) => d.dataset.key));
-
+function scheduleGroups() {
   const groups = assignments.assignments.map((a) => ({
     ...a,
     key: a.schedules.join('|') + JSON.stringify(a.match),
@@ -419,41 +417,83 @@ function renderSchedules() {
       .sort((x, y) => String(x.name).localeCompare(String(y.name), undefined, { numeric: true })),
   }));
   // Groups with trucks first, then the rest.
-  groups.sort((a, b) => (b.trucks.length > 0) - (a.trucks.length > 0));
+  return groups.sort((a, b) => (b.trucks.length > 0) - (a.trucks.length > 0));
+}
 
+function groupEngine(g) {
+  return g.schedules.map((id) => schedules.get(id)).find((s) => s?.category === 'engine');
+}
+
+function renderSchedules() {
+  if (currentTab() !== 'schedules' && !openGroupKey) return;
+  renderSetup();
+  const groupsEl = $('sched-groups');
+  if (!assignments || !schedules.size) {
+    $('sched-intro').textContent = 'Loading schedules…';
+    groupsEl.replaceChildren();
+    return;
+  }
+  $('sched-intro').textContent = 'Manufacturer schedules at the OTR / normal duty cycle. Tap a model to see its schedule.';
+
+  const groups = scheduleGroups();
   groupsEl.replaceChildren(...groups.map((g) => {
-    const details = el('details', `group${g.trucks.length ? '' : ' group-empty'}`);
-    details.dataset.key = g.key;
-    details.open = open.has(g.key);
-    const summary = el('summary');
-    const titleRow = el('div', 'group-title');
-    titleRow.append(
-      el('span', 'strong', groupTitle(g.match, g.trucks)),
-      el('span', 'chip', g.trucks.length ? plural(g.trucks.length, 'truck') : 'No trucks in fleet'),
-    );
-    const engine = g.schedules.map((id) => schedules.get(id)).find((s) => s?.category === 'engine');
-    const covers = `Applies to ${yearRange(g.match.yearMin, g.match.yearMax)} models`;
-    summary.append(titleRow, el('div', 'muted', [engine?.name, covers, g.notes].filter(Boolean).join(' · ')));
-    details.append(summary);
-
-    const body = el('div', 'group-body');
-    if (g.trucks.length) {
-      const chips = el('div', 'truck-chips');
-      for (const v of g.trucks) {
-        const b = el('button', 'chip chip-btn', `${v.name} · ${v.year}`);
-        b.type = 'button';
-        b.addEventListener('click', () => openTruck(v.id));
-        chips.append(b);
-      }
-      body.append(chips);
-    }
-    for (const id of g.schedules) {
-      const schedule = schedules.get(id);
-      if (schedule) body.append(scheduleTable(schedule));
-    }
-    details.append(body);
-    return details;
+    const b = el('button', `group-row${g.trucks.length ? '' : ' group-empty'}`);
+    b.type = 'button';
+    const main = el('span', 'group-main');
+    main.append(el('span', 'group-name', groupTitle(g.match, g.trucks)), el('span', 'muted', groupEngine(g)?.name ?? ''));
+    b.append(main, el('span', 'chip', g.trucks.length ? plural(g.trucks.length, 'truck') : 'None'), el('span', 'chev', '›'));
+    b.addEventListener('click', () => openGroup(g.key));
+    return b;
   }));
+
+  if (openGroupKey) renderGroup(groups.find((g) => g.key === openGroupKey));
+}
+
+function openGroup(key) {
+  openGroupKey = key;
+  renderSchedules();
+  if (!$('schedule').open) $('schedule').showModal();
+}
+
+function renderGroup(g) {
+  if (!g) { $('schedule').close(); return; }
+  $('s-title').textContent = groupTitle(g.match, g.trucks);
+  $('s-sub').textContent = [
+    groupEngine(g)?.name,
+    `Applies to ${yearRange(g.match.yearMin, g.match.yearMax)} models`,
+    g.notes,
+  ].filter(Boolean).join(' · ');
+
+  const body = $('s-body');
+  body.replaceChildren();
+  if (g.trucks.length) {
+    const chips = el('div', 'truck-chips');
+    for (const v of g.trucks) {
+      const b = el('button', 'chip chip-btn', `${v.name} · ${v.year}`);
+      b.type = 'button';
+      b.addEventListener('click', () => { $('schedule').close(); openTruck(v.id); });
+      chips.append(b);
+    }
+    body.append(chips);
+  } else {
+    body.append(el('p', 'muted', 'No trucks in the fleet match this group right now.'));
+  }
+  for (const id of g.schedules) {
+    const schedule = schedules.get(id);
+    if (schedule) body.append(scheduleTable(schedule));
+  }
+  body.append(el('p', 'muted footnote', `Duty cycle: ${assignments.dutyCycle}. ${assignments.notes}`));
+}
+
+// A chip that toggles the list between all trucks and "Overdue or due soon".
+function filterChip(text, extraClass) {
+  const b = el('button', ['chip', 'chip-btn', extraClass].filter(Boolean).join(' '), text);
+  b.type = 'button';
+  b.addEventListener('click', () => {
+    $('filter').value = $('filter').value === 'attention' ? 'all' : 'attention';
+    render();
+  });
+  return b;
 }
 
 function chip(text, strong = false, extraClass = '') {
@@ -755,6 +795,9 @@ $('log-unit').addEventListener('change', renderLog);
 applyLogPeriod();
 showTab();
 $('t-close').addEventListener('click', () => $('truck').close());
+$('s-close').addEventListener('click', () => $('schedule').close());
+$('schedule').addEventListener('close', () => { openGroupKey = null; });
+$('schedule').addEventListener('click', (e) => { if (e.target === $('schedule')) $('schedule').close(); });
 $('truck').addEventListener('close', () => { openTruckId = null; openFormKey = null; });
 // Clicking the dimmed backdrop closes the dialog.
 $('truck').addEventListener('click', (e) => { if (e.target === $('truck')) $('truck').close(); });

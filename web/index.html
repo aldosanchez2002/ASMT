@@ -52,7 +52,7 @@
         <a href="#" data-tab="trucks">Trucks</a>
         <a href="#containers" data-tab="containers">Containers</a>
         <a href="#schedules" data-tab="schedules">Schedules</a>
-        <a href="#log" data-tab="log">Service log</a>
+        <a href="#log" data-tab="log"><span class="hide-sm">Service log</span><span class="show-sm-inline">Log</span></a>
       </nav>
 
       <div id="trucks-view">
@@ -104,7 +104,7 @@
               <tr>
                 <th data-csort="name">Unit</th>
                 <th data-csort="location">Location</th>
-                <th data-csort="speedMph">Status</th>
+                <th data-csort="speedMph" class="hide-sm">Status</th>
                 <th data-csort="lastReportedAt">Last reported</th>
                 <th data-csort="trackerModel" class="hide-sm">Tracker</th>
               </tr>
@@ -155,11 +155,14 @@
       </div>
 
       <div id="schedules-view" hidden>
-        <section id="fleet-setup" class="setup" hidden>
-          <h3>Fleet setup</h3>
+        <details id="fleet-setup" class="setup" hidden>
+          <summary>
+            <span class="setup-title">Fleet setup</span>
+            <span id="setup-summary" class="muted"></span>
+          </summary>
           <p class="muted">Adjusts the schedules, due dates and Next service for every truck. Saved for everyone using the app.</p>
           <div id="setup-toggles"></div>
-        </section>
+        </details>
         <p id="sched-intro" class="muted"></p>
         <div id="sched-groups"></div>
       </div>
@@ -175,6 +178,17 @@
       <button id="t-close" class="btn btn-ghost" type="button">Close</button>
     </div>
     <div id="t-body"></div>
+  </dialog>
+
+  <dialog id="schedule" aria-labelledby="s-title">
+    <div class="dlg-head">
+      <div>
+        <h2 id="s-title"></h2>
+        <p id="s-sub" class="muted"></p>
+      </div>
+      <button id="s-close" class="btn btn-ghost" type="button">Close</button>
+    </div>
+    <div id="s-body"></div>
   </dialog>
 </body>
 </html>
