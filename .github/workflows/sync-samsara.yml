@@ -1,0 +1,31 @@
+name: Sync Samsara to Firestore
+
+on:
+  schedule:
+    # Every 30 minutes. GitHub may delay scheduled runs by a few minutes.
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # lets you run it by hand from the Actions tab
+
+concurrency:
+  group: samsara-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run sync
+        env:
+          SAMSARA_API_KEY: ${{ secrets.SAMSARA_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          ALLOWED_EMAILS: ${{ secrets.ALLOWED_EMAILS }}

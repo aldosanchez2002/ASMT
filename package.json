@@ -1,0 +1,17 @@
+{
+  "name": "asmt",
+  "private": true,
+  "type": "module",
+  "description": "Fleet maintenance tracker: Samsara miles synced to Firestore, viewed on a static site.",
+  "scripts": {
+    "sync": "node scripts/sync-samsara.mjs",
+    "sync:dry": "node scripts/sync-samsara.mjs --dry-run",
+    "serve": "npx --yes serve web"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

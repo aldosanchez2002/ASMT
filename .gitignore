@@ -1,0 +1,8 @@
+node_modules/
+.env
+.env.*
+# Firebase service account keys — never commit these
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+.firebase/
+firebase-debug.log

@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Signed-in users whose email is in /allowedUsers (filled from the
+    // ALLOWED_EMAILS GitHub secret by the sync job) can read.
+    function isAllowed() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/allowedUsers/$(request.auth.token.email.lower()));
+    }
+
+    match /vehicles/{id} {
+      allow read: if isAllowed();
+    }
+    match /meta/{id} {
+      allow read: if isAllowed();
+    }
+
+    // Everything else, and all writes from the browser, are denied.
+    // The sync job writes with the Admin SDK, which bypasses these rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fleet Miles</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <h1>Fleet Miles</h1>
+    <div id="user-box" class="user-box" hidden>
+      <span id="user-email"></span>
+      <button id="sign-out" class="btn btn-ghost">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="signed-out" class="panel center" hidden>
+      <p>Sign in to see your fleet.</p>
+      <button id="sign-in" class="btn">Sign in with Google</button>
+    </section>
+
+    <section id="not-allowed" class="panel center" hidden>
+      <p>This account doesn't have access. Add its email to the
+        <code>ALLOWED_EMAILS</code> secret and re-run the sync.</p>
+    </section>
+
+    <section id="fleet" hidden>
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Search unit, model, VIN…" autocomplete="off">
+        <label class="check"><input id="show-inactive" type="checkbox"> Show inactive</label>
+        <span id="last-sync" class="muted"></span>
+      </div>
+
+      <div id="summary" class="summary"></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-sort="name">Unit</th>
+              <th data-sort="year">Year</th>
+              <th data-sort="make" class="hide-sm">Make</th>
+              <th data-sort="model" class="wrap-sm">Model</th>
+              <th data-sort="odometerMiles" class="num">Miles</th>
+              <th data-sort="engineHours" class="num hide-sm">Engine hrs</th>
+              <th class="hide-sm">VIN</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p id="empty" class="muted center" hidden>No trucks match.</p>
+    </section>
+  </main>
+</body>
+</html>
