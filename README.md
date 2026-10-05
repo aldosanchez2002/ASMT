@@ -70,6 +70,16 @@ npm run serve                          # serves web/ locally
 | `odometerTime` | When Samsara last got the reading |
 | `engineHours` | From the ECU |
 | `lastReportedAt` | Last GPS ping from the truck. Trucks silent for 100+ days are skipped and removed from Firestore |
+| `scheduleIds` | Maintenance schedules that apply to this truck (engine + chassis + DOT), from the assignment rules |
 | `updatedAt` | When the sync last wrote this truck |
 
 `meta/sync`: `lastRun`, `vehicleCount` · `allowedUsers/{email}`: viewer allowlist, used only when sign-in is on (managed by the sync job)
+
+`maintenanceSchedules/{scheduleId}`: one document per manufacturer schedule, with `name`, `category` (`engine` / `chassis` / `regulatory`), `sourceTitle`, `sourceUrl`, and `items[]`. Each item has `id`, `name`, and any of `intervalMiles`, `intervalHours`, `intervalMonths` (whichever comes first), plus optional `firstDueMiles` (one-time or first occurrence), `rangeMiles`, `tasks[]`, and `notes`.
+
+## Maintenance schedules
+
+All schedules live in [`data/maintenance-schedules.json`](data/maintenance-schedules.json), set to the fleet's OTR / normal duty cycle, with the manual each interval came from. The `assignments` section maps trucks to schedules by make, model (contains match) and year range.
+
+To change a schedule, edit the JSON and either wait for the next sync or run `npm run seed:schedules`. Both validate the file first and fail with a list of problems if something is off (unknown schedule id, missing interval, and so on). The sync log warns about any active truck that no assignment rule matches.
+

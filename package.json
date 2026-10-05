@@ -6,7 +6,8 @@
   "scripts": {
     "sync": "node scripts/sync-samsara.mjs",
     "sync:dry": "node scripts/sync-samsara.mjs --dry-run",
-    "serve": "npx --yes serve web"
+    "serve": "npx --yes serve web",
+    "seed:schedules": "node scripts/seed-schedules.mjs"
   },
   "engines": {
     "node": ">=20"
