@@ -14,8 +14,8 @@ A simple web app that lists every truck in the fleet with its model and current 
 ```
 
 - The **Samsara key is stored only as a GitHub Secret**. GitHub encrypts it, it never appears in the code or the website, and it doesn't show in Action logs.
-- The **website only reads Firestore**. Nobody can write from the browser.
-- **Prototype mode (current):** anyone with the link can view the list, with no sign-in. To lock it down later, set `requireSignIn = true` in `web/firebase-config.js`, set the `ALLOWED_EMAILS` secret, and follow the note at the top of `firestore.rules`.
+- The **website only reads Firestore**. It never writes to it.
+- **Prototype mode (current):** anyone with the link can view the list, with no sign-in. To lock it down later, set `requireSignIn = true` in `web/firebase-config.js`, set the `ALLOWED_EMAILS` secret, and restrict reads in the Firestore rules.
 - `web/firebase-config.js` holds Firebase's *public* web config. Every Firebase site ships these values to the browser, so they aren't secrets.
 
 ## One-time setup
@@ -25,7 +25,7 @@ A simple web app that lists every truck in the fleet with its model and current 
 2. **Build → Firestore Database → Create database**. Choose production mode and a US region.
 3. *(Only if you turn on sign-in)* **Build → Authentication → Get started → Sign-in method → Google → Enable**, then add your domain under **Authentication → Settings → Authorized domains**.
 4. **Project settings → General → Your apps → Web (`</>`)**: register an app, then copy the config values into `web/firebase-config.js`.
-5. **Firestore → Rules**: paste in the contents of `firestore.rules` and click **Publish**.
+5. **Firestore → Rules**: allow reads of `vehicles` and `meta` (the prototype currently allows anyone to read and write). Rules are managed in the Firebase console, not in this repo.
 6. **Project settings → Service accounts → Generate new private key**. This downloads a JSON file. **Don't commit it.** You'll paste it into a GitHub secret next, then delete the file.
 
 ### 2. Add GitHub secrets
@@ -34,7 +34,7 @@ In the repo: **Settings → Secrets and variables → Actions → New repository
 | Name | Value |
 |---|---|
 | `SAMSARA_API_KEY` | Your Samsara API token (read-only is enough) |
-| `FIREBASE_SERVICE_ACCOUNT` | The entire contents of the service-account JSON file |
+| `FIREBASE_SERVICE_ACCOUNT` | *(Optional)* The entire contents of the service-account JSON file. Without it, the sync writes through Firestore's public API, which only works while your Firestore rules allow public writes. Add it before locking writes down. |
 | `ALLOWED_EMAILS` | *(Only if sign-in is on)* Google account(s) allowed to view the site, comma-separated |
 
 ### 3. Run the first sync

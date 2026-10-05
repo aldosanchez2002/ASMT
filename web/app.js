@@ -123,7 +123,7 @@ function watchFleet() {
         console.error(err);
         if (err.code === 'permission-denied' && requireSignIn) show('not-allowed');
         else if (err.code === 'permission-denied') {
-          showAppError('Firestore blocked the read. Paste firestore.rules into Firebase → Firestore Database → Rules and click Publish.');
+          showAppError('Firestore blocked the read. Check the rules in Firebase → Firestore Database → Rules.');
         } else showAppError(err.message);
       },
     ),
@@ -134,8 +134,8 @@ function watchFleet() {
   );
 }
 
-// Prototype mode: no sign-in, the fleet loads right away (firestore.rules
-// must allow public reads). Set requireSignIn = true to lock it down.
+// Prototype mode: no sign-in, the fleet loads right away (the Firestore
+// rules must allow public reads). Set requireSignIn = true to lock it down.
 if (!requireSignIn) {
   show('loading');
   watchFleet();

@@ -1,6 +1,6 @@
 // Firebase web config. These values are NOT secrets — every Firebase web app
-// ships them to the browser. Access is protected by Firebase Auth + the
-// Firestore security rules in firestore.rules.
+// ships them to the browser. Access is controlled by the Firestore security
+// rules set in the Firebase console.
 //
 // From: Firebase console → Project settings → Your apps → Web app.
 export const firebaseConfig = {
@@ -11,6 +11,6 @@ export const firebaseConfig = {
 };
 
 // false = anyone with the link can view the fleet (prototype mode).
-// true  = Google sign-in required; also switch firestore.rules to the
-//         allowlist version and set the ALLOWED_EMAILS secret.
+// true  = Google sign-in required; also restrict reads in the Firestore
+//         rules and set the ALLOWED_EMAILS secret.
 export const requireSignIn = false;

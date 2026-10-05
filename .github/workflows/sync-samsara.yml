@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -27,5 +27,7 @@ jobs:
       - run: npm run sync
         env:
           SAMSARA_API_KEY: ${{ secrets.SAMSARA_API_KEY }}
+          # Optional. Without it the sync writes through Firestore's public API,
+          # which works only while the Firestore rules allow public writes.
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           ALLOWED_EMAILS: ${{ secrets.ALLOWED_EMAILS }}
