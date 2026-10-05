@@ -3,7 +3,7 @@ import {
   getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
-  getFirestore, addDoc, collection, deleteField, doc, onSnapshot, serverTimestamp, setDoc,
+  getFirestore, addDoc, collection, deleteDoc, deleteField, doc, onSnapshot, serverTimestamp, setDoc,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig, requireSignIn } from './firebase-config.js';
 import {
@@ -31,7 +31,7 @@ let trSortKey = 'name';
 let trSortDir = 1;
 let openTruckId = null; // truck shown in the detail dialog
 let openFormKey = null; // item whose "Mark done" form is open
-let sortKey = 'name';
+let sortKey = 'nextRank'; // most urgent first
 let sortDir = 1;
 let unsubscribers = [];
 
@@ -41,6 +41,13 @@ function show(section) {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// "2026-10-05" or an ISO timestamp -> "Oct 5, 2026"
+function niceDate(value) {
+  if (!value) return '—';
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 // Trucks that haven't reported in a week are shown dimmed.
 function isQuiet(v) {
   return !v.lastReportedAt || Date.now() - Date.parse(v.lastReportedAt) > 7 * DAY_MS;
@@ -49,6 +56,7 @@ function isQuiet(v) {
 function timeAgo(iso) {
   if (!iso) return '—';
   const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (mins < 1) return 'just now';
   if (mins < 60) return `${Math.max(mins, 0)} min ago`;
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours} h ago`;
@@ -57,6 +65,7 @@ function timeAgo(iso) {
 }
 
 const STATUS_RANK = { overdue: 0, soon: 1, ok: 2 };
+const STATUS_WORD = { overdue: 'OVERDUE', soon: 'DUE SOON', ok: 'OK' };
 const STATUS_LABEL = {
   overdue: 'Overdue', soon: 'Due soon', ok: 'OK', done: 'Done', 'n/a': 'N/A',
   'as-needed': 'As needed', 'no-record': 'Waiting for sync',
@@ -261,6 +270,7 @@ const isoDay = (d) => d.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
 // Presets fill in the From/To dates; editing either date switches to "Custom range".
 function applyLogPeriod() {
   const period = $('log-period').value;
+  for (const id of ['log-from', 'log-to']) $(id).closest('.field').hidden = period !== 'custom';
   if (period === 'custom') return;
   $('log-to').value = period === 'all' ? '' : isoDay(new Date());
   $('log-from').value = period === 'all' ? '' : isoDay(new Date(Date.now() - Number(period) * DAY_MS));
@@ -318,7 +328,7 @@ function renderLog() {
     if (sched) service.append(el('div', 'item-meta', sched.name));
     if (e.note) service.append(el('div', 'item-meta show-sm', `"${e.note}"`));
     tr.append(
-      el('td', null, e.date || '—'),
+      el('td', null, niceDate(e.date)),
       unitCell,
       service,
       el('td', 'num', e.miles == null ? '—' : fmt.format(e.miles)),
@@ -437,7 +447,9 @@ function renderSetup() {
     });
     buttons.forEach((b, i) => b.addEventListener('click', () => {
       const value = i === 0;
-      if (current[d.id] !== value) save(d, value, buttons);
+      if (current[d.id] === value) return;
+      const label = d.choices?.[value ? 'on' : 'off'] ?? (value ? 'Yes' : 'No');
+      if (confirm(`Change "${d.question ?? d.label}" to "${label}" for ALL trucks?`)) save(d, value, buttons);
     }));
     seg.append(...buttons);
     row.append(title, seg, el('p', 'muted setting-desc', d.description));
@@ -473,7 +485,7 @@ function renderSchedules() {
     groupsEl.replaceChildren();
     return;
   }
-  $('sched-intro').textContent = 'Tap a model to see its engine, chassis and DOT schedules. Set your oil, fuel filter and coolant in Fleet setup above.';
+  $('sched-intro').textContent = 'Tap a model to see its schedule.';
 
   const groups = scheduleGroups();
   groupsEl.replaceChildren(...groups.map((g) => {
@@ -614,7 +626,7 @@ function row(v) {
   const milesCell = cell(miles, 'num strong');
   if (v.odometerSource === 'gps') milesCell.title = 'GPS odometer (no ECU reading)';
   tr.append(
-    cell(v.name || '—', 'strong wrap-sm'),
+    cell(v.name || '—', 'strong nowrap'),
     cell(v.year || '—', 'hide-sm'),
     cell(titleCase(v.make || '—'), 'hide-sm'),
     cell(titleCase(v.model || '—'), 'hide-sm'),
@@ -637,12 +649,16 @@ function openTruck(id) {
 
 function dutySection(v, models) {
   const dutyDoc = dutyDocs[v.id] ?? {};
-  const section = el('section', 'duty');
-  section.append(el('h3', 'duty-title', 'Duty cycle'));
+  const section = el('details', 'duty');
+  const engineModel = models[0];
+  const engineDuty = dutyDoc.override?.[engineModel] ?? dutyDoc.current?.[engineModel] ?? dutyModels()[engineModel]?.default;
+  const summary = el('summary', 'duty-summary');
+  summary.append(el('span', 'section-title', 'How it\'s used'), el('span', null, dutyLabel(engineModel, engineDuty)));
+  section.append(summary);
   const m = dutyDoc.metrics;
   section.append(el('p', 'muted duty-metrics', m
-    ? `Last ${m.windowDays} days: ${fmt.format(m.annualMiles)} mi/yr · ${m.mpg ?? '—'} MPG · ${m.idlePct ?? '—'}% idle`
-    : 'Not classified yet. Using the default (normal OTR) schedule until the sync has enough Samsara data.'));
+    ? `Last ${m.windowDays} days: ${fmt.format(m.annualMiles)} mi/yr · ${m.mpg ?? '—'} MPG · ${m.idlePct ?? '—'}% idle. Set automatically from Samsara.`
+    : 'Not enough Samsara data yet, so the normal OTR schedule is used.'));
 
   for (const model of models) {
     const def = dutyModels()[model];
@@ -659,6 +675,11 @@ function dutySection(v, models) {
     for (const o of def.options) select.append(Object.assign(el('option', null, `Always ${o.label}`), { value: o.id }));
     select.value = override ?? '';
     select.addEventListener('change', async () => {
+      const choice = select.value ? dutyLabel(model, select.value) : 'automatic';
+      if (!confirm(`Set ${v.name} to "${choice}"? This changes when its services are due.`)) {
+        select.value = override ?? '';
+        return;
+      }
       select.disabled = true;
       try {
         await setDoc(doc(db, 'dutyCycles', v.id), {
@@ -687,17 +708,20 @@ function dutySection(v, models) {
 
 function lastText(last) {
   if (!last) return 'No record yet';
-  const what = last.source === 'baseline' ? 'Starting point' : 'Last done';
-  const miles = last.miles != null ? `${fmt.format(last.miles)} mi` : '';
-  return `${what}: ${[miles, last.date].filter(Boolean).join(' on ')}${last.note ? ` · "${last.note}"` : ''}`;
+  const what = last.source === 'baseline' ? 'Tracking started' : 'Last done';
+  const miles = last.miles != null ? `at ${fmt.format(last.miles)} mi` : '';
+  return `${what} ${niceDate(last.date)} ${miles}`.trim() + (last.note ? ` · "${last.note}"` : '');
 }
 
 function dueText(r) {
   const parts = [];
   if (r.dueMiles != null) parts.push(`${fmt.format(r.dueMiles)} mi`);
   if (r.dueHours != null) parts.push(`${fmt.format(r.dueHours)} h`);
-  if (r.dueDate) parts.push(r.dueDate);
-  return parts.length ? `Due at ${parts.join(' or ')} · ${limitingText(r)}` : STATUS_LABEL[r.status];
+  if (r.dueDate) parts.push(niceDate(r.dueDate));
+  if (!parts.length) return STATUS_LABEL[r.status];
+  return r.status === 'overdue'
+    ? `${limitingText(r)} (was due at ${parts.join(' or ')})`
+    : `Due ${limitingText(r)} (at ${parts.join(' or ')})`;
 }
 
 function renderTruck(v) {
@@ -706,24 +730,34 @@ function renderTruck(v) {
   $('t-sub').textContent = [
     [v.year, titleCase(v.make || ''), titleCase(v.model || '')].filter(Boolean).join(' '),
     v.odometerMiles != null && `${fmt.format(v.odometerMiles)} mi`,
-    v.engineHours != null && `${fmt.format(v.engineHours)} engine h`,
-    v.vin && `VIN ${v.vin}`,
   ].filter(Boolean).join(' · ');
 
   const body = $('t-body');
   body.replaceChildren();
-  const models = truckDutyModels(v);
-  if (models.length) body.append(dutySection(v, models));
   if (!v.rows.length) {
     body.append(el('p', 'muted', v.scheduleIds?.length
-      ? 'Schedules are loading, or the sync has not recorded a starting point yet.'
-      : 'No maintenance schedule matches this truck. Add a rule in data/maintenance-schedules.json.'));
+      ? 'Loading… If this stays empty, the next sync will set it up.'
+      : 'No maintenance schedule matches this truck.'));
     return;
   }
 
+  // 1. What needs doing, most urgent first.
+  const attention = v.rows.filter((r) => r.status === 'overdue' || r.status === 'soon');
+  const todo = el('section', 'todo');
+  todo.append(el('h3', 'section-title', attention.length ? `Needs attention (${attention.length})` : 'Nothing due'));
+  if (!attention.length) todo.append(el('p', 'muted', 'All services are up to date.'));
+  attention.forEach((r) => todo.append(itemRow(v, r, true)));
+  body.append(todo);
+
+  // 2. Everything else, grouped by schedule, behind one tap.
+  const rest = v.rows.filter((r) => !attention.includes(r));
+  const all = el('details', 'all-services');
+  all.open = rest.some((r) => r.key === openFormKey) || all.open;
+  all.append(el('summary', 'section-title', `All other services (${rest.length})`));
   for (const scheduleId of v.scheduleIds) {
     const schedule = schedules.get(scheduleId);
-    if (!schedule) continue;
+    const items = rest.filter((r) => r.schedule.id === scheduleId);
+    if (!schedule || !items.length) continue;
     const section = el('section', 'sched');
     const head = el('div', 'sched-head');
     const duty = v.rows.find((x) => x.schedule.id === scheduleId)?.duty;
@@ -731,47 +765,51 @@ function renderTruck(v) {
     h3.append(categoryTag(schedule), el('span', null, duty ? `${schedule.name} · ${dutyLabel(schedule.dutyModel, duty)}` : schedule.name));
     head.append(h3);
     const link = el('a', 'muted', 'Manual');
-    link.href = schedule.sourceUrl;
-    link.target = '_blank';
-    link.rel = 'noopener';
+    Object.assign(link, { href: schedule.sourceUrl, target: '_blank', rel: 'noopener' });
     head.append(link);
     section.append(head);
-
-    for (const r of v.rows.filter((x) => x.schedule.id === scheduleId)) {
-      section.append(itemRow(v, r));
-    }
-    body.append(section);
+    items.forEach((r) => section.append(itemRow(v, r)));
+    all.append(section);
   }
+  body.append(all);
+
+  // 3. How the truck is used (duty cycle), compact.
+  const models = truckDutyModels(v);
+  if (models.length) body.append(dutySection(v, models));
+  if (v.vin) body.append(el('p', 'muted footnote', `VIN ${v.vin}`));
 }
 
-function itemRow(v, r) {
+function itemRow(v, r, showSchedule = false) {
   const li = el('div', `item item-${r.status}`);
   const top = el('div', 'item-top');
   const name = el('div', 'item-name');
-  name.append(statusDot(r.status), el('span', null, r.item.name));
+  if (STATUS_WORD[r.status]) name.append(el('span', `status status-${r.status}`, STATUS_WORD[r.status]));
+  name.append(el('span', null, r.item.name));
   if (r.item.adjusted) name.append(el('span', 'badge', 'Adjusted'));
   top.append(name);
-  if (r.status !== 'as-needed') {
-    const btn = el('button', 'btn btn-ghost btn-sm', openFormKey === r.key ? 'Cancel' : 'Mark done');
-    btn.addEventListener('click', () => {
-      openFormKey = openFormKey === r.key ? null : r.key;
-      render();
-    });
-    top.append(btn);
-  }
   li.append(top);
+  if (showSchedule) li.append(el('div', 'item-meta', `${CATEGORY_LABEL[r.schedule.category] ?? ''} · ${r.schedule.name}`));
   li.append(el('div', `item-due when-${r.status}`, dueText(r)));
   li.append(el('div', 'item-meta', `${intervalText(r.item)} · ${lastText(r.last)}`));
   if (r.item.notes) li.append(el('div', 'item-meta', r.item.notes));
   if (r.item.tasks?.length) {
     const details = el('details', 'item-tasks');
-    details.append(el('summary', null, `${r.item.tasks.length} tasks`));
+    details.append(el('summary', null, `What's included (${r.item.tasks.length})`));
     const ul = el('ul');
     r.item.tasks.forEach((t) => ul.append(el('li', null, t)));
     details.append(ul);
     li.append(details);
   }
-  if (openFormKey === r.key) li.append(doneForm(v, r));
+  if (r.status !== 'as-needed') {
+    if (openFormKey === r.key) {
+      li.append(doneForm(v, r));
+    } else {
+      const btn = el('button', 'btn btn-done', 'Mark done');
+      btn.type = 'button';
+      btn.addEventListener('click', () => { openFormKey = r.key; render(); });
+      li.append(btn);
+    }
+  }
   return li;
 }
 
@@ -783,31 +821,66 @@ function field(label, input) {
 
 function doneForm(v, r) {
   const form = el('form', 'done-form');
-  const miles = Object.assign(el('input'), { type: 'number', min: 0, required: true, value: v.odometerMiles ?? '' });
-  const hours = Object.assign(el('input'), { type: 'number', min: 0, value: v.engineHours ?? '' });
-  const date = Object.assign(el('input'), { type: 'date', required: true, value: new Date().toLocaleDateString('en-CA') });
-  const note = Object.assign(el('input'), { type: 'text', placeholder: 'Optional (shop, invoice #, notes)' });
-  const save = el('button', 'btn btn-sm', 'Save');
+  const today = new Date().toLocaleDateString('en-CA');
+  const miles = Object.assign(el('input'), {
+    type: 'number', min: 0, required: true, inputMode: 'numeric', value: v.odometerMiles ?? '',
+  });
+  const date = Object.assign(el('input'), { type: 'date', required: true, max: today, value: today });
+  const hours = Object.assign(el('input'), { type: 'number', min: 0, inputMode: 'numeric', value: v.engineHours ?? '' });
+  const note = Object.assign(el('input'), { type: 'text', placeholder: 'Shop or invoice # (optional)' });
+  const error = el('p', 'form-error');
+  error.hidden = true;
+  const save = el('button', 'btn btn-save');
   save.type = 'submit';
-  form.append(field('Miles', miles), field('Engine hours', hours), field('Date', date), field('Note', note), save);
+  const cancel = el('button', 'btn btn-ghost btn-cancel', 'Cancel');
+  cancel.type = 'button';
+  cancel.addEventListener('click', () => { openFormKey = null; render(); });
+
+  const label = () => `Save: done at ${miles.value ? fmt.format(Number(miles.value)) : '—'} mi on ${niceDate(date.value)}`;
+  save.textContent = label();
+  miles.addEventListener('input', () => { save.textContent = label(); });
+  date.addEventListener('input', () => { save.textContent = label(); });
+
+  form.append(
+    field('Miles when done', miles),
+    field('Date done', date),
+    field('Engine hours (optional)', hours),
+    field('Note', note),
+    error,
+    save,
+    cancel,
+  );
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const m = Number(miles.value);
+    // Catch typos before they're saved.
+    const problem = v.odometerMiles != null && m > v.odometerMiles + 500
+      ? `That's more than the truck's current ${fmt.format(v.odometerMiles)} mi. Check the number.`
+      : r.last?.source === 'done' && m < r.last.miles
+        ? `That's less than the last time this was done (${fmt.format(r.last.miles)} mi). Check the number.`
+        : date.value > today ? 'The date can\'t be in the future.' : null;
+    if (problem) {
+      error.textContent = problem;
+      error.hidden = false;
+      return;
+    }
     save.disabled = true;
     save.textContent = 'Saving…';
     const record = {
-      miles: Number(miles.value),
+      miles: m,
       hours: hours.value === '' ? null : Number(hours.value),
       date: date.value,
       note: note.value.trim(),
       source: 'done',
     };
+    const previous = r.last ?? null;
     try {
       await setDoc(doc(db, 'serviceRecords', v.id), {
         vehicleId: v.id,
         items: { [r.key]: { ...record, loggedAt: serverTimestamp() } },
       }, { merge: true });
-      await addDoc(collection(db, 'serviceLog'), {
+      const logRef = await addDoc(collection(db, 'serviceLog'), {
         ...record,
         vehicleId: v.id,
         vehicleName: v.name,
@@ -818,13 +891,44 @@ function doneForm(v, r) {
       });
       openFormKey = null;
       render();
+      showUndo(`Saved: ${r.item.name} on ${v.name}`, async () => {
+        await setDoc(doc(db, 'serviceRecords', v.id), {
+          items: { [r.key]: previous ?? deleteField() },
+        }, { merge: true });
+        await deleteDoc(logRef);
+      });
     } catch (err) {
       save.disabled = false;
-      save.textContent = 'Save';
+      save.textContent = label();
       showAppError(`Could not save: ${err.message}`);
     }
   });
   return form;
+}
+
+// A message bar with an Undo button that disappears after 10 seconds.
+let undoTimer;
+function showUndo(message, undo) {
+  const bar = $('toast');
+  clearTimeout(undoTimer);
+  const btn = el('button', 'btn btn-undo', 'Undo');
+  btn.type = 'button';
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await undo();
+      bar.replaceChildren(el('span', null, 'Undone.'));
+      undoTimer = setTimeout(() => { bar.hidden = true; }, 2500);
+    } catch (err) {
+      showAppError(`Could not undo: ${err.message}`);
+    }
+  });
+  bar.replaceChildren(el('span', null, message), btn);
+  // An open popup sits above the page, so the bar goes inside it.
+  const host = [$('truck'), $('schedule')].find((d) => d.open) ?? document.body;
+  if (bar.parentElement !== host) host.append(bar);
+  bar.hidden = false;
+  undoTimer = setTimeout(() => { bar.hidden = true; }, 10000);
 }
 
 function watchFleet() {
@@ -881,7 +985,7 @@ function watchFleet() {
     }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'sync'), (snap) => {
       const t = snap.data()?.lastRun?.toDate();
-      $('last-sync').textContent = t ? `Synced ${t.toLocaleString()}` : '';
+      $('last-sync').textContent = t ? `Updated ${timeAgo(t.toISOString())}` : '';
     }, () => {}),
   );
 }

@@ -57,7 +57,7 @@
 
       <div id="trucks-view">
       <div class="toolbar">
-        <input id="search" type="search" placeholder="Search unit, model, VIN…" autocomplete="off">
+        <input id="search" type="search" placeholder="Search truck number…" autocomplete="off">
         <select id="filter" aria-label="Filter trucks">
           <option value="all">All trucks</option>
           <option value="attention">Overdue or due soon</option>
@@ -71,7 +71,7 @@
         <table>
           <thead>
             <tr>
-              <th data-sort="name">Unit</th>
+              <th data-sort="name">Truck</th>
               <th data-sort="year" class="hide-sm">Year</th>
               <th data-sort="make" class="hide-sm">Make</th>
               <th data-sort="model" class="hide-sm">Model</th>
@@ -89,7 +89,7 @@
 
       <div id="trailers-view" hidden>
         <div class="toolbar">
-          <input id="tr-search" type="search" placeholder="Search unit, location, tracker…" autocomplete="off">
+          <input id="tr-search" type="search" placeholder="Search trailer number or place…" autocomplete="off">
           <select id="tr-filter" aria-label="Filter trailers">
             <option value="all">All trailers</option>
             <option value="moving">Moving</option>
@@ -102,7 +102,7 @@
           <table class="trailers-table">
             <thead>
               <tr>
-                <th data-trsort="name">Unit</th>
+                <th data-trsort="name">Trailer</th>
                 <th data-trsort="location">Location</th>
                 <th data-trsort="speedMph" class="hide-sm">Status</th>
                 <th data-trsort="lastReportedAt">Last reported</th>
@@ -160,7 +160,7 @@
             <span class="setup-title">Fleet setup: oil, filters &amp; coolant</span>
             <span id="setup-summary" class="muted"></span>
           </summary>
-          <p class="muted">Adjusts the schedules, due dates and Next service for every truck. Saved for everyone using the app.</p>
+          <p class="muted">Applies to every truck, for everyone using the app.</p>
           <div id="setup-toggles"></div>
         </details>
         <p id="sched-intro" class="muted"></p>
@@ -179,6 +179,8 @@
     </div>
     <div id="t-body"></div>
   </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <dialog id="schedule" aria-labelledby="s-title">
     <div class="dlg-head">
