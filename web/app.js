@@ -6,7 +6,9 @@ import {
   getFirestore, addDoc, collection, doc, onSnapshot, serverTimestamp, setDoc,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig, requireSignIn } from './firebase-config.js';
-import { matchesRule, mostUrgent, truckMaintenance } from './maintenance.js';
+import {
+  effectiveSettings, matchesRule, mostUrgent, resolveItems, truckMaintenance,
+} from './maintenance.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -19,7 +21,12 @@ let vehicles = [];
 let schedules = new Map(); // scheduleId -> maintenanceSchedules doc
 let records = {}; // vehicleId -> serviceRecords doc
 let assignments = null; // meta/schedules doc: year/model groups
+let savedSettings = {}; // meta/settings doc: fleet setup toggles
+const settings = () => effectiveSettings(assignments?.settings, savedSettings);
 let serviceLog = []; // serviceLog docs (one per Mark done)
+let containers = []; // containers docs (Samsara trailers)
+let cSortKey = 'name';
+let cSortDir = 1;
 let openTruckId = null; // truck shown in the detail dialog
 let openFormKey = null; // item whose "Mark done" form is open
 let sortKey = 'name';
@@ -55,7 +62,7 @@ const STATUS_LABEL = {
 
 // Attaches each truck's maintenance rows and its most urgent item.
 function withMaintenance(v) {
-  const rows = truckMaintenance(v, schedules, records[v.id]?.items);
+  const rows = truckMaintenance(v, schedules, records[v.id]?.items, new Date(), settings());
   const next = mostUrgent(rows);
   const rank = next ? STATUS_RANK[next.status] : 3;
   return { ...v, rows, next, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)) };
@@ -147,6 +154,81 @@ function render() {
   if (openTruckId) renderTruck(all.find((v) => v.id === openTruckId));
   renderSchedules();
   renderLog();
+  renderContainers();
+}
+
+// ---- Containers tab --------------------------------------------------------
+
+const isMoving = (c) => (c.speedMph ?? 0) >= 3;
+
+function renderContainers() {
+  if (currentTab() !== 'containers') return;
+  const q = $('c-search').value.trim().toLowerCase();
+  const filter = $('c-filter').value;
+  const matchesFilter = (c) => filter === 'all'
+    || (filter === 'moving' && isMoving(c))
+    || (filter === 'parked' && !isMoving(c) && !isQuiet(c))
+    || (filter === 'quiet' && isQuiet(c));
+
+  const visible = containers
+    .filter((c) => !q || [c.name, c.location, c.trackerModel, c.trackerSerial].join(' ').toLowerCase().includes(q))
+    .filter(matchesFilter)
+    .sort((a, b) => {
+      const x = a[cSortKey];
+      const y = b[cSortKey];
+      if (x == null || x === '') return 1;
+      if (y == null || y === '') return -1;
+      if (typeof x === 'number' && typeof y === 'number') return (x - y) * cSortDir;
+      return String(x).localeCompare(String(y), undefined, { numeric: true }) * cSortDir;
+    });
+
+  const moving = containers.filter(isMoving).length;
+  const quiet = containers.filter(isQuiet).length;
+  $('c-summary').replaceChildren(
+    chip(`${visible.length} containers`, true),
+    chip(`${moving} moving`),
+    chip(`${containers.length - moving - quiet} parked`),
+    chip(`${quiet} quiet 7+ days`, false, quiet ? 'chip-soon' : ''),
+  );
+
+  $('c-rows').replaceChildren(...visible.map((c) => {
+    const tr = el('tr');
+    if (isQuiet(c)) tr.className = 'quiet';
+    const loc = el('td', 'wrap-cell');
+    if (c.latitude != null && c.longitude != null) {
+      const a = el('a', null, c.location || `${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}`);
+      Object.assign(a, {
+        href: `https://www.google.com/maps?q=${c.latitude},${c.longitude}`,
+        target: '_blank',
+        rel: 'noopener',
+      });
+      loc.append(a);
+    } else {
+      loc.textContent = c.location || '—';
+    }
+    const status = el('td');
+    status.append(
+      el('span', `dot ${isMoving(c) ? 'dot-ok' : ''}`),
+      document.createTextNode(isMoving(c) ? `Moving · ${Math.round(c.speedMph)} mph` : 'Parked'),
+    );
+    tr.append(
+      el('td', 'strong', c.name || '—'),
+      loc,
+      status,
+      el('td', 'muted-cell', timeAgo(c.lastReportedAt)),
+      el('td', 'muted-cell hide-sm', [c.trackerModel, c.trackerSerial].filter(Boolean).join(' · ') || '—'),
+    );
+    return tr;
+  }));
+  $('c-empty').hidden = visible.length > 0;
+  $('c-empty').textContent = containers.length
+    ? 'No containers match.'
+    : 'No containers in the database yet. They are added by the next sync.';
+
+  for (const th of document.querySelectorAll('th[data-csort]')) {
+    th.classList.toggle('sorted', th.dataset.csort === cSortKey);
+    th.dataset.dir = cSortDir === 1 ? 'asc' : 'desc';
+  }
 }
 
 // ---- Service log tab -------------------------------------------------------
@@ -221,7 +303,7 @@ function renderLog() {
 
 // ---- Schedules tab ---------------------------------------------------------
 
-const TABS = ['trucks', 'schedules', 'log'];
+const TABS = ['trucks', 'containers', 'schedules', 'log'];
 
 function currentTab() {
   const tab = location.hash.slice(1);
@@ -263,9 +345,11 @@ function scheduleTable(schedule) {
   ['Service', 'Interval', 'Details'].forEach((h) => hr.append(el('th', null, h)));
   thead.append(hr);
   const tbody = el('tbody');
-  for (const item of schedule.items) {
+  for (const item of resolveItems(schedule, settings())) {
     const tr = el('tr');
-    tr.append(el('td', 'strong', item.name), el('td', 'interval-cell', intervalText(item)));
+    const nameCell = el('td', 'strong', item.name);
+    if (item.adjusted) nameCell.append(el('span', 'badge', 'Adjusted'));
+    tr.append(nameCell, el('td', 'interval-cell', intervalText(item)));
     const details = el('td', 'details-cell');
     if (item.notes) details.append(el('div', 'item-meta', item.notes));
     if (item.tasks?.length) {
@@ -286,8 +370,36 @@ function scheduleTable(schedule) {
   return wrap;
 }
 
+function renderSetup() {
+  const defs = assignments?.settings ?? [];
+  $('fleet-setup').hidden = defs.length === 0;
+  const current = settings();
+  $('setup-toggles').replaceChildren(...defs.map((d) => {
+    const row = el('label', 'toggle');
+    const input = Object.assign(el('input'), { type: 'checkbox', checked: current[d.id] });
+    input.addEventListener('change', async () => {
+      input.disabled = true;
+      try {
+        await setDoc(doc(db, 'meta', 'settings'), { [d.id]: input.checked, updatedAt: serverTimestamp() }, { merge: true });
+      } catch (err) {
+        input.checked = !input.checked;
+        showAppError(`Could not save the setting: ${err.message}`);
+      } finally {
+        input.disabled = false;
+      }
+    });
+    const text = el('span', 'toggle-text');
+    const title = el('span', 'toggle-title', d.label);
+    title.append(el('span', 'chip', d.appliesTo));
+    text.append(title, el('span', 'muted', d.description));
+    row.append(input, el('span', 'switch'), text);
+    return row;
+  }));
+}
+
 function renderSchedules() {
   if (currentTab() !== 'schedules') return;
+  renderSetup();
   const groupsEl = $('sched-groups');
   if (!assignments || !schedules.size) {
     $('sched-intro').textContent = 'Loading schedules…';
@@ -459,6 +571,7 @@ function itemRow(v, r) {
   const top = el('div', 'item-top');
   const name = el('div', 'item-name');
   name.append(statusDot(r.status), el('span', null, r.item.name));
+  if (r.item.adjusted) name.append(el('span', 'badge', 'Adjusted'));
   top.append(name);
   if (r.status !== 'as-needed') {
     const btn = el('button', 'btn btn-ghost btn-sm', openFormKey === r.key ? 'Cancel' : 'Mark done');
@@ -565,6 +678,10 @@ function watchFleet() {
       records = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
       render();
     }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'containers'), (snap) => {
+      containers = snap.docs.map((d) => d.data());
+      renderContainers();
+    }, (err) => console.error(err)),
     onSnapshot(collection(db, 'serviceLog'), (snap) => {
       serviceLog = snap.docs.map((d) => {
         const e = d.data();
@@ -572,9 +689,13 @@ function watchFleet() {
       });
       renderLog();
     }, (err) => console.error(err)),
+    onSnapshot(doc(db, 'meta', 'settings'), (snap) => {
+      savedSettings = snap.data() ?? {};
+      render();
+    }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'schedules'), (snap) => {
       assignments = snap.data() ?? null;
-      renderSchedules();
+      render();
     }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'sync'), (snap) => {
       const t = snap.data()?.lastRun?.toDate();
@@ -616,7 +737,16 @@ $('sign-in').addEventListener('click', async () => {
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
 $('filter').addEventListener('change', render);
-addEventListener('hashchange', () => { showTab(); renderSchedules(); renderLog(); });
+addEventListener('hashchange', () => { showTab(); renderSchedules(); renderLog(); renderContainers(); });
+$('c-search').addEventListener('input', renderContainers);
+$('c-filter').addEventListener('change', renderContainers);
+for (const th of document.querySelectorAll('th[data-csort]')) {
+  th.addEventListener('click', () => {
+    cSortDir = cSortKey === th.dataset.csort ? -cSortDir : 1;
+    cSortKey = th.dataset.csort;
+    renderContainers();
+  });
+}
 $('log-period').addEventListener('change', () => { applyLogPeriod(); renderLog(); });
 for (const id of ['log-from', 'log-to']) {
   $(id).addEventListener('change', () => { $('log-period').value = 'custom'; renderLog(); });

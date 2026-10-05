@@ -83,7 +83,13 @@ All schedules live in [`data/maintenance-schedules.json`](data/maintenance-sched
 
 The site's **Schedules** tab (`aslog.dev/#schedules`) shows every model/year group, the trucks in it, and the full engine, chassis and DOT schedules with links to the manuals. The groups come from `meta/schedules`, which the sync and `npm run seed:schedules` write from the `assignments` section.
 
+**Fleet setup toggles** (top of the Schedules tab) adjust the schedules for the whole fleet: Detroit-approved oil, frame-mounted fuel filter, extended-life coolant and Valvoline Premium Blue. They're defined in the JSON's `settings` section and saved in `meta/settings`. Schedule items react to them with `onlyWhen` (item only applies when a setting matches) and `variants` (the first variant whose `when` matches overrides the item's fields). Adjusted items are badged in the app.
+
 To change a schedule, edit the JSON and either wait for the next sync or run `npm run seed:schedules`. Both validate the file first and fail with a list of problems if something is off (unknown schedule id, missing interval, and so on). The sync log warns about any active truck that no assignment rule matches.
+
+## Containers
+
+The sync also pulls every Samsara trailer/container unit into `containers/{samsaraId}` (name, tracker model and serial, latitude/longitude, address, speed, `lastReportedAt`), skipping units silent for 100+ days. The **Containers** tab (`aslog.dev/#containers`) lists them with moving / parked / quiet 7+ days counts, search, sorting and a map link per unit.
 
 ## Service tracking
 

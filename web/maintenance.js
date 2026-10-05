@@ -17,6 +17,28 @@ export function matchesRule(vehicle, match) {
     && year <= match.yearMax;
 }
 
+// Fleet setup: setting id -> value, starting from each setting's default.
+export function effectiveSettings(definitions = [], saved = {}) {
+  return Object.fromEntries(definitions.map((d) => [d.id, saved?.[d.id] ?? d.default]));
+}
+
+const matches = (when, settings) => Object.entries(when).every(([k, v]) => settings[k] === v);
+
+// A schedule's items for the current fleet setup: drops items whose
+// `onlyWhen` doesn't match, and applies the first matching `variant`.
+// Each resolved item carries `adjusted: true` when a variant was applied.
+export function resolveItems(schedule, settings = {}) {
+  return schedule.items
+    .filter((item) => !item.onlyWhen || matches(item.onlyWhen, settings))
+    .map((item) => {
+      const { variants, onlyWhen, ...base } = item;
+      const variant = variants?.find((v) => matches(v.when, settings));
+      if (!variant) return base;
+      const { when, ...overrides } = variant;
+      return { ...base, ...overrides, adjusted: true };
+    });
+}
+
 function addMonths(isoDate, months) {
   const d = new Date(isoDate);
   d.setUTCMonth(d.getUTCMonth() + months);
@@ -87,14 +109,15 @@ export function nextDue(item, last, current) {
  * @param vehicle    vehicles doc ({ id, odometerMiles, engineHours, scheduleIds })
  * @param schedules  Map of scheduleId -> maintenanceSchedules doc
  * @param records    serviceRecords doc's `items` map (or undefined)
+ * @param settings   fleet setup (see effectiveSettings)
  */
-export function truckMaintenance(vehicle, schedules, records = {}, now = new Date()) {
+export function truckMaintenance(vehicle, schedules, records = {}, now = new Date(), settings = {}) {
   const current = { miles: vehicle.odometerMiles, hours: vehicle.engineHours, now };
   const rows = [];
   for (const scheduleId of vehicle.scheduleIds ?? []) {
     const schedule = schedules.get(scheduleId);
     if (!schedule) continue;
-    for (const item of schedule.items) {
+    for (const item of resolveItems(schedule, settings)) {
       const key = recordKey(scheduleId, item.id);
       const last = records[key];
       rows.push({ key, schedule, item, last, ...nextDue(item, last, current) });

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mostUrgent, nextDue, recordKey, truckMaintenance } from '../web/maintenance.js';
+import {
+  effectiveSettings, mostUrgent, nextDue, recordKey, resolveItems, truckMaintenance,
+} from '../web/maintenance.js';
 
 const now = new Date('2026-10-05T12:00:00Z');
 const baseline = (miles, hours = 1000, date = '2026-10-05') => ({ miles, hours, date, source: 'baseline' });
@@ -81,4 +83,40 @@ test('truckMaintenance sorts by urgency and mostUrgent picks the worst', () => {
   assert.equal(rows.find((r) => r.item.id === 'pm').status, 'ok');
   assert.equal(rows.find((r) => r.item.id === 'dot').status, 'soon'); // 15 days left
   assert.equal(mostUrgent(rows).item.id, 'dot');
+});
+
+test('settings: defaults apply unless saved, variants and onlyWhen follow them', () => {
+  const defs = [{ id: 'approvedOil', default: true }, { id: 'frameFilter', default: true }];
+  assert.deepEqual(effectiveSettings(defs, {}), { approvedOil: true, frameFilter: true });
+  assert.deepEqual(effectiveSettings(defs, { frameFilter: false }), { approvedOil: true, frameFilter: false });
+
+  const schedule = {
+    items: [
+      { id: 'oil', name: 'Oil', intervalMiles: 60000, variants: [{ when: { approvedOil: false }, intervalMiles: 30000 }] },
+      { id: 'engine-filter', name: 'Engine filter', intervalMiles: 100000, variants: [{ when: { frameFilter: false }, intervalMiles: 60000 }] },
+      { id: 'frame-filter', name: 'Frame filter', intervalMiles: 60000, onlyWhen: { frameFilter: true } },
+    ],
+  };
+  const byId = (items) => Object.fromEntries(items.map((i) => [i.id, i]));
+
+  const stock = byId(resolveItems(schedule, { approvedOil: true, frameFilter: true }));
+  assert.equal(stock.oil.intervalMiles, 60000);
+  assert.equal(stock.oil.adjusted, undefined);
+  assert.ok(stock['frame-filter']);
+
+  const changed = byId(resolveItems(schedule, { approvedOil: false, frameFilter: false }));
+  assert.equal(changed.oil.intervalMiles, 30000);
+  assert.equal(changed.oil.adjusted, true);
+  assert.equal(changed['engine-filter'].intervalMiles, 60000);
+  assert.equal(changed['frame-filter'], undefined);
+  assert.equal(changed.oil.variants, undefined);
+
+  const rows = truckMaintenance(
+    { odometerMiles: 135000, scheduleIds: ['s'] },
+    new Map([['s', { id: 's', ...schedule }]]),
+    { [recordKey('s', 'oil')]: baseline(100000) },
+    now,
+    { approvedOil: false, frameFilter: true },
+  );
+  assert.equal(rows.find((r) => r.item.id === 'oil').status, 'overdue');
 });

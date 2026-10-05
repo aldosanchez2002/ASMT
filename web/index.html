@@ -50,6 +50,7 @@
     <section id="fleet" hidden>
       <nav class="tabs" aria-label="Views">
         <a href="#" data-tab="trucks">Trucks</a>
+        <a href="#containers" data-tab="containers">Containers</a>
         <a href="#schedules" data-tab="schedules">Schedules</a>
         <a href="#log" data-tab="log">Service log</a>
       </nav>
@@ -84,6 +85,34 @@
         </table>
       </div>
       <p id="empty" class="muted center" hidden></p>
+      </div>
+
+      <div id="containers-view" hidden>
+        <div class="toolbar">
+          <input id="c-search" type="search" placeholder="Search unit, location, tracker…" autocomplete="off">
+          <select id="c-filter" aria-label="Filter containers">
+            <option value="all">All containers</option>
+            <option value="moving">Moving</option>
+            <option value="parked">Parked</option>
+            <option value="quiet">Quiet 7+ days</option>
+          </select>
+        </div>
+        <div id="c-summary" class="summary"></div>
+        <div class="table-wrap">
+          <table class="containers-table">
+            <thead>
+              <tr>
+                <th data-csort="name">Unit</th>
+                <th data-csort="location">Location</th>
+                <th data-csort="speedMph">Status</th>
+                <th data-csort="lastReportedAt">Last reported</th>
+                <th data-csort="trackerModel" class="hide-sm">Tracker</th>
+              </tr>
+            </thead>
+            <tbody id="c-rows"></tbody>
+          </table>
+        </div>
+        <p id="c-empty" class="muted center" hidden></p>
       </div>
 
       <div id="log-view" hidden>
@@ -126,6 +155,11 @@
       </div>
 
       <div id="schedules-view" hidden>
+        <section id="fleet-setup" class="setup" hidden>
+          <h3>Fleet setup</h3>
+          <p class="muted">Adjusts the schedules, due dates and Next service for every truck. Saved for everyone using the app.</p>
+          <div id="setup-toggles"></div>
+        </section>
         <p id="sched-intro" class="muted"></p>
         <div id="sched-groups"></div>
       </div>

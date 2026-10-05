@@ -2,7 +2,36 @@
   "version": 1,
   "dutyCycle": "OTR / normal: Detroit 'Long Haul' (6.0-6.9 mpg, 60k+ mi/yr), Cummins 'Normal', Freightliner 'Schedule II', PACCAR 'On Highway'",
   "notes": "Intervals are 'whichever comes first'. Miles are statute miles. Sources are linked per schedule. Verify against the manual before relying on an interval.",
-
+  "settings": [
+    {
+      "id": "detroitApprovedOil",
+      "label": "Detroit-approved engine oil",
+      "description": "Oil on Detroit's DFS 93K222 / 93K223 approval list (look for it on the jug or data sheet). Off = oil change intervals are cut in half: Detroit says non-approved oil gets 'reduced' intervals without giving a number, so this is a conservative assumption; confirm with your dealer.",
+      "default": true,
+      "appliesTo": "Detroit engines"
+    },
+    {
+      "id": "frameMountedFuelFilter",
+      "label": "Frame-mounted fuel filter",
+      "description": "Detroit fuel filter / water separator or Davco 385/482/485/487 on the frame rail. Off = the engine fuel filter is changed at every oil change.",
+      "default": true,
+      "appliesTo": "Detroit engines"
+    },
+    {
+      "id": "extendedLifeCoolant",
+      "label": "Extended-life coolant",
+      "description": "Off = standard-life coolant: tested at every oil change interval and replaced every 300,000 mi.",
+      "default": true,
+      "appliesTo": "Detroit engines"
+    },
+    {
+      "id": "premiumBlue",
+      "label": "Valvoline Premium Blue oil",
+      "description": "Cummins adds 5,000 mi to X15 oil change intervals with Valvoline Premium Blue.",
+      "default": false,
+      "appliesTo": "Cummins X15 (2020 and newer)"
+    }
+  ],
   "sources": {
     "detroit-ghg17-tables": {
       "title": "Detroit DD Heavy Duty Platform Operators Manual - Preventive Maintenance Tables (EPA07/EPA10/GHG14/GHG17, 93K222/93K223 oils)",
@@ -49,7 +78,6 @@
       "url": "https://www.ecfr.gov/current/title-49/subtitle-B/chapter-III/subchapter-B/part-396/section-396.17"
     }
   },
-
   "schedules": [
     {
       "id": "detroit-dd13-epa10-longhaul",
@@ -57,15 +85,105 @@
       "category": "engine",
       "source": "detroit-ghg17-tables",
       "items": [
-        { "id": "oil", "name": "Engine oil & oil filter", "intervalMiles": 55000, "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval" },
-        { "id": "fuel-filter-engine", "name": "Engine fuel filter (with frame-mounted filter)", "intervalMiles": 100000, "notes": "Without a frame-mounted filter: every 55,000 mi" },
-        { "id": "fuel-filter-frame", "name": "Frame-mounted fuel filter / water separator", "intervalMiles": 55000 },
-        { "id": "valve-lash", "name": "Valve lash adjustment", "firstDueMiles": 100000, "intervalMiles": 500000, "notes": "EPA07/EPA10/GHG14: at 100,000 mi, at 500,000 mi, then every 500,000 mi" },
-        { "id": "coolant-maintain", "name": "Extended-life coolant - test/maintain", "intervalMiles": 110000, "intervalMonths": 12 },
-        { "id": "coolant-replace", "name": "Extended-life coolant - replace", "intervalMiles": 600000 },
-        { "id": "belts", "name": "Drive belts - replace (inspect at every oil change)", "intervalMiles": 200000 },
-        { "id": "dpf", "name": "DPF ash cleaning", "intervalMiles": 300000, "intervalHours": 9000, "rangeMiles": [300000, 400000], "notes": "Normal range 300k-400k mi / 9,000-10,250 h, or when the check-engine lamp indicates" },
-        { "id": "def-filter", "name": "DEF pump filter", "intervalMiles": 175000, "intervalMonths": 36 }
+        {
+          "id": "oil",
+          "name": "Engine oil & oil filter",
+          "intervalMiles": 55000,
+          "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval",
+          "variants": [
+            {
+              "when": {
+                "detroitApprovedOil": false
+              },
+              "intervalMiles": 27500,
+              "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter-engine",
+          "name": "Engine fuel filter (with frame-mounted filter)",
+          "intervalMiles": 100000,
+          "notes": "Without a frame-mounted filter: every 55,000 mi",
+          "variants": [
+            {
+              "when": {
+                "frameMountedFuelFilter": false
+              },
+              "name": "Engine fuel filter",
+              "intervalMiles": 55000,
+              "notes": "No frame-mounted filter: change at every oil change. Never exceed 100k mi on engine fuel filters"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter-frame",
+          "name": "Frame-mounted fuel filter / water separator",
+          "intervalMiles": 55000,
+          "onlyWhen": {
+            "frameMountedFuelFilter": true
+          }
+        },
+        {
+          "id": "valve-lash",
+          "name": "Valve lash adjustment",
+          "firstDueMiles": 100000,
+          "intervalMiles": 500000,
+          "notes": "EPA07/EPA10/GHG14: at 100,000 mi, at 500,000 mi, then every 500,000 mi"
+        },
+        {
+          "id": "coolant-maintain",
+          "name": "Extended-life coolant - test/maintain",
+          "intervalMiles": 110000,
+          "intervalMonths": 12,
+          "variants": [
+            {
+              "when": {
+                "extendedLifeCoolant": false
+              },
+              "name": "Standard coolant - test/maintain (SCA)",
+              "intervalMiles": 55000,
+              "intervalMonths": 12,
+              "notes": "Standard-life coolant: test and add SCA at every oil change interval or 1 year"
+            }
+          ]
+        },
+        {
+          "id": "coolant-replace",
+          "name": "Extended-life coolant - replace",
+          "intervalMiles": 600000,
+          "variants": [
+            {
+              "when": {
+                "extendedLifeCoolant": false
+              },
+              "name": "Standard coolant - replace",
+              "intervalMiles": 300000
+            }
+          ]
+        },
+        {
+          "id": "belts",
+          "name": "Drive belts - replace (inspect at every oil change)",
+          "intervalMiles": 200000
+        },
+        {
+          "id": "dpf",
+          "name": "DPF ash cleaning",
+          "intervalMiles": 300000,
+          "intervalHours": 9000,
+          "rangeMiles": [
+            300000,
+            400000
+          ],
+          "notes": "Normal range 300k-400k mi / 9,000-10,250 h, or when the check-engine lamp indicates"
+        },
+        {
+          "id": "def-filter",
+          "name": "DEF pump filter",
+          "intervalMiles": 175000,
+          "intervalMonths": 36
+        }
       ]
     },
     {
@@ -74,16 +192,111 @@
       "category": "engine",
       "source": "detroit-ghg17-tables",
       "items": [
-        { "id": "oil", "name": "Engine oil & oil filter", "intervalMiles": 60000, "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval" },
-        { "id": "fuel-filter-engine", "name": "Engine fuel filter (with frame-mounted filter)", "intervalMiles": 100000, "notes": "Without a frame-mounted filter: every 60,000 mi" },
-        { "id": "fuel-filter-frame", "name": "Frame-mounted fuel filter / water separator", "intervalMiles": 60000 },
-        { "id": "valve-lash", "name": "Valve lash adjustment", "firstDueMiles": 100000, "intervalMiles": 500000, "notes": "EPA07/EPA10/GHG14: at 100,000 mi, at 500,000 mi, then every 500,000 mi" },
-        { "id": "coolant-maintain", "name": "Extended-life coolant - test/maintain", "intervalMiles": 120000, "intervalMonths": 12 },
-        { "id": "coolant-replace", "name": "Extended-life coolant - replace", "intervalMiles": 600000 },
-        { "id": "belts", "name": "Drive belts - replace (inspect at every oil change)", "intervalMiles": 200000 },
-        { "id": "dpf", "name": "DPF ash cleaning", "intervalMiles": 300000, "intervalHours": 9000, "rangeMiles": [300000, 400000], "notes": "Normal range 300k-400k mi / 9,000-10,250 h, or when the check-engine lamp indicates" },
-        { "id": "def-filter-yellow", "name": "DEF pump yellow filter (GHG14)", "intervalMiles": 175000, "intervalMonths": 36 },
-        { "id": "def-filter-white", "name": "DEF pump white filter (GHG14)", "intervalMiles": 500000, "intervalMonths": 36 }
+        {
+          "id": "oil",
+          "name": "Engine oil & oil filter",
+          "intervalMiles": 60000,
+          "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval",
+          "variants": [
+            {
+              "when": {
+                "detroitApprovedOil": false
+              },
+              "intervalMiles": 30000,
+              "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter-engine",
+          "name": "Engine fuel filter (with frame-mounted filter)",
+          "intervalMiles": 100000,
+          "notes": "Without a frame-mounted filter: every 60,000 mi",
+          "variants": [
+            {
+              "when": {
+                "frameMountedFuelFilter": false
+              },
+              "name": "Engine fuel filter",
+              "intervalMiles": 60000,
+              "notes": "No frame-mounted filter: change at every oil change. Never exceed 100k mi on engine fuel filters"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter-frame",
+          "name": "Frame-mounted fuel filter / water separator",
+          "intervalMiles": 60000,
+          "onlyWhen": {
+            "frameMountedFuelFilter": true
+          }
+        },
+        {
+          "id": "valve-lash",
+          "name": "Valve lash adjustment",
+          "firstDueMiles": 100000,
+          "intervalMiles": 500000,
+          "notes": "EPA07/EPA10/GHG14: at 100,000 mi, at 500,000 mi, then every 500,000 mi"
+        },
+        {
+          "id": "coolant-maintain",
+          "name": "Extended-life coolant - test/maintain",
+          "intervalMiles": 120000,
+          "intervalMonths": 12,
+          "variants": [
+            {
+              "when": {
+                "extendedLifeCoolant": false
+              },
+              "name": "Standard coolant - test/maintain (SCA)",
+              "intervalMiles": 60000,
+              "intervalMonths": 12,
+              "notes": "Standard-life coolant: test and add SCA at every oil change interval or 1 year"
+            }
+          ]
+        },
+        {
+          "id": "coolant-replace",
+          "name": "Extended-life coolant - replace",
+          "intervalMiles": 600000,
+          "variants": [
+            {
+              "when": {
+                "extendedLifeCoolant": false
+              },
+              "name": "Standard coolant - replace",
+              "intervalMiles": 300000
+            }
+          ]
+        },
+        {
+          "id": "belts",
+          "name": "Drive belts - replace (inspect at every oil change)",
+          "intervalMiles": 200000
+        },
+        {
+          "id": "dpf",
+          "name": "DPF ash cleaning",
+          "intervalMiles": 300000,
+          "intervalHours": 9000,
+          "rangeMiles": [
+            300000,
+            400000
+          ],
+          "notes": "Normal range 300k-400k mi / 9,000-10,250 h, or when the check-engine lamp indicates"
+        },
+        {
+          "id": "def-filter-yellow",
+          "name": "DEF pump yellow filter (GHG14)",
+          "intervalMiles": 175000,
+          "intervalMonths": 36
+        },
+        {
+          "id": "def-filter-white",
+          "name": "DEF pump white filter (GHG14)",
+          "intervalMiles": 500000,
+          "intervalMonths": 36
+        }
       ]
     },
     {
@@ -92,16 +305,109 @@
       "category": "engine",
       "source": "detroit-ghg17-tables",
       "items": [
-        { "id": "oil", "name": "Engine oil & oil filter", "intervalMiles": 60000, "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval" },
-        { "id": "fuel-filter-engine", "name": "Engine fuel filter (with frame-mounted filter)", "intervalMiles": 100000, "notes": "Without a frame-mounted filter: every 60,000 mi. Never exceed 100k mi on engine fuel filters" },
-        { "id": "fuel-filter-frame", "name": "Frame-mounted fuel filter / water separator", "intervalMiles": 60000 },
-        { "id": "valve-lash", "name": "Valve lash adjustment", "intervalMiles": 200000 },
-        { "id": "coolant-maintain", "name": "Extended-life coolant - test/maintain", "intervalMiles": 120000, "intervalMonths": 12 },
-        { "id": "coolant-replace", "name": "Extended-life coolant - replace", "intervalMiles": 600000 },
-        { "id": "belts", "name": "Drive belts - replace (inspect at every oil change)", "intervalMiles": 200000 },
-        { "id": "dpf", "name": "DPF ash cleaning", "intervalMiles": 500000, "intervalHours": 11000, "rangeMiles": [500000, 550000], "notes": "Normal range 500k-550k mi / 11,000-11,500 h, or when the check-engine lamp indicates" },
-        { "id": "def-filter", "name": "DEF pump white filter", "intervalMiles": 500000, "intervalMonths": 36 },
-        { "id": "aftertreatment-inspect", "name": "Aftertreatment external hardware inspection", "intervalMiles": 60000, "intervalMonths": 6 }
+        {
+          "id": "oil",
+          "name": "Engine oil & oil filter",
+          "intervalMiles": 60000,
+          "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval",
+          "variants": [
+            {
+              "when": {
+                "detroitApprovedOil": false
+              },
+              "intervalMiles": 30000,
+              "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter-engine",
+          "name": "Engine fuel filter (with frame-mounted filter)",
+          "intervalMiles": 100000,
+          "notes": "Without a frame-mounted filter: every 60,000 mi. Never exceed 100k mi on engine fuel filters",
+          "variants": [
+            {
+              "when": {
+                "frameMountedFuelFilter": false
+              },
+              "name": "Engine fuel filter",
+              "intervalMiles": 60000,
+              "notes": "No frame-mounted filter: change at every oil change. Never exceed 100k mi on engine fuel filters"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter-frame",
+          "name": "Frame-mounted fuel filter / water separator",
+          "intervalMiles": 60000,
+          "onlyWhen": {
+            "frameMountedFuelFilter": true
+          }
+        },
+        {
+          "id": "valve-lash",
+          "name": "Valve lash adjustment",
+          "intervalMiles": 200000
+        },
+        {
+          "id": "coolant-maintain",
+          "name": "Extended-life coolant - test/maintain",
+          "intervalMiles": 120000,
+          "intervalMonths": 12,
+          "variants": [
+            {
+              "when": {
+                "extendedLifeCoolant": false
+              },
+              "name": "Standard coolant - test/maintain (SCA)",
+              "intervalMiles": 60000,
+              "intervalMonths": 12,
+              "notes": "Standard-life coolant: test and add SCA at every oil change interval or 1 year"
+            }
+          ]
+        },
+        {
+          "id": "coolant-replace",
+          "name": "Extended-life coolant - replace",
+          "intervalMiles": 600000,
+          "variants": [
+            {
+              "when": {
+                "extendedLifeCoolant": false
+              },
+              "name": "Standard coolant - replace",
+              "intervalMiles": 300000
+            }
+          ]
+        },
+        {
+          "id": "belts",
+          "name": "Drive belts - replace (inspect at every oil change)",
+          "intervalMiles": 200000
+        },
+        {
+          "id": "dpf",
+          "name": "DPF ash cleaning",
+          "intervalMiles": 500000,
+          "intervalHours": 11000,
+          "rangeMiles": [
+            500000,
+            550000
+          ],
+          "notes": "Normal range 500k-550k mi / 11,000-11,500 h, or when the check-engine lamp indicates"
+        },
+        {
+          "id": "def-filter",
+          "name": "DEF pump white filter",
+          "intervalMiles": 500000,
+          "intervalMonths": 36
+        },
+        {
+          "id": "aftertreatment-inspect",
+          "name": "Aftertreatment external hardware inspection",
+          "intervalMiles": 60000,
+          "intervalMonths": 6
+        }
       ]
     },
     {
@@ -110,16 +416,111 @@
       "category": "engine",
       "source": "detroit-gen5-tables",
       "items": [
-        { "id": "oil", "name": "Engine oil & oil filter", "intervalMiles": 60000, "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval" },
-        { "id": "fuel-filter-engine", "name": "Engine fuel filter (with frame-mounted filter)", "intervalMiles": 100000, "notes": "Without a frame-mounted filter: at every oil change" },
-        { "id": "fuel-filter-frame", "name": "Frame-mounted fuel filter / water separator", "intervalMiles": 60000, "notes": "At every oil change" },
-        { "id": "valve-lash", "name": "Valve lash adjustment", "intervalMiles": 200000 },
-        { "id": "coolant-maintain", "name": "Extended-life coolant - test/maintain", "intervalMiles": 120000, "intervalMonths": 12, "notes": "Every other oil change or 1 year" },
-        { "id": "coolant-replace", "name": "Extended-life coolant - replace", "intervalMiles": 600000 },
-        { "id": "belts", "name": "Drive belts - replace (inspect at every oil change)", "intervalMiles": 200000 },
-        { "id": "dpf", "name": "DPF ash cleaning", "intervalMiles": 550000, "intervalHours": 12000, "rangeMiles": [550000, 640000], "notes": "Estimated 550k-640k mi / 12,000-14,000 h, or when the check-engine lamp indicates" },
-        { "id": "def-filter", "name": "DEF pump filter", "intervalMiles": 500000, "intervalMonths": 36 },
-        { "id": "aftertreatment-inspect", "name": "Aftertreatment external hardware inspection", "intervalMiles": 60000, "intervalMonths": 6 }
+        {
+          "id": "oil",
+          "name": "Engine oil & oil filter",
+          "intervalMiles": 60000,
+          "notes": "Requires DFS 93K222/93K223-approved oil; non-approved oil = reduced interval",
+          "variants": [
+            {
+              "when": {
+                "detroitApprovedOil": false
+              },
+              "intervalMiles": 30000,
+              "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter-engine",
+          "name": "Engine fuel filter (with frame-mounted filter)",
+          "intervalMiles": 100000,
+          "notes": "Without a frame-mounted filter: at every oil change",
+          "variants": [
+            {
+              "when": {
+                "frameMountedFuelFilter": false
+              },
+              "name": "Engine fuel filter",
+              "intervalMiles": 60000,
+              "notes": "No frame-mounted filter: change at every oil change. Never exceed 100k mi on engine fuel filters"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter-frame",
+          "name": "Frame-mounted fuel filter / water separator",
+          "intervalMiles": 60000,
+          "notes": "At every oil change",
+          "onlyWhen": {
+            "frameMountedFuelFilter": true
+          }
+        },
+        {
+          "id": "valve-lash",
+          "name": "Valve lash adjustment",
+          "intervalMiles": 200000
+        },
+        {
+          "id": "coolant-maintain",
+          "name": "Extended-life coolant - test/maintain",
+          "intervalMiles": 120000,
+          "intervalMonths": 12,
+          "notes": "Every other oil change or 1 year",
+          "variants": [
+            {
+              "when": {
+                "extendedLifeCoolant": false
+              },
+              "name": "Standard coolant - test/maintain (SCA)",
+              "intervalMiles": 60000,
+              "intervalMonths": 12,
+              "notes": "Standard-life coolant: test and add SCA at every oil change interval or 1 year"
+            }
+          ]
+        },
+        {
+          "id": "coolant-replace",
+          "name": "Extended-life coolant - replace",
+          "intervalMiles": 600000,
+          "variants": [
+            {
+              "when": {
+                "extendedLifeCoolant": false
+              },
+              "name": "Standard coolant - replace",
+              "intervalMiles": 300000
+            }
+          ]
+        },
+        {
+          "id": "belts",
+          "name": "Drive belts - replace (inspect at every oil change)",
+          "intervalMiles": 200000
+        },
+        {
+          "id": "dpf",
+          "name": "DPF ash cleaning",
+          "intervalMiles": 550000,
+          "intervalHours": 12000,
+          "rangeMiles": [
+            550000,
+            640000
+          ],
+          "notes": "Estimated 550k-640k mi / 12,000-14,000 h, or when the check-engine lamp indicates"
+        },
+        {
+          "id": "def-filter",
+          "name": "DEF pump filter",
+          "intervalMiles": 500000,
+          "intervalMonths": 36
+        },
+        {
+          "id": "aftertreatment-inspect",
+          "name": "Aftertreatment external hardware inspection",
+          "intervalMiles": 60000,
+          "intervalMonths": 6
+        }
       ]
     },
     {
@@ -128,13 +529,55 @@
       "category": "engine",
       "source": "cummins-x15-2017-qrg",
       "items": [
-        { "id": "oil", "name": "Engine oil & oil filter", "intervalMiles": 35000, "intervalHours": 500, "intervalMonths": 6, "notes": "Normal duty = 5.5-6.5 mpg. Up to 80,000 mi with Cummins OilGuard" },
-        { "id": "fuel-filter", "name": "Fuel filter", "intervalMiles": 35000 },
-        { "id": "sca-check", "name": "Check coolant SCA levels", "intervalMiles": 30000, "intervalHours": 1000, "intervalMonths": 6 },
-        { "id": "coolant-filter", "name": "Coolant filter (if equipped)", "intervalMiles": 50000, "intervalHours": 1500, "intervalMonths": 12 },
-        { "id": "dpf", "name": "DPF cleaning", "intervalMiles": 400000, "rangeMiles": [400000, 600000], "notes": "Or when the ash load monitor flags it" },
-        { "id": "def-filter", "name": "DEF filter", "intervalMiles": 300000 },
-        { "id": "overhead", "name": "Overhead (valve) adjustment", "intervalMiles": 500000, "intervalHours": 10000, "intervalMonths": 60 }
+        {
+          "id": "oil",
+          "name": "Engine oil & oil filter",
+          "intervalMiles": 35000,
+          "intervalHours": 500,
+          "intervalMonths": 6,
+          "notes": "Normal duty = 5.5-6.5 mpg. Up to 80,000 mi with Cummins OilGuard"
+        },
+        {
+          "id": "fuel-filter",
+          "name": "Fuel filter",
+          "intervalMiles": 35000
+        },
+        {
+          "id": "sca-check",
+          "name": "Check coolant SCA levels",
+          "intervalMiles": 30000,
+          "intervalHours": 1000,
+          "intervalMonths": 6
+        },
+        {
+          "id": "coolant-filter",
+          "name": "Coolant filter (if equipped)",
+          "intervalMiles": 50000,
+          "intervalHours": 1500,
+          "intervalMonths": 12
+        },
+        {
+          "id": "dpf",
+          "name": "DPF cleaning",
+          "intervalMiles": 400000,
+          "rangeMiles": [
+            400000,
+            600000
+          ],
+          "notes": "Or when the ash load monitor flags it"
+        },
+        {
+          "id": "def-filter",
+          "name": "DEF filter",
+          "intervalMiles": 300000
+        },
+        {
+          "id": "overhead",
+          "name": "Overhead (valve) adjustment",
+          "intervalMiles": 500000,
+          "intervalHours": 10000,
+          "intervalMonths": 60
+        }
       ]
     },
     {
@@ -143,12 +586,58 @@
       "category": "engine",
       "source": "cummins-x15-2020-qrg",
       "items": [
-        { "id": "oil", "name": "Engine oil & oil filter", "intervalMiles": 60000, "intervalMonths": 12, "notes": "Normal duty = 6-6.9 mpg. +5,000 mi with Valvoline Premium Blue. If idle + PTO > 40%, use the short-haul interval (50,000 mi)" },
-        { "id": "fuel-filter", "name": "Fuel filter(s)", "intervalMiles": 60000, "notes": "Up to 100,000 mi with FF5971NN" },
-        { "id": "dpf", "name": "DPF cleaning", "intervalMiles": 400000, "rangeMiles": [400000, 600000], "notes": "Or when the ash load monitor flags it. The guide's DPF columns don't line up with the duty columns; the conservative 400k-600k band is used" },
-        { "id": "def-filter", "name": "DEF filter", "intervalMiles": 300000, "intervalHours": 6750 },
-        { "id": "engine-brake", "name": "Engine brake assembly", "intervalMiles": 500000, "intervalHours": 10000, "intervalMonths": 60 },
-        { "id": "overhead", "name": "Overhead (valve) adjustment", "intervalMiles": 500000, "intervalHours": 10000, "intervalMonths": 60 }
+        {
+          "id": "oil",
+          "name": "Engine oil & oil filter",
+          "intervalMiles": 60000,
+          "intervalMonths": 12,
+          "notes": "Normal duty = 6-6.9 mpg. +5,000 mi with Valvoline Premium Blue. If idle + PTO > 40%, use the short-haul interval (50,000 mi)",
+          "variants": [
+            {
+              "when": {
+                "premiumBlue": true
+              },
+              "intervalMiles": 65000,
+              "notes": "Valvoline Premium Blue: +5,000 mi. If idle + PTO > 40%, use the short-haul interval (55,000 mi with Premium Blue)"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter",
+          "name": "Fuel filter(s)",
+          "intervalMiles": 60000,
+          "notes": "Up to 100,000 mi with FF5971NN"
+        },
+        {
+          "id": "dpf",
+          "name": "DPF cleaning",
+          "intervalMiles": 400000,
+          "rangeMiles": [
+            400000,
+            600000
+          ],
+          "notes": "Or when the ash load monitor flags it. The guide's DPF columns don't line up with the duty columns; the conservative 400k-600k band is used"
+        },
+        {
+          "id": "def-filter",
+          "name": "DEF filter",
+          "intervalMiles": 300000,
+          "intervalHours": 6750
+        },
+        {
+          "id": "engine-brake",
+          "name": "Engine brake assembly",
+          "intervalMiles": 500000,
+          "intervalHours": 10000,
+          "intervalMonths": 60
+        },
+        {
+          "id": "overhead",
+          "name": "Overhead (valve) adjustment",
+          "intervalMiles": 500000,
+          "intervalHours": 10000,
+          "intervalMonths": 60
+        }
       ]
     },
     {
@@ -157,27 +646,141 @@
       "category": "engine",
       "source": "cummins-x15-2024-qrg",
       "items": [
-        { "id": "oil", "name": "Engine oil & oil filter", "intervalMiles": 60000, "intervalMonths": 12, "notes": "Normal duty = 6-6.9 mpg. +5,000 mi with Valvoline Premium Blue. If idle + PTO > 40%, use the short-haul interval (50,000 mi)" },
-        { "id": "fuel-filter", "name": "Fuel filter(s)", "intervalMiles": 60000, "notes": "Up to 100,000 mi with FF5971NN" },
-        { "id": "dpf", "name": "DPF cleaning", "intervalMiles": 400000, "rangeMiles": [400000, 600000], "notes": "Or when the ash load monitor flags it" },
-        { "id": "def-filter", "name": "DEF filter", "intervalMiles": 300000, "intervalHours": 6750 },
-        { "id": "engine-brake", "name": "Engine brake assembly", "intervalMiles": 500000, "intervalHours": 10000, "intervalMonths": 60 },
-        { "id": "overhead", "name": "Overhead (valve) adjustment", "intervalMiles": 500000, "intervalHours": 10000, "intervalMonths": 60 }
+        {
+          "id": "oil",
+          "name": "Engine oil & oil filter",
+          "intervalMiles": 60000,
+          "intervalMonths": 12,
+          "notes": "Normal duty = 6-6.9 mpg. +5,000 mi with Valvoline Premium Blue. If idle + PTO > 40%, use the short-haul interval (50,000 mi)",
+          "variants": [
+            {
+              "when": {
+                "premiumBlue": true
+              },
+              "intervalMiles": 65000,
+              "notes": "Valvoline Premium Blue: +5,000 mi. If idle + PTO > 40%, use the short-haul interval (55,000 mi with Premium Blue)"
+            }
+          ]
+        },
+        {
+          "id": "fuel-filter",
+          "name": "Fuel filter(s)",
+          "intervalMiles": 60000,
+          "notes": "Up to 100,000 mi with FF5971NN"
+        },
+        {
+          "id": "dpf",
+          "name": "DPF cleaning",
+          "intervalMiles": 400000,
+          "rangeMiles": [
+            400000,
+            600000
+          ],
+          "notes": "Or when the ash load monitor flags it"
+        },
+        {
+          "id": "def-filter",
+          "name": "DEF filter",
+          "intervalMiles": 300000,
+          "intervalHours": 6750
+        },
+        {
+          "id": "engine-brake",
+          "name": "Engine brake assembly",
+          "intervalMiles": 500000,
+          "intervalHours": 10000,
+          "intervalMonths": 60
+        },
+        {
+          "id": "overhead",
+          "name": "Overhead (valve) adjustment",
+          "intervalMiles": 500000,
+          "intervalHours": 10000,
+          "intervalMonths": 60
+        }
       ]
     },
-
     {
       "id": "freightliner-cascadia-schedule2",
       "name": "Freightliner Cascadia (CA113/CA125) - Schedule II long haul",
       "category": "chassis",
       "source": "freightliner-cascadia-mm",
       "items": [
-        { "id": "im", "name": "Initial maintenance (IM)", "firstDueMiles": 25000, "notes": "One time, with the first M1", "tasks": ["Perform all M1 operations", "Frame fastener torque check", "Suspension U-bolt torque check", "All-axle alignment check", "Bendix automatic drain valve tests", "Fuel tank band-nut tightening"] },
-        { "id": "m1", "name": "M1 chassis PM", "intervalMiles": 25000, "tasks": ["Air compressor inspection", "Fifth wheel inspection & lubrication", "Steer axle hub cap vent plug inspection", "Wheel nut & tire check", "Driveline inspection & lubrication", "Brake inspection", "Slack adjuster / camshaft bracket lubrication", "Fuel/water separator check", "Exhaust system inspection", "Cab shock bracket torque, aero component inspection"] },
-        { "id": "m2", "name": "M2 chassis PM (includes M1)", "intervalMiles": 100000, "tasks": ["Alternator, battery & starter check", "Pressure relief cap & fan clutch check", "Transmission fluid level inspection", "Suspension inspection & U-bolt torque", "Knuckle pin & tie rod lubrication, tie rod inspection", "Axle breather & lubricant level", "Air brake valves, air dryer & alcohol evaporator inspection", "Drag link, power steering fluid & gear", "Trailer cable, mirror, door latch checks", "A/C inspection & cabin air filter replacement"] },
-        { "id": "m3", "name": "M3 chassis PM (includes M1 + M2)", "intervalMiles": 300000, "tasks": ["Air cleaner inspection", "Radiator pressure-flush & coolant change", "Hydraulic clutch fluid change", "Eaton Fuller transmission fluid change (500k mi with synthetic)", "Axle lubricant & filter change", "Air dryer desiccant replacement", "Bendix E-6 foot valve inspection & lubrication", "Power steering fluid & filter change"] },
-        { "id": "air-dryer-coalescing", "name": "Air dryer oil-coalescing desiccant cartridge", "intervalMonths": 12, "notes": "If equipped; otherwise replaced at M3" },
-        { "id": "drain-valve", "name": "Bendix automatic drain valve inspection", "intervalHours": 1500, "intervalMonths": 6 }
+        {
+          "id": "im",
+          "name": "Initial maintenance (IM)",
+          "firstDueMiles": 25000,
+          "notes": "One time, with the first M1",
+          "tasks": [
+            "Perform all M1 operations",
+            "Frame fastener torque check",
+            "Suspension U-bolt torque check",
+            "All-axle alignment check",
+            "Bendix automatic drain valve tests",
+            "Fuel tank band-nut tightening"
+          ]
+        },
+        {
+          "id": "m1",
+          "name": "M1 chassis PM",
+          "intervalMiles": 25000,
+          "tasks": [
+            "Air compressor inspection",
+            "Fifth wheel inspection & lubrication",
+            "Steer axle hub cap vent plug inspection",
+            "Wheel nut & tire check",
+            "Driveline inspection & lubrication",
+            "Brake inspection",
+            "Slack adjuster / camshaft bracket lubrication",
+            "Fuel/water separator check",
+            "Exhaust system inspection",
+            "Cab shock bracket torque, aero component inspection"
+          ]
+        },
+        {
+          "id": "m2",
+          "name": "M2 chassis PM (includes M1)",
+          "intervalMiles": 100000,
+          "tasks": [
+            "Alternator, battery & starter check",
+            "Pressure relief cap & fan clutch check",
+            "Transmission fluid level inspection",
+            "Suspension inspection & U-bolt torque",
+            "Knuckle pin & tie rod lubrication, tie rod inspection",
+            "Axle breather & lubricant level",
+            "Air brake valves, air dryer & alcohol evaporator inspection",
+            "Drag link, power steering fluid & gear",
+            "Trailer cable, mirror, door latch checks",
+            "A/C inspection & cabin air filter replacement"
+          ]
+        },
+        {
+          "id": "m3",
+          "name": "M3 chassis PM (includes M1 + M2)",
+          "intervalMiles": 300000,
+          "tasks": [
+            "Air cleaner inspection",
+            "Radiator pressure-flush & coolant change",
+            "Hydraulic clutch fluid change",
+            "Eaton Fuller transmission fluid change (500k mi with synthetic)",
+            "Axle lubricant & filter change",
+            "Air dryer desiccant replacement",
+            "Bendix E-6 foot valve inspection & lubrication",
+            "Power steering fluid & filter change"
+          ]
+        },
+        {
+          "id": "air-dryer-coalescing",
+          "name": "Air dryer oil-coalescing desiccant cartridge",
+          "intervalMonths": 12,
+          "notes": "If equipped; otherwise replaced at M3"
+        },
+        {
+          "id": "drain-valve",
+          "name": "Bendix automatic drain valve inspection",
+          "intervalHours": 1500,
+          "intervalMonths": 6
+        }
       ]
     },
     {
@@ -186,12 +789,82 @@
       "category": "chassis",
       "source": "freightliner-new-cascadia-mm",
       "items": [
-        { "id": "im", "name": "Initial maintenance (IM)", "firstDueMiles": 25000, "notes": "One time, with the first M1", "tasks": ["Perform all M1 operations", "Frame fastener torque check", "Suspension U-bolt torque check", "All-axle alignment check", "Bendix automatic drain valve tests", "Fuel tank band-nut tightening"] },
-        { "id": "m1", "name": "M1 chassis PM", "intervalMiles": 25000, "tasks": ["Air compressor inspection", "Fifth wheel inspection & lubrication", "Steer axle hub cap vent plug inspection", "Wheel nut & tire check", "Driveline inspection & lubrication", "Brake inspection", "Slack adjuster / camshaft bracket lubrication", "Fuel filter & fuel/water separator check", "Exhaust system inspection", "Cab shock bracket torque, aero component & BPHS inspection"] },
-        { "id": "m2", "name": "M2 chassis PM (includes M1)", "intervalMiles": 100000, "tasks": ["Alternator, battery & starter check", "Pressure relief cap & fan clutch check", "Detroit automated transmission fluid change & magnetic plug cleaning", "Transmission fluid level inspection", "Suspension inspection & U-bolt torque", "Knuckle pin & tie rod lubrication, tie rod inspection", "Axle breather & lubricant level", "Air brake valves, air dryer & alcohol evaporator inspection", "Drag link, power steering fluid & gear", "Trailer cable, mirror, door latch checks", "A/C inspection & cabin air filter replacement"] },
-        { "id": "m3", "name": "M3 chassis PM (includes M1 + M2)", "intervalMiles": 300000, "tasks": ["Air cleaner inspection", "Radiator pressure-flush & coolant change", "Hydraulic clutch fluid change", "Eaton Fuller transmission fluid change (500k mi with synthetic)", "Axle lubricant & filter change", "Air dryer desiccant replacement", "Bendix E-6 foot valve inspection & lubrication", "Power steering fluid & filter change"] },
-        { "id": "air-dryer-coalescing", "name": "Air dryer oil-coalescing desiccant cartridge", "intervalMonths": 12, "notes": "If equipped; otherwise replaced at M3" },
-        { "id": "drain-valve", "name": "Bendix automatic drain valve inspection", "intervalHours": 1500, "intervalMonths": 6 }
+        {
+          "id": "im",
+          "name": "Initial maintenance (IM)",
+          "firstDueMiles": 25000,
+          "notes": "One time, with the first M1",
+          "tasks": [
+            "Perform all M1 operations",
+            "Frame fastener torque check",
+            "Suspension U-bolt torque check",
+            "All-axle alignment check",
+            "Bendix automatic drain valve tests",
+            "Fuel tank band-nut tightening"
+          ]
+        },
+        {
+          "id": "m1",
+          "name": "M1 chassis PM",
+          "intervalMiles": 25000,
+          "tasks": [
+            "Air compressor inspection",
+            "Fifth wheel inspection & lubrication",
+            "Steer axle hub cap vent plug inspection",
+            "Wheel nut & tire check",
+            "Driveline inspection & lubrication",
+            "Brake inspection",
+            "Slack adjuster / camshaft bracket lubrication",
+            "Fuel filter & fuel/water separator check",
+            "Exhaust system inspection",
+            "Cab shock bracket torque, aero component & BPHS inspection"
+          ]
+        },
+        {
+          "id": "m2",
+          "name": "M2 chassis PM (includes M1)",
+          "intervalMiles": 100000,
+          "tasks": [
+            "Alternator, battery & starter check",
+            "Pressure relief cap & fan clutch check",
+            "Detroit automated transmission fluid change & magnetic plug cleaning",
+            "Transmission fluid level inspection",
+            "Suspension inspection & U-bolt torque",
+            "Knuckle pin & tie rod lubrication, tie rod inspection",
+            "Axle breather & lubricant level",
+            "Air brake valves, air dryer & alcohol evaporator inspection",
+            "Drag link, power steering fluid & gear",
+            "Trailer cable, mirror, door latch checks",
+            "A/C inspection & cabin air filter replacement"
+          ]
+        },
+        {
+          "id": "m3",
+          "name": "M3 chassis PM (includes M1 + M2)",
+          "intervalMiles": 300000,
+          "tasks": [
+            "Air cleaner inspection",
+            "Radiator pressure-flush & coolant change",
+            "Hydraulic clutch fluid change",
+            "Eaton Fuller transmission fluid change (500k mi with synthetic)",
+            "Axle lubricant & filter change",
+            "Air dryer desiccant replacement",
+            "Bendix E-6 foot valve inspection & lubrication",
+            "Power steering fluid & filter change"
+          ]
+        },
+        {
+          "id": "air-dryer-coalescing",
+          "name": "Air dryer oil-coalescing desiccant cartridge",
+          "intervalMonths": 12,
+          "notes": "If equipped; otherwise replaced at M3"
+        },
+        {
+          "id": "drain-valve",
+          "name": "Bendix automatic drain valve inspection",
+          "intervalHours": 1500,
+          "intervalMonths": 6
+        }
       ]
     },
     {
@@ -200,23 +873,166 @@
       "category": "chassis",
       "source": "kenworth-t680-om",
       "items": [
-        { "id": "first-pm", "name": "First PM", "firstDueMiles": 15000, "notes": "One time", "tasks": ["Front & rear suspension U-bolt torque", "Rear suspension brackets & fasteners", "Transmission inspection", "Cooling hoses, fan clutch & solenoid", "Power steering drain, filter & refill", "Steering linkage torque & U-joint lubrication", "Fuel tank straps", "Fuel & DEF sending unit check"] },
-        { "id": "pm-15k", "name": "15k chassis inspection & lube", "intervalMiles": 15000, "intervalMonths": 1, "tasks": ["Fifth wheel check & lubrication", "Front spring pins", "Slack adjusters check & lubrication", "Hubcaps & wheel-end leaks", "Transmission leak inspection", "Tires, wheels, rims, wheel nuts & studs", "Power steering fluid level & assist cylinder lube", "Driveshaft lubrication (SPL-90/1710/1810)", "Battery cable fasteners, lights & harnesses", "A/C operation & cabin filter", "Aftertreatment leaks & supports"] },
-        { "id": "kingpin-grease", "name": "Front axle kingpin & tie rod end grease (PACCAR linehaul axle)", "intervalMiles": 25000, "intervalMonths": 6 },
-        { "id": "pm-30k", "name": "30k chassis PM", "intervalMiles": 30000, "tasks": ["Front spring pin lubrication", "Drive axle oil level, breather & leaks", "Brake treadle valve, lining & drums", "Hub bearing endplay & seals", "Transmission drain plugs & oil level", "Clutch release bearing lubrication", "Extended-life coolant condition check", "Drag link & tie rod ball socket lubrication", "Fuel tank straps"] },
-        { "id": "pm-60k", "name": "60k chassis PM", "intervalMiles": 60000, "intervalMonths": 6, "tasks": ["Engine mounts", "Front spring, shackles & shocks", "Front & rear suspension U-bolt torque", "Drive axle oil change - mineral lubricant (PACCAR linehaul axle)", "Brake camshaft bearings, air system inline filters, disc brakes", "Transmission brackets & oil cooler", "Charge air cooler & intake piping", "Cooling hoses, fan clutch & solenoid", "Steering gear lash & lubrication, steering linkage torque", "Fuel tanks, batteries, alternator belt, starter, ECM connector", "DEF tank, A/C condenser, cab hold-downs"] },
-        { "id": "pm-120k", "name": "120k chassis PM", "intervalMiles": 120000, "intervalMonths": 12, "tasks": ["Frame fasteners, crossmembers & brackets", "Steer axle wheel-end oil / grease service", "Drive axle shaft nut torque, lube filter & breather (Meritor/Dana)", "Rear suspension frame bolts & brackets", "Hubs with standard seals: change oil & seal", "Extended-life coolant lab analysis", "Power steering drain, filter & refill", "Steering linkage lash", "Fuel tank breathers", "Heater & A/C full check, sleeper air filter"] },
-        { "id": "air-filter", "name": "Engine air filter", "intervalMonths": 12, "notes": "Or sooner when the air restriction indicator calls for it" },
-        { "id": "clutch-fluid", "name": "Clutch hydraulic fluid - replace & bleed", "intervalMiles": 240000, "intervalMonths": 24 },
-        { "id": "hub-outrunner", "name": "Hubs with outrunner seals - change oil & seal", "intervalMiles": 240000 },
-        { "id": "coolant-filter", "name": "Coolant blank water filter (if applicable)", "intervalMiles": 300000, "intervalHours": 6750, "intervalMonths": 36 },
-        { "id": "air-dryer", "name": "Air dryer service", "intervalMiles": 360000 },
-        { "id": "air-dryer-coalescing", "name": "Air dryer oil-coalescing desiccant cartridge", "intervalMonths": 12, "notes": "If equipped" },
-        { "id": "drive-axle-synthetic", "name": "Drive axle oil change - synthetic lubricant (PACCAR linehaul axle)", "intervalMiles": 500000, "intervalMonths": 60 },
-        { "id": "lms-hubs-synthetic", "name": "LMS hubs (synthetic) - service bearings, seals & oil", "intervalMiles": 500000, "intervalMonths": 60 },
-        { "id": "coolant-replace", "name": "Extended-life coolant - flush, drain & refill", "intervalMiles": 750000, "intervalHours": 24000, "intervalMonths": 96 },
-        { "id": "transmission-fluid", "name": "Transmission fluid change (Eaton automated / PACCAR)", "intervalMiles": 750000, "intervalHours": 24000, "intervalMonths": 96 },
-        { "id": "seat-belts", "name": "Seat belt system inspection", "intervalMiles": 20000 }
+        {
+          "id": "first-pm",
+          "name": "First PM",
+          "firstDueMiles": 15000,
+          "notes": "One time",
+          "tasks": [
+            "Front & rear suspension U-bolt torque",
+            "Rear suspension brackets & fasteners",
+            "Transmission inspection",
+            "Cooling hoses, fan clutch & solenoid",
+            "Power steering drain, filter & refill",
+            "Steering linkage torque & U-joint lubrication",
+            "Fuel tank straps",
+            "Fuel & DEF sending unit check"
+          ]
+        },
+        {
+          "id": "pm-15k",
+          "name": "15k chassis inspection & lube",
+          "intervalMiles": 15000,
+          "intervalMonths": 1,
+          "tasks": [
+            "Fifth wheel check & lubrication",
+            "Front spring pins",
+            "Slack adjusters check & lubrication",
+            "Hubcaps & wheel-end leaks",
+            "Transmission leak inspection",
+            "Tires, wheels, rims, wheel nuts & studs",
+            "Power steering fluid level & assist cylinder lube",
+            "Driveshaft lubrication (SPL-90/1710/1810)",
+            "Battery cable fasteners, lights & harnesses",
+            "A/C operation & cabin filter",
+            "Aftertreatment leaks & supports"
+          ]
+        },
+        {
+          "id": "kingpin-grease",
+          "name": "Front axle kingpin & tie rod end grease (PACCAR linehaul axle)",
+          "intervalMiles": 25000,
+          "intervalMonths": 6
+        },
+        {
+          "id": "pm-30k",
+          "name": "30k chassis PM",
+          "intervalMiles": 30000,
+          "tasks": [
+            "Front spring pin lubrication",
+            "Drive axle oil level, breather & leaks",
+            "Brake treadle valve, lining & drums",
+            "Hub bearing endplay & seals",
+            "Transmission drain plugs & oil level",
+            "Clutch release bearing lubrication",
+            "Extended-life coolant condition check",
+            "Drag link & tie rod ball socket lubrication",
+            "Fuel tank straps"
+          ]
+        },
+        {
+          "id": "pm-60k",
+          "name": "60k chassis PM",
+          "intervalMiles": 60000,
+          "intervalMonths": 6,
+          "tasks": [
+            "Engine mounts",
+            "Front spring, shackles & shocks",
+            "Front & rear suspension U-bolt torque",
+            "Drive axle oil change - mineral lubricant (PACCAR linehaul axle)",
+            "Brake camshaft bearings, air system inline filters, disc brakes",
+            "Transmission brackets & oil cooler",
+            "Charge air cooler & intake piping",
+            "Cooling hoses, fan clutch & solenoid",
+            "Steering gear lash & lubrication, steering linkage torque",
+            "Fuel tanks, batteries, alternator belt, starter, ECM connector",
+            "DEF tank, A/C condenser, cab hold-downs"
+          ]
+        },
+        {
+          "id": "pm-120k",
+          "name": "120k chassis PM",
+          "intervalMiles": 120000,
+          "intervalMonths": 12,
+          "tasks": [
+            "Frame fasteners, crossmembers & brackets",
+            "Steer axle wheel-end oil / grease service",
+            "Drive axle shaft nut torque, lube filter & breather (Meritor/Dana)",
+            "Rear suspension frame bolts & brackets",
+            "Hubs with standard seals: change oil & seal",
+            "Extended-life coolant lab analysis",
+            "Power steering drain, filter & refill",
+            "Steering linkage lash",
+            "Fuel tank breathers",
+            "Heater & A/C full check, sleeper air filter"
+          ]
+        },
+        {
+          "id": "air-filter",
+          "name": "Engine air filter",
+          "intervalMonths": 12,
+          "notes": "Or sooner when the air restriction indicator calls for it"
+        },
+        {
+          "id": "clutch-fluid",
+          "name": "Clutch hydraulic fluid - replace & bleed",
+          "intervalMiles": 240000,
+          "intervalMonths": 24
+        },
+        {
+          "id": "hub-outrunner",
+          "name": "Hubs with outrunner seals - change oil & seal",
+          "intervalMiles": 240000
+        },
+        {
+          "id": "coolant-filter",
+          "name": "Coolant blank water filter (if applicable)",
+          "intervalMiles": 300000,
+          "intervalHours": 6750,
+          "intervalMonths": 36
+        },
+        {
+          "id": "air-dryer",
+          "name": "Air dryer service",
+          "intervalMiles": 360000
+        },
+        {
+          "id": "air-dryer-coalescing",
+          "name": "Air dryer oil-coalescing desiccant cartridge",
+          "intervalMonths": 12,
+          "notes": "If equipped"
+        },
+        {
+          "id": "drive-axle-synthetic",
+          "name": "Drive axle oil change - synthetic lubricant (PACCAR linehaul axle)",
+          "intervalMiles": 500000,
+          "intervalMonths": 60
+        },
+        {
+          "id": "lms-hubs-synthetic",
+          "name": "LMS hubs (synthetic) - service bearings, seals & oil",
+          "intervalMiles": 500000,
+          "intervalMonths": 60
+        },
+        {
+          "id": "coolant-replace",
+          "name": "Extended-life coolant - flush, drain & refill",
+          "intervalMiles": 750000,
+          "intervalHours": 24000,
+          "intervalMonths": 96
+        },
+        {
+          "id": "transmission-fluid",
+          "name": "Transmission fluid change (Eaton automated / PACCAR)",
+          "intervalMiles": 750000,
+          "intervalHours": 24000,
+          "intervalMonths": 96
+        },
+        {
+          "id": "seat-belts",
+          "name": "Seat belt system inspection",
+          "intervalMiles": 20000
+        }
       ]
     },
     {
@@ -225,42 +1041,258 @@
       "category": "chassis",
       "source": "peterbilt-579-om",
       "items": [
-        { "id": "first-pm", "name": "First PM (interval I)", "firstDueMiles": 15000, "notes": "One time", "tasks": ["Total vehicle alignment", "Suspension U-bolt torque", "Transmission inspection", "Fan clutch & solenoid", "Power steering drain, filter & refill", "Steering linkage torque & U-joint lubrication"] },
-        { "id": "pm-a", "name": "A: 15k chassis inspection & lube", "intervalMiles": 15000, "intervalMonths": 1, "tasks": ["Fifth wheel check & lubrication", "Slack adjusters check & lubrication", "Hubcaps & wheel-end leaks", "Transmission leak inspection", "Tires, wheels, rims, wheel nuts & studs", "Power steering fluid level", "Lights & harnesses"] },
-        { "id": "pm-b", "name": "B: 30k chassis PM", "intervalMiles": 30000, "tasks": ["Brake lining & treadle valve", "Air system inline filters", "Hub bearing endplay & seals", "Transmission drain plugs & oil level", "Clutch release bearing lubrication", "Extended-life coolant freeze point & test strips", "Steering U-joint & ball socket lubrication"] },
-        { "id": "pm-c", "name": "C: 60k chassis PM", "intervalMiles": 60000, "intervalMonths": 6, "tasks": ["Engine mounts & fifth wheel operation", "Drive axle oil level & leaks", "Brake camshaft bearings", "Transmission brackets & oil cooler", "Charge air cooler & intake piping", "Cooling hoses, fan clutch & solenoid", "Steering gear lash & lubrication, linkage torque"] },
-        { "id": "pm-d", "name": "D: 120k chassis PM", "intervalMiles": 120000, "intervalMonths": 12, "tasks": ["Total vehicle alignment", "Drive axle lube filter, shaft nut torque, interaxle differential", "Rear suspension frame bolts & brackets", "Coolant blank water filter (if applicable)", "Extended-life coolant lab analysis", "Power steering drain, filter & refill", "Steering linkage lash"] },
-        { "id": "coolant-replace", "name": "Extended-life coolant - flush, drain & refill (interval E)", "intervalMiles": 240000, "notes": "Per the 2018 manual's table (interval E = 240,000 mi). Newer PACCAR manuals list 750,000 mi / 8 yr; confirm with your dealer" },
-        { "id": "hub-oil-seal", "name": "Hubs (non-LMS) - change oil & seal", "intervalMiles": 240000 },
-        { "id": "clutch-fluid", "name": "Clutch hydraulic fluid - replace & bleed", "intervalMiles": 240000, "intervalMonths": 24 },
-        { "id": "air-cleaner", "name": "Engine air cleaner element", "notes": "When the air restriction indicator calls for it" },
-        { "id": "air-dryer-coalescing", "name": "Air dryer oil-coalescing desiccant cartridge", "intervalMonths": 12, "notes": "Eaton automated / PACCAR transmission trucks" },
-        { "id": "lms-hubs-mineral", "name": "LMS hubs (mineral) - service bearings, seals & oil", "intervalMiles": 350000 },
-        { "id": "lms-hubs-synthetic", "name": "LMS hubs (synthetic) - service bearings, seals & oil", "intervalMiles": 500000 },
-        { "id": "transmission-fluid", "name": "Transmission fluid change (on highway)", "intervalMiles": 500000 }
+        {
+          "id": "first-pm",
+          "name": "First PM (interval I)",
+          "firstDueMiles": 15000,
+          "notes": "One time",
+          "tasks": [
+            "Total vehicle alignment",
+            "Suspension U-bolt torque",
+            "Transmission inspection",
+            "Fan clutch & solenoid",
+            "Power steering drain, filter & refill",
+            "Steering linkage torque & U-joint lubrication"
+          ]
+        },
+        {
+          "id": "pm-a",
+          "name": "A: 15k chassis inspection & lube",
+          "intervalMiles": 15000,
+          "intervalMonths": 1,
+          "tasks": [
+            "Fifth wheel check & lubrication",
+            "Slack adjusters check & lubrication",
+            "Hubcaps & wheel-end leaks",
+            "Transmission leak inspection",
+            "Tires, wheels, rims, wheel nuts & studs",
+            "Power steering fluid level",
+            "Lights & harnesses"
+          ]
+        },
+        {
+          "id": "pm-b",
+          "name": "B: 30k chassis PM",
+          "intervalMiles": 30000,
+          "tasks": [
+            "Brake lining & treadle valve",
+            "Air system inline filters",
+            "Hub bearing endplay & seals",
+            "Transmission drain plugs & oil level",
+            "Clutch release bearing lubrication",
+            "Extended-life coolant freeze point & test strips",
+            "Steering U-joint & ball socket lubrication"
+          ]
+        },
+        {
+          "id": "pm-c",
+          "name": "C: 60k chassis PM",
+          "intervalMiles": 60000,
+          "intervalMonths": 6,
+          "tasks": [
+            "Engine mounts & fifth wheel operation",
+            "Drive axle oil level & leaks",
+            "Brake camshaft bearings",
+            "Transmission brackets & oil cooler",
+            "Charge air cooler & intake piping",
+            "Cooling hoses, fan clutch & solenoid",
+            "Steering gear lash & lubrication, linkage torque"
+          ]
+        },
+        {
+          "id": "pm-d",
+          "name": "D: 120k chassis PM",
+          "intervalMiles": 120000,
+          "intervalMonths": 12,
+          "tasks": [
+            "Total vehicle alignment",
+            "Drive axle lube filter, shaft nut torque, interaxle differential",
+            "Rear suspension frame bolts & brackets",
+            "Coolant blank water filter (if applicable)",
+            "Extended-life coolant lab analysis",
+            "Power steering drain, filter & refill",
+            "Steering linkage lash"
+          ]
+        },
+        {
+          "id": "coolant-replace",
+          "name": "Extended-life coolant - flush, drain & refill (interval E)",
+          "intervalMiles": 240000,
+          "notes": "Per the 2018 manual's table (interval E = 240,000 mi). Newer PACCAR manuals list 750,000 mi / 8 yr; confirm with your dealer"
+        },
+        {
+          "id": "hub-oil-seal",
+          "name": "Hubs (non-LMS) - change oil & seal",
+          "intervalMiles": 240000
+        },
+        {
+          "id": "clutch-fluid",
+          "name": "Clutch hydraulic fluid - replace & bleed",
+          "intervalMiles": 240000,
+          "intervalMonths": 24
+        },
+        {
+          "id": "air-cleaner",
+          "name": "Engine air cleaner element",
+          "notes": "When the air restriction indicator calls for it"
+        },
+        {
+          "id": "air-dryer-coalescing",
+          "name": "Air dryer oil-coalescing desiccant cartridge",
+          "intervalMonths": 12,
+          "notes": "Eaton automated / PACCAR transmission trucks"
+        },
+        {
+          "id": "lms-hubs-mineral",
+          "name": "LMS hubs (mineral) - service bearings, seals & oil",
+          "intervalMiles": 350000
+        },
+        {
+          "id": "lms-hubs-synthetic",
+          "name": "LMS hubs (synthetic) - service bearings, seals & oil",
+          "intervalMiles": 500000
+        },
+        {
+          "id": "transmission-fluid",
+          "name": "Transmission fluid change (on highway)",
+          "intervalMiles": 500000
+        }
       ]
     },
-
     {
       "id": "dot-annual",
       "name": "DOT annual inspection",
       "category": "regulatory",
       "source": "fmcsa-396-17",
       "items": [
-        { "id": "annual-inspection", "name": "Annual DOT inspection (49 CFR 396.17)", "intervalMonths": 12 }
+        {
+          "id": "annual-inspection",
+          "name": "Annual DOT inspection (49 CFR 396.17)",
+          "intervalMonths": 12
+        }
       ]
     }
   ],
-
   "assignments": [
-    { "match": { "make": "FREIGHTLINER", "model": "CASCADIA", "yearMin": 2010, "yearMax": 2013 }, "schedules": ["detroit-dd13-epa10-longhaul", "freightliner-cascadia-schedule2", "dot-annual"], "notes": "VIN decode: DD13" },
-    { "match": { "make": "FREIGHTLINER", "model": "CASCADIA", "yearMin": 2014, "yearMax": 2016 }, "schedules": ["detroit-dd15-ghg14-longhaul", "freightliner-cascadia-schedule2", "dot-annual"] },
-    { "match": { "make": "FREIGHTLINER", "model": "CASCADIA", "yearMin": 2017, "yearMax": 2017 }, "schedules": ["detroit-dd15-ghg17-longhaul", "freightliner-cascadia-schedule2", "dot-annual"], "notes": "2017 DD15s can be GHG14 or GHG17; check the engine emissions label" },
-    { "match": { "make": "FREIGHTLINER", "model": "CASCADIA", "yearMin": 2018, "yearMax": 2024 }, "schedules": ["detroit-dd15-ghg17-longhaul", "freightliner-new-cascadia-schedule2", "dot-annual"] },
-    { "match": { "make": "FREIGHTLINER", "model": "CASCADIA", "yearMin": 2025, "yearMax": 2027 }, "schedules": ["detroit-dd15-gen5-longhaul", "freightliner-new-cascadia-schedule2", "dot-annual"], "notes": "VIN decode: DD15 Gen 5 (TCO). Confirm whether 2027 engines have a newer schedule" },
-    { "match": { "make": "KENWORTH", "model": "T680", "yearMin": 2017, "yearMax": 2019 }, "schedules": ["cummins-x15-epa2017-normal", "kenworth-t680-onhighway", "dot-annual"] },
-    { "match": { "make": "KENWORTH", "model": "T680", "yearMin": 2020, "yearMax": 2023 }, "schedules": ["cummins-x15-2020-normal", "kenworth-t680-onhighway", "dot-annual"] },
-    { "match": { "make": "KENWORTH", "model": "T680", "yearMin": 2024, "yearMax": 2027 }, "schedules": ["cummins-x15-epa2024-normal", "kenworth-t680-onhighway", "dot-annual"] },
-    { "match": { "make": "PETERBILT", "model": "579", "yearMin": 2020, "yearMax": 2021 }, "schedules": ["cummins-x15-2020-normal", "peterbilt-579-onhighway", "dot-annual"] }
+    {
+      "match": {
+        "make": "FREIGHTLINER",
+        "model": "CASCADIA",
+        "yearMin": 2010,
+        "yearMax": 2013
+      },
+      "schedules": [
+        "detroit-dd13-epa10-longhaul",
+        "freightliner-cascadia-schedule2",
+        "dot-annual"
+      ],
+      "notes": "VIN decode: DD13"
+    },
+    {
+      "match": {
+        "make": "FREIGHTLINER",
+        "model": "CASCADIA",
+        "yearMin": 2014,
+        "yearMax": 2016
+      },
+      "schedules": [
+        "detroit-dd15-ghg14-longhaul",
+        "freightliner-cascadia-schedule2",
+        "dot-annual"
+      ]
+    },
+    {
+      "match": {
+        "make": "FREIGHTLINER",
+        "model": "CASCADIA",
+        "yearMin": 2017,
+        "yearMax": 2017
+      },
+      "schedules": [
+        "detroit-dd15-ghg17-longhaul",
+        "freightliner-cascadia-schedule2",
+        "dot-annual"
+      ],
+      "notes": "2017 DD15s can be GHG14 or GHG17; check the engine emissions label"
+    },
+    {
+      "match": {
+        "make": "FREIGHTLINER",
+        "model": "CASCADIA",
+        "yearMin": 2018,
+        "yearMax": 2024
+      },
+      "schedules": [
+        "detroit-dd15-ghg17-longhaul",
+        "freightliner-new-cascadia-schedule2",
+        "dot-annual"
+      ]
+    },
+    {
+      "match": {
+        "make": "FREIGHTLINER",
+        "model": "CASCADIA",
+        "yearMin": 2025,
+        "yearMax": 2027
+      },
+      "schedules": [
+        "detroit-dd15-gen5-longhaul",
+        "freightliner-new-cascadia-schedule2",
+        "dot-annual"
+      ],
+      "notes": "VIN decode: DD15 Gen 5 (TCO). Confirm whether 2027 engines have a newer schedule"
+    },
+    {
+      "match": {
+        "make": "KENWORTH",
+        "model": "T680",
+        "yearMin": 2017,
+        "yearMax": 2019
+      },
+      "schedules": [
+        "cummins-x15-epa2017-normal",
+        "kenworth-t680-onhighway",
+        "dot-annual"
+      ]
+    },
+    {
+      "match": {
+        "make": "KENWORTH",
+        "model": "T680",
+        "yearMin": 2020,
+        "yearMax": 2023
+      },
+      "schedules": [
+        "cummins-x15-2020-normal",
+        "kenworth-t680-onhighway",
+        "dot-annual"
+      ]
+    },
+    {
+      "match": {
+        "make": "KENWORTH",
+        "model": "T680",
+        "yearMin": 2024,
+        "yearMax": 2027
+      },
+      "schedules": [
+        "cummins-x15-epa2024-normal",
+        "kenworth-t680-onhighway",
+        "dot-annual"
+      ]
+    },
+    {
+      "match": {
+        "make": "PETERBILT",
+        "model": "579",
+        "yearMin": 2020,
+        "yearMax": 2021
+      },
+      "schedules": [
+        "cummins-x15-2020-normal",
+        "peterbilt-579-onhighway",
+        "dot-annual"
+      ]
+    }
   ]
 }

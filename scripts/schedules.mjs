@@ -12,10 +12,18 @@ const data = JSON.parse(
 
 const INTERVAL_FIELDS = ['intervalMiles', 'intervalHours', 'intervalMonths', 'firstDueMiles'];
 
+function checkWhen(where, when, settingIds, problems) {
+  for (const [k, v] of Object.entries(when ?? {})) {
+    if (!settingIds.has(k)) problems.push(`${where}: unknown setting "${k}"`);
+    if (typeof v !== 'boolean') problems.push(`${where}: setting "${k}" must be true or false`);
+  }
+}
+
 // Throws with a list of every problem found, so a bad edit fails loudly.
 export function validate() {
   const problems = [];
   const ids = new Set();
+  const settingIds = new Set((data.settings ?? []).map((s) => s.id));
   for (const s of data.schedules) {
     if (ids.has(s.id)) problems.push(`duplicate schedule id ${s.id}`);
     ids.add(s.id);
@@ -26,6 +34,11 @@ export function validate() {
       itemIds.add(item.id);
       const hasInterval = INTERVAL_FIELDS.some((f) => Number.isFinite(item[f]) && item[f] > 0);
       if (!hasInterval && !item.notes) problems.push(`${s.id}/${item.id}: no interval or notes`);
+      checkWhen(`${s.id}/${item.id} onlyWhen`, item.onlyWhen, settingIds, problems);
+      for (const v of item.variants ?? []) {
+        if (!v.when) problems.push(`${s.id}/${item.id}: variant without "when"`);
+        checkWhen(`${s.id}/${item.id} variant`, v.when, settingIds, problems);
+      }
     }
   }
   for (const a of data.assignments) {
@@ -54,7 +67,13 @@ export function scheduleIdsFor(vehicle) {
 
 // The year/model groups, stored as meta/schedules for the site's Schedules tab.
 export function assignmentsDoc() {
-  return { version: data.version, dutyCycle: data.dutyCycle, notes: data.notes, assignments: data.assignments };
+  return {
+    version: data.version,
+    dutyCycle: data.dutyCycle,
+    notes: data.notes,
+    settings: data.settings ?? [],
+    assignments: data.assignments,
+  };
 }
 
 export const schedulesVersion = data.version;

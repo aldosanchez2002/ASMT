@@ -95,6 +95,36 @@ async function fetchFleet() {
   };
 }
 
+// Trailer/container units (Samsara calls them trailers): latest location and
+// tracker, split into active (reported in the last STALE_AFTER_DAYS) and stale.
+async function fetchContainers() {
+  const [trailers, stats] = await Promise.all([
+    samsaraGetAll('/fleet/trailers'),
+    samsaraGetAll('/fleet/trailers/stats', { types: 'gps' }),
+  ]);
+  const gpsById = new Map(stats.map((s) => [s.id, s.gps]));
+  const units = trailers.map((t) => {
+    const gps = gpsById.get(t.id);
+    return {
+      id: t.id,
+      name: t.name ?? '',
+      trackerModel: t.installedGateway?.model ?? null,
+      trackerSerial: t.installedGateway?.serial ?? null,
+      latitude: gps?.latitude ?? null,
+      longitude: gps?.longitude ?? null,
+      location: gps?.reverseGeo?.formattedLocation ?? null,
+      speedMph: gps?.speedMilesPerHour ?? null,
+      lastReportedAt: gps?.time ?? null,
+    };
+  });
+  const cutoff = Date.now() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+  const isActive = (c) => c.lastReportedAt && Date.parse(c.lastReportedAt) >= cutoff;
+  return {
+    active: units.filter(isActive),
+    staleIds: units.filter((c) => !isActive(c)).map((c) => c.id),
+  };
+}
+
 function allowedEmails() {
   return (process.env.ALLOWED_EMAILS ?? '')
     .split(',')
@@ -103,7 +133,7 @@ function allowedEmails() {
 }
 
 // Writes with admin credentials, which bypass the Firestore rules.
-async function writeWithServiceAccount(fleet, staleIds, serviceAccountJson) {
+async function writeWithServiceAccount(fleet, staleIds, containers, serviceAccountJson) {
   const { initializeApp, cert } = await import('firebase-admin/app');
   const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
 
@@ -127,6 +157,12 @@ async function writeWithServiceAccount(fleet, staleIds, serviceAccountJson) {
   for (const id of staleIds) {
     batch.delete(db.collection('vehicles').doc(id));
   }
+  for (const c of containers.active) {
+    batch.set(db.collection('containers').doc(c.id), { ...c, updatedAt: FieldValue.serverTimestamp() });
+  }
+  for (const id of containers.staleIds) {
+    batch.delete(db.collection('containers').doc(id));
+  }
   for (const schedule of scheduleDocs()) {
     batch.set(db.collection('maintenanceSchedules').doc(schedule.id), schedule);
   }
@@ -137,6 +173,7 @@ async function writeWithServiceAccount(fleet, staleIds, serviceAccountJson) {
   batch.set(db.collection('meta').doc('sync'), {
     lastRun: FieldValue.serverTimestamp(),
     vehicleCount: fleet.length,
+    containerCount: containers.active.length,
     schedulesVersion,
   });
   await batch.commit();
@@ -144,7 +181,7 @@ async function writeWithServiceAccount(fleet, staleIds, serviceAccountJson) {
 }
 
 // Writes with the public web API key (see firestore-rest.mjs).
-async function writeWithPublicApi(fleet, staleIds) {
+async function writeWithPublicApi(fleet, staleIds, containers) {
   const baselines = missingBaselines(fleet, await listDocs('serviceRecords'));
   await commit([
     ...Object.entries(baselines).map(([vehicleId, items]) => mergeWrite(`serviceRecords/${vehicleId}`, {
@@ -153,19 +190,27 @@ async function writeWithPublicApi(fleet, staleIds) {
     })),
     ...fleet.map((v) => setWrite(`vehicles/${v.id}`, v, 'updatedAt')),
     ...staleIds.map((id) => deleteWrite(`vehicles/${id}`)),
+    ...containers.active.map((c) => setWrite(`containers/${c.id}`, c, 'updatedAt')),
+    ...containers.staleIds.map((id) => deleteWrite(`containers/${id}`)),
     ...scheduleDocs().map((sch) => setWrite(`maintenanceSchedules/${sch.id}`, sch)),
     setWrite('meta/schedules', assignmentsDoc()),
     ...allowedEmails().map((email) => setWrite(`allowedUsers/${email}`, { email })),
-    setWrite('meta/sync', { vehicleCount: fleet.length, schedulesVersion }, 'lastRun'),
+    setWrite('meta/sync', {
+      vehicleCount: fleet.length, containerCount: containers.active.length, schedulesVersion,
+    }, 'lastRun'),
   ]);
   return baselines;
 }
 
 validate();
-const { active: fleet, staleIds } = await fetchFleet();
+const [{ active: fleet, staleIds }, containers] = await Promise.all([fetchFleet(), fetchContainers()]);
 console.log(
   `Fetched ${fleet.length + staleIds.length} vehicles from Samsara: ` +
   `${fleet.length} reported in the last ${STALE_AFTER_DAYS} days, ${staleIds.length} stale (removed)`,
+);
+console.log(
+  `Fetched ${containers.active.length + containers.staleIds.length} containers: ` +
+  `${containers.active.length} active, ${containers.staleIds.length} stale (removed)`,
 );
 const unmatched = fleet.filter((v) => v.scheduleIds.length === 0);
 if (unmatched.length) {
@@ -184,8 +229,8 @@ if (dryRun) {
 } else {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
   const baselines = serviceAccount
-    ? await writeWithServiceAccount(fleet, staleIds, serviceAccount)
-    : await writeWithPublicApi(fleet, staleIds);
+    ? await writeWithServiceAccount(fleet, staleIds, containers, serviceAccount)
+    : await writeWithPublicApi(fleet, staleIds, containers);
   const added = Object.values(baselines).reduce((n, items) => n + Object.keys(items).length, 0);
   console.log(
     `Wrote fleet and schedules to Firestore (${serviceAccount ? 'service account' : 'public API'}); ` +
