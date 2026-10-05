@@ -26,9 +26,9 @@ let dutyDocs = {}; // vehicleId -> dutyCycles doc ({ current, state, metrics, ov
 const dutyModels = () => assignments?.dutyModels ?? {};
 const settings = () => effectiveSettings(assignments?.settings, savedSettings);
 let serviceLog = []; // serviceLog docs (one per Mark done)
-let containers = []; // containers docs (Samsara trailers)
-let cSortKey = 'name';
-let cSortDir = 1;
+let trailers = []; // trailers docs
+let trSortKey = 'name';
+let trSortDir = 1;
 let openTruckId = null; // truck shown in the detail dialog
 let openFormKey = null; // item whose "Mark done" form is open
 let sortKey = 'name';
@@ -173,44 +173,44 @@ function render() {
   if (openTruckId) renderTruck(all.find((v) => v.id === openTruckId));
   renderSchedules();
   renderLog();
-  renderContainers();
+  renderTrailers();
 }
 
-// ---- Containers tab --------------------------------------------------------
+// ---- Trailers tab --------------------------------------------------------
 
 const isMoving = (c) => (c.speedMph ?? 0) >= 3;
 
-function renderContainers() {
-  if (currentTab() !== 'containers') return;
-  const q = $('c-search').value.trim().toLowerCase();
-  const filter = $('c-filter').value;
+function renderTrailers() {
+  if (currentTab() !== 'trailers') return;
+  const q = $('tr-search').value.trim().toLowerCase();
+  const filter = $('tr-filter').value;
   const matchesFilter = (c) => filter === 'all'
     || (filter === 'moving' && isMoving(c))
     || (filter === 'parked' && !isMoving(c) && !isQuiet(c))
     || (filter === 'quiet' && isQuiet(c));
 
-  const visible = containers
+  const visible = trailers
     .filter((c) => !q || [c.name, c.location, c.trackerModel, c.trackerSerial].join(' ').toLowerCase().includes(q))
     .filter(matchesFilter)
     .sort((a, b) => {
-      const x = a[cSortKey];
-      const y = b[cSortKey];
+      const x = a[trSortKey];
+      const y = b[trSortKey];
       if (x == null || x === '') return 1;
       if (y == null || y === '') return -1;
-      if (typeof x === 'number' && typeof y === 'number') return (x - y) * cSortDir;
-      return String(x).localeCompare(String(y), undefined, { numeric: true }) * cSortDir;
+      if (typeof x === 'number' && typeof y === 'number') return (x - y) * trSortDir;
+      return String(x).localeCompare(String(y), undefined, { numeric: true }) * trSortDir;
     });
 
-  const moving = containers.filter(isMoving).length;
-  const quiet = containers.filter(isQuiet).length;
-  $('c-summary').replaceChildren(
-    chip(`${visible.length} containers`, true),
+  const moving = trailers.filter(isMoving).length;
+  const quiet = trailers.filter(isQuiet).length;
+  $('tr-summary').replaceChildren(
+    chip(`${visible.length} trailers`, true),
     chip(`${moving} moving`),
-    chip(`${containers.length - moving - quiet} parked`),
+    chip(`${trailers.length - moving - quiet} parked`),
     chip(`${quiet} quiet 7+ days`, false, quiet ? 'chip-soon' : ''),
   );
 
-  $('c-rows').replaceChildren(...visible.map((c) => {
+  $('tr-rows').replaceChildren(...visible.map((c) => {
     const tr = el('tr');
     if (isQuiet(c)) tr.className = 'quiet';
     const loc = el('td', 'wrap-cell');
@@ -242,15 +242,15 @@ function renderContainers() {
     );
     return tr;
   }));
-  $('c-empty').hidden = visible.length > 0;
-  $('c-rows').closest('.table-wrap').hidden = visible.length === 0;
-  $('c-empty').textContent = containers.length
-    ? 'No containers match.'
-    : 'No containers in the database yet. They are added by the next sync.';
+  $('tr-empty').hidden = visible.length > 0;
+  $('tr-rows').closest('.table-wrap').hidden = visible.length === 0;
+  $('tr-empty').textContent = trailers.length
+    ? 'No trailers match.'
+    : 'No trailers in the database yet. They are added by the next sync.';
 
-  for (const th of document.querySelectorAll('th[data-csort]')) {
-    th.classList.toggle('sorted', th.dataset.csort === cSortKey);
-    th.dataset.dir = cSortDir === 1 ? 'asc' : 'desc';
+  for (const th of document.querySelectorAll('th[data-trsort]')) {
+    th.classList.toggle('sorted', th.dataset.trsort === trSortKey);
+    th.dataset.dir = trSortDir === 1 ? 'asc' : 'desc';
   }
 }
 
@@ -331,7 +331,7 @@ function renderLog() {
 
 // ---- Schedules tab ---------------------------------------------------------
 
-const TABS = ['trucks', 'containers', 'schedules', 'log'];
+const TABS = ['trucks', 'trailers', 'schedules', 'log'];
 
 function currentTab() {
   const tab = location.hash.slice(1);
@@ -856,9 +856,9 @@ function watchFleet() {
       records = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
       render();
     }, (err) => console.error(err)),
-    onSnapshot(collection(db, 'containers'), (snap) => {
-      containers = snap.docs.map((d) => d.data());
-      renderContainers();
+    onSnapshot(collection(db, 'trailers'), (snap) => {
+      trailers = snap.docs.map((d) => d.data());
+      renderTrailers();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'serviceLog'), (snap) => {
       serviceLog = snap.docs.map((d) => {
@@ -919,14 +919,14 @@ $('sign-in').addEventListener('click', async () => {
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
 $('filter').addEventListener('change', render);
-addEventListener('hashchange', () => { showTab(); renderSchedules(); renderLog(); renderContainers(); });
-$('c-search').addEventListener('input', renderContainers);
-$('c-filter').addEventListener('change', renderContainers);
-for (const th of document.querySelectorAll('th[data-csort]')) {
+addEventListener('hashchange', () => { showTab(); renderSchedules(); renderLog(); renderTrailers(); });
+$('tr-search').addEventListener('input', renderTrailers);
+$('tr-filter').addEventListener('change', renderTrailers);
+for (const th of document.querySelectorAll('th[data-trsort]')) {
   th.addEventListener('click', () => {
-    cSortDir = cSortKey === th.dataset.csort ? -cSortDir : 1;
-    cSortKey = th.dataset.csort;
-    renderContainers();
+    trSortDir = trSortKey === th.dataset.trsort ? -trSortDir : 1;
+    trSortKey = th.dataset.trsort;
+    renderTrailers();
   });
 }
 $('log-period').addEventListener('change', () => { applyLogPeriod(); renderLog(); });

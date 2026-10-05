@@ -87,9 +87,9 @@ The site's **Schedules** tab (`aslog.dev/#schedules`) shows every model/year gro
 
 To change a schedule, edit the JSON and either wait for the next sync or run `npm run seed:schedules`. Both validate the file first and fail with a list of problems if something is off (unknown schedule id, missing interval, and so on). The sync log warns about any active truck that no assignment rule matches.
 
-## Containers
+## Trailers
 
-The sync also pulls every Samsara trailer/container unit into `containers/{samsaraId}` (name, tracker model and serial, latitude/longitude, address, speed, `lastReportedAt`), skipping units silent for 100+ days. The **Containers** tab (`aslog.dev/#containers`) lists them with moving / parked / quiet 7+ days counts, search, sorting and a map link per unit.
+The sync also pulls every Samsara trailer into `trailers/{samsaraId}` (name, tracker model and serial, latitude/longitude, address, speed, `lastReportedAt`), skipping units silent for 100+ days. The **Trailers** tab (`aslog.dev/#trailers`) lists them with moving / parked / quiet 7+ days counts, search, sorting and a map link per unit.
 
 ## Duty cycles (automatic)
 

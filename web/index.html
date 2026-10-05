@@ -50,7 +50,7 @@
     <section id="fleet" hidden>
       <nav class="tabs" aria-label="Views">
         <a href="#" data-tab="trucks">Trucks</a>
-        <a href="#containers" data-tab="containers">Containers</a>
+        <a href="#trailers" data-tab="trailers">Trailers</a>
         <a href="#schedules" data-tab="schedules">Schedules</a>
         <a href="#log" data-tab="log"><span class="hide-sm">Service log</span><span class="show-sm-inline">Log</span></a>
       </nav>
@@ -87,32 +87,32 @@
       <p id="empty" class="muted center" hidden></p>
       </div>
 
-      <div id="containers-view" hidden>
+      <div id="trailers-view" hidden>
         <div class="toolbar">
-          <input id="c-search" type="search" placeholder="Search unit, location, tracker…" autocomplete="off">
-          <select id="c-filter" aria-label="Filter containers">
-            <option value="all">All containers</option>
+          <input id="tr-search" type="search" placeholder="Search unit, location, tracker…" autocomplete="off">
+          <select id="tr-filter" aria-label="Filter trailers">
+            <option value="all">All trailers</option>
             <option value="moving">Moving</option>
             <option value="parked">Parked</option>
             <option value="quiet">Quiet 7+ days</option>
           </select>
         </div>
-        <div id="c-summary" class="summary"></div>
+        <div id="tr-summary" class="summary"></div>
         <div class="table-wrap">
-          <table class="containers-table">
+          <table class="trailers-table">
             <thead>
               <tr>
-                <th data-csort="name">Unit</th>
-                <th data-csort="location">Location</th>
-                <th data-csort="speedMph" class="hide-sm">Status</th>
-                <th data-csort="lastReportedAt">Last reported</th>
-                <th data-csort="trackerModel" class="hide-sm">Tracker</th>
+                <th data-trsort="name">Unit</th>
+                <th data-trsort="location">Location</th>
+                <th data-trsort="speedMph" class="hide-sm">Status</th>
+                <th data-trsort="lastReportedAt">Last reported</th>
+                <th data-trsort="trackerModel" class="hide-sm">Tracker</th>
               </tr>
             </thead>
-            <tbody id="c-rows"></tbody>
+            <tbody id="tr-rows"></tbody>
           </table>
         </div>
-        <p id="c-empty" class="muted center" hidden></p>
+        <p id="tr-empty" class="muted center" hidden></p>
       </div>
 
       <div id="log-view" hidden>

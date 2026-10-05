@@ -97,9 +97,9 @@ async function fetchFleet() {
   };
 }
 
-// Trailer/container units (Samsara calls them trailers): latest location and
-// tracker, split into active (reported in the last STALE_AFTER_DAYS) and stale.
-async function fetchContainers() {
+// Trailer units: latest location and tracker, split into active (reported in
+// the last STALE_AFTER_DAYS) and stale.
+async function fetchTrailers() {
   const [trailers, stats] = await Promise.all([
     samsaraGetAll('/fleet/trailers'),
     samsaraGetAll('/fleet/trailers/stats', { types: 'gps' }),
@@ -198,7 +198,7 @@ function allowedEmails() {
 }
 
 // Writes with admin credentials, which bypass the Firestore rules.
-async function writeWithServiceAccount(fleet, staleIds, containers, metricsById, serviceAccountJson) {
+async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccountJson) {
   const { initializeApp, cert } = await import('firebase-admin/app');
   const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
 
@@ -233,11 +233,11 @@ async function writeWithServiceAccount(fleet, staleIds, containers, metricsById,
   for (const id of staleIds) {
     batch.delete(db.collection('vehicles').doc(id));
   }
-  for (const c of containers.active) {
-    batch.set(db.collection('containers').doc(c.id), { ...c, updatedAt: FieldValue.serverTimestamp() });
+  for (const c of trailers.active) {
+    batch.set(db.collection('trailers').doc(c.id), { ...c, updatedAt: FieldValue.serverTimestamp() });
   }
-  for (const id of containers.staleIds) {
-    batch.delete(db.collection('containers').doc(id));
+  for (const id of trailers.staleIds) {
+    batch.delete(db.collection('trailers').doc(id));
   }
   for (const schedule of scheduleDocs()) {
     batch.set(db.collection('maintenanceSchedules').doc(schedule.id), schedule);
@@ -249,7 +249,7 @@ async function writeWithServiceAccount(fleet, staleIds, containers, metricsById,
   batch.set(db.collection('meta').doc('sync'), {
     lastRun: FieldValue.serverTimestamp(),
     vehicleCount: fleet.length,
-    containerCount: containers.active.length,
+    trailerCount: trailers.active.length,
     schedulesVersion,
   });
   await batch.commit();
@@ -257,7 +257,7 @@ async function writeWithServiceAccount(fleet, staleIds, containers, metricsById,
 }
 
 // Writes with the public web API key (see firestore-rest.mjs).
-async function writeWithPublicApi(fleet, staleIds, containers, metricsById) {
+async function writeWithPublicApi(fleet, staleIds, trailers, metricsById) {
   const baselines = missingBaselines(fleet, await listDocs('serviceRecords'));
   const duty = metricsById
     ? classifyFleet(fleet, metricsById, await listDocs('dutyCycles'))
@@ -272,22 +272,22 @@ async function writeWithPublicApi(fleet, staleIds, containers, metricsById) {
     })),
     ...fleet.map((v) => setWrite(`vehicles/${v.id}`, v, 'updatedAt')),
     ...staleIds.map((id) => deleteWrite(`vehicles/${id}`)),
-    ...containers.active.map((c) => setWrite(`containers/${c.id}`, c, 'updatedAt')),
-    ...containers.staleIds.map((id) => deleteWrite(`containers/${id}`)),
+    ...trailers.active.map((c) => setWrite(`trailers/${c.id}`, c, 'updatedAt')),
+    ...trailers.staleIds.map((id) => deleteWrite(`trailers/${id}`)),
     ...scheduleDocs().map((sch) => setWrite(`maintenanceSchedules/${sch.id}`, sch)),
     setWrite('meta/schedules', assignmentsDoc()),
     ...allowedEmails().map((email) => setWrite(`allowedUsers/${email}`, { email })),
     setWrite('meta/sync', {
-      vehicleCount: fleet.length, containerCount: containers.active.length, schedulesVersion,
+      vehicleCount: fleet.length, trailerCount: trailers.active.length, schedulesVersion,
     }, 'lastRun'),
   ]);
   return { baselines, dutyChanges: duty.changes, dutyClassified: Object.keys(duty.docs).length };
 }
 
 validate();
-const [{ active: fleet, staleIds }, containers, metricsById] = await Promise.all([
+const [{ active: fleet, staleIds }, trailers, metricsById] = await Promise.all([
   fetchFleet(),
-  fetchContainers(),
+  fetchTrailers(),
   // Duty classification is best-effort: if the report fails, the sync still runs.
   fetchDutyMetrics().catch((err) => { console.warn(`Skipping duty classification: ${err.message}`); return null; }),
 ]);
@@ -296,8 +296,8 @@ console.log(
   `${fleet.length} reported in the last ${STALE_AFTER_DAYS} days, ${staleIds.length} stale (removed)`,
 );
 console.log(
-  `Fetched ${containers.active.length + containers.staleIds.length} containers: ` +
-  `${containers.active.length} active, ${containers.staleIds.length} stale (removed)`,
+  `Fetched ${trailers.active.length + trailers.staleIds.length} trailers: ` +
+  `${trailers.active.length} active, ${trailers.staleIds.length} stale (removed)`,
 );
 const unmatched = fleet.filter((v) => v.scheduleIds.length === 0);
 if (unmatched.length) {
@@ -322,8 +322,8 @@ if (dryRun) {
 } else {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
   const { baselines, dutyChanges, dutyClassified } = serviceAccount
-    ? await writeWithServiceAccount(fleet, staleIds, containers, metricsById, serviceAccount)
-    : await writeWithPublicApi(fleet, staleIds, containers, metricsById);
+    ? await writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccount)
+    : await writeWithPublicApi(fleet, staleIds, trailers, metricsById);
   console.log(`Classified duty cycles for ${dutyClassified} truck(s); ${dutyChanges.length} change(s)`);
   for (const c of dutyChanges) console.log(`  ${c.vehicleName}: ${c.itemName} (${c.note})`);
   const added = Object.values(baselines).reduce((n, items) => n + Object.keys(items).length, 0);
