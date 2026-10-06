@@ -135,6 +135,7 @@
             <select id="log-unit"><option value="">All units</option></select>
           </label>
         </div>
+        <button id="log-pdf" class="btn btn-pdf" type="button">Download PDF</button>
         <p id="log-summary" class="muted"></p>
         <div class="table-wrap">
           <table class="log-table">
@@ -161,6 +162,12 @@
             <span id="setup-summary" class="muted"></span>
           </summary>
           <p class="muted">Applies to every truck, for everyone using the app.</p>
+          <form id="company-form" class="setting company">
+            <div class="setting-title">Company info for maintenance record PDFs</div>
+            <label class="field"><span>Company name</span><input id="company-name" type="text" autocomplete="organization"></label>
+            <label class="field"><span>USDOT number</span><input id="company-usdot" type="text" inputmode="numeric"></label>
+            <button class="btn" type="submit">Save company info</button>
+          </form>
           <div id="setup-toggles"></div>
         </details>
         <p id="sched-intro" class="muted"></p>

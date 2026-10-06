@@ -80,6 +80,7 @@ async function fetchFleet() {
       model: v.model ?? '',
       year: v.year ?? '',
       vin: v.vin ?? '',
+      plate: v.licensePlate ?? '',
       odometerMiles: odo ? Math.round(odo.value / METERS_PER_MILE) : null,
       odometerSource: s.obdOdometerMeters ? 'obd' : s.gpsOdometerMeters ? 'gps' : null,
       odometerTime: odo?.time ?? null,

@@ -560,3 +560,24 @@ details.duty { padding: 0 12px 6px; }
 @media (max-width: 640px) {
   .trucks-table .next-cell { min-width: 170px; }
 }
+
+/* ---- PDF export ---- */
+.btn-pdf { display: block; width: 100%; margin: 4px 0 10px; min-height: 44px; font-weight: 600; }
+#t-body > .btn-pdf { margin-top: 12px; }
+.company { display: grid; gap: 8px; }
+.company .field input {
+  font: inherit;
+  font-size: 16px;
+  padding: 10px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+@media (min-width: 641px) {
+  .btn-pdf { display: inline-block; width: auto; }
+  .company { grid-template-columns: 1fr 1fr auto; align-items: end; }
+  .company .setting-title { grid-column: 1 / -1; }
+}
+details.setup > .company { padding: 10px 16px 14px; margin: 0; }

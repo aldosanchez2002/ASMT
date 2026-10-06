@@ -9,6 +9,7 @@ import { firebaseConfig, requireSignIn } from './firebase-config.js';
 import {
   dutyFor, effectiveSettings, matchesRule, mostUrgent, resolveItems, truckMaintenance,
 } from './maintenance.js';
+import { downloadLog, downloadTruckRecord } from './records.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -25,6 +26,7 @@ let savedSettings = {}; // meta/settings doc: fleet setup toggles
 let dutyDocs = {}; // vehicleId -> dutyCycles doc ({ current, state, metrics, override })
 const dutyModels = () => assignments?.dutyModels ?? {};
 const settings = () => effectiveSettings(assignments?.settings, savedSettings);
+const company = () => ({ name: savedSettings.companyName ?? '', usdot: savedSettings.usdot ?? '' });
 let serviceLog = []; // serviceLog docs (one per Mark done)
 let trailers = []; // trailers docs
 let trSortKey = 'lastReportedAt'; // most recently reported first
@@ -289,16 +291,73 @@ function renderLogUnits() {
   select.value = names.has(chosen) ? chosen : '';
 }
 
-function renderLog() {
-  if (currentTab() !== 'log') return;
-  renderLogUnits();
+// Log entries matching the Log tab's filters, newest first.
+function filteredLog() {
   const from = $('log-from').value;
   const to = $('log-to').value;
   const unit = $('log-unit').value;
-
   const rows = serviceLog
     .filter((e) => (!from || e.date >= from) && (!to || e.date <= to) && (!unit || e.vehicleId === unit))
     .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.loggedAtMs ?? 0) - (a.loggedAtMs ?? 0));
+  return { from, to, unit, rows };
+}
+
+// Shows "Preparing…" on a button while a PDF is built.
+async function withBusy(btn, fn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Preparing PDF…';
+  try {
+    await fn();
+  } catch (err) {
+    showAppError(`Could not make the PDF: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+function dutyText(v) {
+  const models = truckDutyModels(v);
+  if (!models.length) return '';
+  const model = models[0];
+  const d = dutyDocs[v.id] ?? {};
+  const duty = d.override?.[model] ?? d.current?.[model] ?? dutyModels()[model]?.default;
+  const how = d.override?.[model] ? 'set by hand' : d.current?.[model] ? 'set from Samsara usage' : 'default';
+  return `${dutyModels()[model]?.label ?? ''}: ${dutyLabel(model, duty)} (${how})`;
+}
+
+function exportTruck(v, btn, from = '', to = '') {
+  const entries = serviceLog
+    .filter((e) => e.vehicleId === v.id && e.type !== 'duty' && (!from || e.date >= from) && (!to || e.date <= to))
+    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+  return withBusy(btn, () => downloadTruckRecord({
+    vehicle: v,
+    rows: v.rows.filter((r) => r.status !== 'n/a'),
+    intervalText,
+    entries,
+    dutyText: dutyText(v),
+    company: company(),
+    from,
+    to,
+  }));
+}
+
+function exportLog(btn) {
+  const { from, to, unit, rows } = filteredLog();
+  const v = unit && vehicles.find((x) => x.id === unit);
+  // One truck selected: its full maintenance record for the period.
+  if (v) return exportTruck(withMaintenance(v), btn, from, to);
+  return withBusy(btn, () => downloadLog({ entries: rows.filter((e) => e.type !== 'duty'), company: company(), from, to }));
+}
+
+function renderLog() {
+  if (currentTab() !== 'log') return;
+  renderLogUnits();
+  const { rows, unit } = filteredLog();
+  $('log-pdf').textContent = unit && vehicles.some((x) => x.id === unit)
+    ? 'Download maintenance record (PDF)'
+    : 'Download PDF';
 
   const services = rows.filter((e) => e.type !== 'duty');
   const dutyChanges = rows.length - services.length;
@@ -411,6 +470,9 @@ function scheduleTable(schedule, duty = null) {
 }
 
 function renderSetup() {
+  for (const [id, key] of [['company-name', 'companyName'], ['company-usdot', 'usdot']]) {
+    if (document.activeElement !== $(id)) $(id).value = savedSettings[key] ?? '';
+  }
   const defs = assignments?.settings ?? [];
   $('fleet-setup').hidden = defs.length === 0;
   const current = settings();
@@ -734,6 +796,10 @@ function renderTruck(v) {
 
   const body = $('t-body');
   body.replaceChildren();
+  const pdfBtn = el('button', 'btn btn-ghost btn-pdf', 'Download maintenance record (PDF)');
+  pdfBtn.type = 'button';
+  pdfBtn.addEventListener('click', () => exportTruck(v, pdfBtn));
+  body.append(pdfBtn);
   if (!v.rows.length) {
     body.append(el('p', 'muted', v.scheduleIds?.length
       ? 'Loading… If this stays empty, the next sync will set it up.'
@@ -1038,6 +1104,25 @@ for (const id of ['log-from', 'log-to']) {
   $(id).addEventListener('change', () => { $('log-period').value = 'custom'; renderLog(); });
 }
 $('log-unit').addEventListener('change', renderLog);
+$('log-pdf').addEventListener('click', () => exportLog($('log-pdf')));
+$('company-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.submitter ?? $('company-form').querySelector('button');
+  btn.disabled = true;
+  try {
+    await setDoc(doc(db, 'meta', 'settings'), {
+      companyName: $('company-name').value.trim(),
+      usdot: $('company-usdot').value.trim(),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    btn.textContent = 'Saved';
+    setTimeout(() => { btn.textContent = 'Save company info'; }, 2000);
+  } catch (err) {
+    showAppError(`Could not save: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
 applyLogPeriod();
 showTab();
 $('t-close').addEventListener('click', () => $('truck').close());

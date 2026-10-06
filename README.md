@@ -87,6 +87,16 @@ The site's **Schedules** tab (`aslog.dev/#schedules`) shows every model/year gro
 
 To change a schedule, edit the JSON and either wait for the next sync or run `npm run seed:schedules`. Both validate the file first and fail with a list of problems if something is off (unknown schedule id, missing interval, and so on). The sync log warns about any active truck that no assignment rule matches.
 
+## Maintenance record PDFs (DOT)
+
+Built for roadside and compliance inspections under 49 CFR Part 396:
+
+- **Truck popup → Download maintenance record (PDF)**: one truck's record with vehicle identification (unit number, year, make, model, VIN, plate, odometer; 396.3(b)(1)), every scheduled service with its interval, last done and next due (the "nature and due date", 396.3(b)(2)), the dated record of work performed from the service log (396.3(b)(3)), and the annual inspection status (396.17).
+- **Log tab → Download PDF**: the filtered log as a table; with one truck selected it produces that truck's full record for the chosen period.
+- Company name and USDOT number (Fleet setup) print at the top. Items that have only a tracking start point are shown as "Not on record", never as done.
+- Each page notes the retention rules: maintenance records 1 year + 6 months after the vehicle leaves your control (396.3), annual inspection reports 14 months (396.21), DVIRs 3 months (396.11).
+- PDFs are made in the browser with jsPDF (loaded from cdnjs on first use); see `web/records.js`.
+
 ## Trailers
 
 The sync also pulls every Samsara trailer into `trailers/{samsaraId}` (name, tracker model and serial, latitude/longitude, address, speed, `lastReportedAt`), skipping units silent for 100+ days. The **Trailers** tab (`aslog.dev/#trailers`) lists them with moving / parked / quiet 7+ days counts, search, sorting and a map link per unit.
