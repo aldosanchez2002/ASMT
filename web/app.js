@@ -722,6 +722,9 @@ function nextCell(v) {
   return td;
 }
 
+// A dash lamp's name in the current language (the code name if a label is missing).
+const lampName = (lamp) => t('lamp')?.[lamp] ?? lamp;
+
 // Truck number plus small flags from Samsara: lamps, at the shop, no signal.
 function nameCell(v) {
   const td = cell(v.name || '—', 'strong nowrap pin');
@@ -737,7 +740,7 @@ function nameCell(v) {
 function signalBadges(v, { short = false } = {}) {
   const out = [];
   for (const lamp of v.faults?.lamps ?? []) {
-    out.push(el('span', `sig sig-${lamp === 'stop' ? 'stop' : 'lamp'}`, short && lamp !== 'stop' ? '⚠' : t('lamp')[lamp]));
+    out.push(el('span', `sig sig-${lamp === 'stop' ? 'stop' : 'lamp'}`, short && lamp !== 'stop' ? '⚠' : lampName(lamp)));
   }
   if (v.here) out.push(el('span', 'sig sig-here', t('atShop')));
   if (v.quiet != null && v.quiet >= QUIET_DAYS && !v.shop) out.push(el('span', 'sig sig-quiet', short ? `📡 ${v.quiet}d` : t('noSignal', v.quiet)));
@@ -752,7 +755,7 @@ function faultsBox(v, { showMinor = true } = {}) {
   box.append(el('div', 'section-title', t('activeFaults')));
   if (f.lamps.length) {
     const lamps = el('div', 'fault-lamps');
-    f.lamps.forEach((l) => lamps.append(el('span', `sig sig-${l === 'stop' ? 'stop' : 'lamp'}`, t('lamp')[l])));
+    f.lamps.forEach((l) => lamps.append(el('span', `sig sig-${l === 'stop' ? 'stop' : 'lamp'}`, lampName(l))));
     box.append(lamps);
   }
   const ul = el('ul', 'fault-list');

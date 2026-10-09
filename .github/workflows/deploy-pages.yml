@@ -29,7 +29,7 @@ jobs:
         run: |
           v="${GITHUB_SHA::8}"
           sed -i -E "s#(src|href)=\"(app\.js|styles\.css)\"#\1=\"\2?v=$v\"#g" web/index.html
-          sed -i -E "s#from '\./([a-z-]+)\.js'#from './\1.js?v=$v'#g" web/*.js
+          sed -i -E "s#from '\./([a-z0-9-]+)\.js'#from './\1.js?v=$v'#g" web/*.js
           grep -n "?v=" web/index.html web/*.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
