@@ -17,17 +17,11 @@
 //   }]
 // }
 
-import { recordKey, scheduleById } from './schedules.mjs';
+import { scheduleById } from './schedules.mjs';
+import { SERVICE_ITEMS, itemKeysFor as keysFor } from '../web/services.js';
+import { isLaterService } from '../web/maintenance.js';
 
-// What each service tag counts as done, by schedule item id. Only the items a
-// truck's schedules actually have are used (e.g. Freightliner has no air filter item).
-export const SERVICE_ITEMS = {
-  oil: ['oil'],
-  fuelFilters: ['fuel-filter-engine', 'fuel-filter-frame', 'fuel-filter-engine-noframe', 'fuel-filter'],
-  chassisPm: ['m1', 'pm-a', 'pm-15k'],
-  airFilter: ['air-filter', 'air-cleaner'],
-  airDryer: ['air-dryer-coalescing'],
-};
+export { SERVICE_ITEMS };
 
 export const LOG_ID_PREFIX = 'worklog-';
 export const LOCAL_ID_PREFIX = 'local-';
@@ -37,26 +31,9 @@ export const localVehicleId = (name) => `${LOCAL_ID_PREFIX}${slug(name)}`;
 export const logEntryId = (entry, index) => `${LOG_ID_PREFIX}${String(index + 1).padStart(3, '0')}-${slug(entry.unit)}`;
 
 // Record keys ({scheduleId}__{itemId}) an entry's services cover on a truck.
-export function itemKeysFor(vehicle, services = []) {
-  const keys = [];
-  for (const scheduleId of vehicle.scheduleIds ?? []) {
-    const schedule = scheduleById.get(scheduleId);
-    for (const tag of services) {
-      for (const itemId of SERVICE_ITEMS[tag] ?? []) {
-        if (schedule?.items.some((i) => i.id === itemId)) keys.push(recordKey(scheduleId, itemId));
-      }
-    }
-  }
-  return keys;
-}
+export const itemKeysFor = (vehicle, services = []) => keysFor(vehicle, services, scheduleById);
 
-// The later of two services: higher miles wins (a truck's miles only go up),
-// then the later date.
-function isLater(a, b) {
-  if (!b) return true;
-  if (a.miles !== b.miles) return a.miles > b.miles;
-  return (a.date ?? '') > (b.date ?? '');
-}
+const isLater = isLaterService;
 
 /**
  * @param log       parsed work log file
@@ -115,7 +92,7 @@ export function planWorkLog(log, vehicles, records, status = {}) {
       miles: entry.miles ?? null,
       hours: null,
       itemName: entry.work,
-      itemKeys: keys,
+      services: keys,
       note: [`Paper log: ${entry.written}`, entry.note].filter(Boolean).join(' · '),
       source: 'worklog',
       ...(entry.repair ? { type: 'repair' } : {}),

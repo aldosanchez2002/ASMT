@@ -6,6 +6,54 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // Key used for an item in serviceRecords/{vehicleId}.items
 export const recordKey = (scheduleId, itemId) => `${scheduleId}__${itemId}`;
 
+// Item keys a service log entry (a visit) counts as done. Visits store
+// `services`; older entries used `itemKeys` (paper log import) or one
+// `scheduleId` + `itemId` (Mark done).
+export function visitServices(entry) {
+  if (Array.isArray(entry.services)) return entry.services;
+  if (Array.isArray(entry.itemKeys)) return entry.itemKeys;
+  if (entry.scheduleId && entry.itemId) return [recordKey(entry.scheduleId, entry.itemId)];
+  return [];
+}
+
+// The later of two services: higher miles wins (a truck's miles only go up),
+// then the later date.
+export function isLaterService(a, b) {
+  if (!b) return true;
+  if (a.miles !== b.miles) return a.miles > b.miles;
+  return (a.date ?? '') > (b.date ?? '');
+}
+
+/**
+ * When each item was last done on one truck, worked out from its visits: the
+ * latest visit that covered the item, else the item's tracking start (the
+ * launch-day "treat as done" point the sync writes). The log is the source of
+ * truth; nothing else stores "last done".
+ * @param visits          the truck's serviceLog entries
+ * @param trackingStarts  serviceRecords/{vehicleId}.items; only `source: 'baseline'` entries are used
+ * @returns { [recordKey]: { miles, hours, date, source: 'done' | 'baseline', note?, visitId? } }
+ */
+export function lastDoneFrom(visits = [], trackingStarts = {}) {
+  const out = {};
+  for (const [key, rec] of Object.entries(trackingStarts ?? {})) {
+    if (rec?.source === 'baseline') out[key] = rec;
+  }
+  const latest = {};
+  for (const visit of visits) {
+    // Visits without miles stay in the history but can't set a due point.
+    if (visit.type === 'duty' || visit.miles == null) continue;
+    for (const key of visitServices(visit)) {
+      if (isLaterService(visit, latest[key])) latest[key] = visit;
+    }
+  }
+  for (const [key, v] of Object.entries(latest)) {
+    out[key] = {
+      miles: v.miles, hours: v.hours ?? null, date: v.date ?? null, source: 'done', note: v.note ?? '', visitId: v.id ?? null,
+    };
+  }
+  return out;
+}
+
 // Whether a truck falls under an assignment rule's { make, model, yearMin, yearMax }.
 // Model matching is "contains", so "NEW CASCADIA 126\" SLEEPERCAB" matches CASCADIA.
 // Shared by the sync (scripts/schedules.mjs) and the site's Schedules tab.
