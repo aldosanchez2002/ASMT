@@ -24,10 +24,11 @@ let records = {}; // vehicleId -> serviceRecords doc
 let assignments = null; // meta/schedules doc: year/model groups
 let savedSettings = {}; // meta/settings doc: fleet setup toggles
 let dutyDocs = {}; // vehicleId -> dutyCycles doc ({ current, state, metrics, override })
+let statusDocs = {}; // vehicleId -> vehicleStatus doc ({ outOfService, reason, since })
 const dutyModels = () => assignments?.dutyModels ?? {};
 const settings = () => effectiveSettings(assignments?.settings, savedSettings);
 const company = () => ({ name: savedSettings.companyName ?? '', usdot: savedSettings.usdot ?? '' });
-let serviceLog = []; // serviceLog docs (one per Mark done)
+let serviceLog = []; // serviceLog docs (Mark done, repairs, paper work log, duty changes)
 let trailers = []; // trailers docs
 let trSortKey = 'lastReportedAt'; // most recently reported first
 let trSortDir = -1;
@@ -50,8 +51,10 @@ function niceDate(value) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-// Trucks that haven't reported in a week are shown dimmed.
+// Trucks that haven't reported in a week are shown dimmed. Local trucks
+// aren't in Samsara, so they never report.
 function isQuiet(v) {
+  if (v.local) return false;
   return !v.lastReportedAt || Date.now() - Date.parse(v.lastReportedAt) > 7 * DAY_MS;
 }
 
@@ -76,9 +79,11 @@ const STATUS_LABEL = {
 // Attaches each truck's maintenance rows and its most urgent item.
 function withMaintenance(v) {
   const rows = truckMaintenance(v, schedules, records[v.id]?.items, new Date(), settings(), dutyModels(), dutyDocs[v.id]);
-  const next = mostUrgent(rows);
-  const rank = next ? STATUS_RANK[next.status] : 3;
-  return { ...v, rows, next, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)) };
+  // Out-of-service trucks (in the shop) aren't counted as due until they're back.
+  const shop = statusDocs[v.id]?.outOfService ? statusDocs[v.id] : null;
+  const next = shop ? undefined : mostUrgent(rows);
+  const rank = next ? STATUS_RANK[next.status] : shop ? 4 : 3;
+  return { ...v, rows, next, shop, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)) };
 }
 
 const plural = (n, word) => `${fmt.format(n)} ${word}${Math.abs(n) === 1 ? '' : 's'}`;
@@ -156,6 +161,7 @@ function render() {
     .sort(compare);
   const overdue = all.filter((v) => v.next?.status === 'overdue').length;
   const soon = all.filter((v) => v.next?.status === 'soon').length;
+  const inShop = all.filter((v) => v.shop).length;
 
   // Count by make + model.
   const counts = new Map();
@@ -167,6 +173,7 @@ function render() {
     chip(`${visible.length} trucks`, true),
     filterChip(`${overdue} overdue`, overdue ? 'chip-overdue' : ''),
     filterChip(`${soon} due soon`, soon ? 'chip-soon' : ''),
+    ...(inShop ? [chip(`${inShop} in shop`)] : []),
     ...[...counts].sort((a, b) => b[1] - a[1]).map(([k, n]) => chip(`${titleCase(k)} · ${n}`, false, 'hide-sm')),
   );
 
@@ -336,7 +343,7 @@ function exportTruck(v, btn, from = '', to = '') {
     rows: v.rows.filter((r) => r.status !== 'n/a'),
     intervalText,
     entries,
-    dutyText: dutyText(v),
+    dutyText: v.local && !v.scheduleIds?.length ? 'Local truck (not in Samsara); no schedule assigned yet' : dutyText(v),
     company: company(),
     from,
     to,
@@ -383,11 +390,12 @@ function renderLog() {
     unitCell.append(link);
     const service = el('td', 'wrap-cell', e.itemName || e.itemId);
     if (e.type === 'duty') service.prepend(el('span', 'badge badge-auto', 'Auto'), ' ');
+    if (e.type === 'repair') service.prepend(el('span', 'badge badge-repair', 'Repair'), ' ');
     const sched = schedules.get(e.scheduleId);
     if (sched) service.append(el('div', 'item-meta', sched.name));
     if (e.note) service.append(el('div', 'item-meta show-sm', `"${e.note}"`));
     tr.append(
-      el('td', null, niceDate(e.date)),
+      el('td', null, e.date ? niceDate(e.date) : 'Not written'),
       unitCell,
       service,
       el('td', 'num', e.miles == null ? '—' : fmt.format(e.miles)),
@@ -670,6 +678,10 @@ function cell(text, className = '') {
 
 function nextCell(v) {
   const td = el('td', 'next-cell');
+  if (v.shop) {
+    td.append(el('span', 'badge badge-shop', 'In shop'), el('span', 'next-when', v.shop.reason || 'Out of service'));
+    return td;
+  }
   if (!v.next) {
     td.append(el('span', 'muted-cell', v.scheduleIds?.length ? 'Waiting for sync' : 'No schedule'));
     return td;
@@ -695,7 +707,7 @@ function row(v) {
     cell(titleCase(v.make || '—'), 'nowrap'),
     cell(titleCase(v.model || '—'), 'nowrap'),
     cell(v.engineHours == null ? '—' : fmt.format(v.engineHours), 'num'),
-    cell(timeAgo(v.lastReportedAt), 'muted-cell nowrap'),
+    cell(v.local ? 'Local truck' : timeAgo(v.lastReportedAt), 'muted-cell nowrap'),
   );
   return tr;
 }
@@ -771,8 +783,9 @@ function dutySection(v, models) {
 function lastText(last) {
   if (!last) return 'No record yet';
   const what = last.source === 'baseline' ? 'Tracking started' : 'Last done';
+  const when = last.date ? niceDate(last.date) : '(date not written)';
   const miles = last.miles != null ? `at ${fmt.format(last.miles)} mi` : '';
-  return `${what} ${niceDate(last.date)} ${miles}`.trim() + (last.note ? ` · "${last.note}"` : '');
+  return `${what} ${when} ${miles}`.trim() + (last.note ? ` · "${last.note}"` : '');
 }
 
 function dueText(r) {
@@ -800,10 +813,17 @@ function renderTruck(v) {
   pdfBtn.type = 'button';
   pdfBtn.addEventListener('click', () => exportTruck(v, pdfBtn));
   body.append(pdfBtn);
+  if (v.shop) body.append(shopBanner(v));
+  if (v.local) {
+    body.append(el('p', 'muted', 'Local truck: not in Samsara, so its miles only change when a service is logged.'));
+  }
   if (!v.rows.length) {
     body.append(el('p', 'muted', v.scheduleIds?.length
       ? 'Loading… If this stays empty, the next sync will set it up.'
-      : 'No maintenance schedule matches this truck.'));
+      : v.local
+        ? 'No maintenance schedule yet. Add its year, make and model to apply one. Its service history is in the Log tab and the PDF.'
+        : 'No maintenance schedule matches this truck.'));
+    if (!v.shop) body.append(shopButton(v));
     return;
   }
 
@@ -842,7 +862,56 @@ function renderTruck(v) {
   // 3. How the truck is used (duty cycle), compact.
   const models = truckDutyModels(v);
   if (models.length) body.append(dutySection(v, models));
+  if (!v.shop) body.append(shopButton(v));
   if (v.vin) body.append(el('p', 'muted footnote', `VIN ${v.vin}`));
+}
+
+// ---- Out of service (in the shop) ------------------------------------------
+
+async function saveStatus(v, fields) {
+  try {
+    await setDoc(doc(db, 'vehicleStatus', v.id), {
+      vehicleId: v.id, vehicleName: v.name, ...fields, updatedAt: serverTimestamp(),
+    }, { merge: true });
+  } catch (err) {
+    showAppError(`Could not save: ${err.message}`);
+  }
+}
+
+// Shown at the top of an out-of-service truck, with the way back.
+function shopBanner(v) {
+  const box = el('div', 'shop-banner');
+  box.append(
+    el('div', 'shop-title', 'Out of service'),
+    el('div', null, [v.shop.reason, v.shop.since && `since ${niceDate(v.shop.since)}`].filter(Boolean).join(' · ')),
+    el('div', 'item-meta', 'Not counted as due, and stays listed even if Samsara stops hearing from it.'),
+  );
+  const btn = el('button', 'btn', 'Back in service');
+  btn.type = 'button';
+  btn.addEventListener('click', async () => {
+    if (!confirm(`Put ${v.name} back in service? Its services will count as due again.`)) return;
+    btn.disabled = true;
+    await saveStatus(v, { outOfService: false, backOn: new Date().toLocaleDateString('en-CA') });
+  });
+  box.append(btn);
+  return box;
+}
+
+// Kept at the bottom of the popup so it isn't tapped by mistake.
+function shopButton(v) {
+  const btn = el('button', 'btn btn-ghost btn-shop', 'Mark out of service (in shop)');
+  btn.type = 'button';
+  btn.addEventListener('click', async () => {
+    const reason = prompt(`Why is ${v.name} out of service? (for example: engine overhaul)`);
+    if (reason == null) return;
+    btn.disabled = true;
+    await saveStatus(v, {
+      outOfService: true,
+      reason: reason.trim() || 'In shop',
+      since: new Date().toLocaleDateString('en-CA'),
+    });
+  });
+  return btn;
 }
 
 function itemRow(v, r, showSchedule = false) {
@@ -1036,6 +1105,10 @@ function watchFleet() {
         return { ...e, id: d.id, loggedAtMs: e.loggedAt?.toMillis?.() ?? 0 };
       });
       renderLog();
+    }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'vehicleStatus'), (snap) => {
+      statusDocs = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+      render();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'dutyCycles'), (snap) => {
       dutyDocs = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));

@@ -285,16 +285,34 @@ async function writeWithPublicApi(fleet, staleIds, trailers, metricsById) {
   return { baselines, dutyChanges: duty.changes, dutyClassified: Object.keys(duty.docs).length };
 }
 
+// Trucks marked out of service in the app (in the shop, e.g. for an overhaul)
+// stay listed even after Samsara stops hearing from them.
+async function removableStaleIds(staleIds) {
+  if (!staleIds.length) return staleIds;
+  try {
+    const status = await listDocs('vehicleStatus');
+    const kept = staleIds.filter((id) => status[id]?.outOfService);
+    if (kept.length) {
+      console.log(`Keeping ${kept.length} out-of-service truck(s) that stopped reporting: ${kept.map((id) => status[id].vehicleName ?? id).join(', ')}`);
+    }
+    return staleIds.filter((id) => !status[id]?.outOfService);
+  } catch (err) {
+    console.warn(`Could not read vehicleStatus, so no trucks are removed this run: ${err.message}`);
+    return [];
+  }
+}
+
 validate();
-const [{ active: fleet, staleIds }, trailers, metricsById] = await Promise.all([
+const [{ active: fleet, staleIds: allStaleIds }, trailers, metricsById] = await Promise.all([
   fetchFleet(),
   fetchTrailers(),
   // Duty classification is best-effort: if the report fails, the sync still runs.
   fetchDutyMetrics().catch((err) => { console.warn(`Skipping duty classification: ${err.message}`); return null; }),
 ]);
+const staleIds = dryRun ? allStaleIds : await removableStaleIds(allStaleIds);
 console.log(
-  `Fetched ${fleet.length + staleIds.length} vehicles from Samsara: ` +
-  `${fleet.length} reported in the last ${STALE_AFTER_DAYS} days, ${staleIds.length} stale (removed)`,
+  `Fetched ${fleet.length + allStaleIds.length} vehicles from Samsara: ` +
+  `${fleet.length} reported in the last ${STALE_AFTER_DAYS} days, ${allStaleIds.length} stale (${staleIds.length} removed)`,
 );
 console.log(
   `Fetched ${trailers.active.length + trailers.staleIds.length} trailers: ` +

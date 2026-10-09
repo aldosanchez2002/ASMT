@@ -133,3 +133,22 @@ The **Service log** tab (`aslog.dev/#log`) lists every logged service, newest fi
 
 The due-date logic lives in `web/maintenance.js` and is covered by `npm test`.
 
+## Paper work log import
+
+`scripts/seed-work-log.mjs` loads a typed-up paper work log (JSON; format at the top of `scripts/work-log.mjs`). **Keep the file out of this repo**: it's fleet data, and `.gitignore` blocks `work-log*.json` and backups.
+
+```bash
+node scripts/seed-work-log.mjs path/to/work-log.json           # dry run: every change, before → after, nothing written
+node scripts/seed-work-log.mjs path/to/work-log.json --apply   # saves a backup next to the file, then writes
+node scripts/seed-work-log.mjs --undo path/to/work-log.backup-….json
+```
+
+- Every line becomes a `serviceLog` entry (`source: 'worklog'`, fixed ids `worklog-NNN-<unit>`, so re-runs don't duplicate). Repairs get `type: 'repair'` and show with a **Repair** label in the Log tab and PDFs. Lines with no date show "Not written".
+- Each entry's `services` say what it counts as done: `oil`, `fuelFilters`, `chassisPm` (M1 / A / 15k), `airFilter`, `airDryer`, matched to the items the truck's schedules have. The latest one (highest miles) becomes the item's record, replacing the launch-day tracking start. A newer **Mark done** from the app is kept.
+- `localTrucks` are added to `vehicles` as `local-<name>` with `local: true`: trucks that aren't in Samsara. Their miles come from their latest logged service and the sync never touches them.
+- `outOfService` writes `vehicleStatus/{vehicleId}` (see below).
+
+## Out of service
+
+**Truck popup → Mark out of service (in shop)** saves `vehicleStatus/{vehicleId}` (`outOfService`, `reason`, `since`). The truck shows **In shop**, isn't counted as overdue or due soon, and the sync keeps it listed even after Samsara has been silent for 100+ days. **Back in service** in the popup undoes it.
+

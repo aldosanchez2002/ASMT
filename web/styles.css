@@ -581,3 +581,19 @@ details.duty { padding: 0 12px 6px; }
   .company .setting-title { grid-column: 1 / -1; }
 }
 details.setup > .company { padding: 10px 16px 14px; margin: 0; }
+
+/* ---- Repairs, local trucks and out-of-service trucks ---- */
+.badge-repair { margin-left: 0; background: var(--chip); color: var(--text); }
+.badge-shop { margin: 0 8px 0 0; background: var(--chip); color: var(--text); }
+.shop-banner {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--chip);
+  display: grid;
+  gap: 6px;
+}
+.shop-banner .btn { justify-self: start; margin-top: 4px; }
+.shop-title { font-weight: 800; text-transform: uppercase; letter-spacing: .04em; font-size: 13px; }
+.btn-shop { display: block; margin-top: 18px; }

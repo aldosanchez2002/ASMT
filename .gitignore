@@ -6,3 +6,6 @@ node_modules/
 *-firebase-adminsdk-*.json
 .firebase/
 firebase-debug.log
+# Paper work log data and load backups are fleet data — keep them out of this public repo
+work-log*.json
+*.backup-*.json

@@ -28,6 +28,8 @@ function niceDate(value) {
   const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
+const entryDate = (e) => (e.date ? niceDate(e.date) : 'Not written');
+const workText = (e) => `${e.type === 'repair' ? 'Repair: ' : ''}${e.itemName || e.itemId}`;
 const fileSafe = (s) => String(s).replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-|-$/g, '');
 
 const RETENTION_NOTE = 'Retention: maintenance records (49 CFR 396.3) are kept where the vehicle is housed or maintained for 1 year and for '
@@ -84,7 +86,7 @@ const tableStyle = {
 function lastDoneText(last) {
   if (!last) return 'Not on record';
   if (last.source === 'baseline') return `Not on record (tracking began ${niceDate(last.date)})`;
-  return `${niceDate(last.date)} at ${num(last.miles)} mi`;
+  return `${last.date ? niceDate(last.date) : 'Date not written'} at ${num(last.miles)} mi`;
 }
 
 function nextDueText(r) {
@@ -124,9 +126,11 @@ function addTruckRecord(doc, { vehicle: v, rows, intervalText, entries, dutyText
     ...tableStyle,
     startY: y,
     head: [['Service', 'Type', 'Interval', 'Last done', 'Next due', 'Status']],
-    body: rows.map((r) => [
-      r.item.name, CATEGORY[r.schedule.category] ?? '', intervalText(r.item), lastDoneText(r.last), nextDueText(r), STATUS[r.status] ?? r.status,
-    ]),
+    body: rows.length
+      ? rows.map((r) => [
+        r.item.name, CATEGORY[r.schedule.category] ?? '', intervalText(r.item), lastDoneText(r.last), nextDueText(r), STATUS[r.status] ?? r.status,
+      ])
+      : [[{ content: 'No maintenance schedule assigned to this vehicle yet.', colSpan: 6, styles: { textColor: 110 } }]],
     columnStyles: { 0: { cellWidth: 130 }, 1: { cellWidth: 44 }, 2: { cellWidth: 92 }, 5: { cellWidth: 52 } },
     didParseCell: (d) => {
       if (d.section === 'body' && d.column.index === 5 && d.cell.raw === 'OVERDUE') {
@@ -145,7 +149,7 @@ function addTruckRecord(doc, { vehicle: v, rows, intervalText, entries, dutyText
     startY: y,
     head: [['Date', 'Work performed', 'Odometer', 'Engine h', 'Shop / notes']],
     body: entries.length
-      ? entries.map((e) => [niceDate(e.date), e.itemName || e.itemId, num(e.miles), num(e.hours), e.note || ''])
+      ? entries.map((e) => [entryDate(e), workText(e), num(e.miles), num(e.hours), e.note || ''])
       : [[{ content: 'No services logged in aslog.dev for this period.', colSpan: 5, styles: { textColor: 110 } }]],
     columnStyles: { 0: { cellWidth: 70 }, 2: { cellWidth: 62, halign: 'right' }, 3: { cellWidth: 52, halign: 'right' } },
   });
@@ -192,7 +196,7 @@ export async function downloadLog({ entries, company, from, to }) {
     startY: y + 4,
     head: [['Date', 'Unit', 'Work performed', 'Odometer', 'Engine h', 'Shop / notes']],
     body: entries.length
-      ? entries.map((e) => [niceDate(e.date), e.vehicleName || e.vehicleId, e.itemName || e.itemId, num(e.miles), num(e.hours), e.note || ''])
+      ? entries.map((e) => [entryDate(e), e.vehicleName || e.vehicleId, workText(e), num(e.miles), num(e.hours), e.note || ''])
       : [[{ content: 'No services logged for this period.', colSpan: 6, styles: { textColor: 110 } }]],
     columnStyles: { 0: { cellWidth: 70 }, 1: { cellWidth: 48 }, 3: { cellWidth: 62, halign: 'right' }, 4: { cellWidth: 52, halign: 'right' } },
   });
