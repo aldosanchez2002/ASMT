@@ -622,7 +622,6 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 .btn-log { display: block; width: 100%; min-height: 50px; font-size: 17px; font-weight: 700; margin-bottom: 8px; }
 .log-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .log-actions .btn-log { width: auto; flex: 1 1 200px; margin: 0; }
-#work { width: min(560px, 100vw - 24px); }
 .work-form { display: grid; gap: 14px; }
 .work-jobs { border: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .work-jobs legend { padding: 0; margin-bottom: 4px; }
@@ -639,7 +638,7 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 .check-hint { flex-basis: 100%; padding-left: 32px; font-size: 13px; color: var(--muted); }
 .repair-box { display: grid; grid-template-columns: 1fr; gap: 8px; padding-left: 4px; }
 .work-details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.work-details .field:nth-child(4), .work-details .field:nth-child(5) { grid-column: 1 / -1; }
+.work-details .field.wide { grid-column: 1 / -1; }
 .field select, .field textarea, .add-item {
   font: inherit; font-size: 16px; padding: 10px; width: 100%; box-sizing: border-box;
   border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
@@ -712,3 +711,27 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 .fixed-codes { display: grid; gap: 6px; }
 .fixed-codes .section-title { margin: 4px 0 0; }
 .truck-where { margin: 6px 0; }
+
+/* Log work dialog: same frame as the truck popup; full screen on phones */
+dialog#work {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+}
+dialog#work::backdrop { background: rgba(0, 0, 0, .45); }
+#w-body { padding: 8px 16px 0; }
+#w-title { font-size: 24px; }
+.work-actions {
+  position: sticky; bottom: 0; z-index: 1;
+  display: grid; gap: 8px;
+  margin: 0 -16px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--bg); border-top: 1px solid var(--border);
+}
+.work-actions .btn-cancel { min-height: 40px; }
+@media (max-width: 600px) {
+  dialog#work { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: none; border-radius: 0; }
+}

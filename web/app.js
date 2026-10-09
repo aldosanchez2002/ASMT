@@ -11,7 +11,9 @@ import {
   truckMaintenance, visitServices,
 } from './maintenance.js';
 import { JOBS, itemKeysFor } from './services.js';
-import { dateText, getLang, setLang, t } from './i18n.js';
+import {
+  agoText, dateText, getLang, setLang, t, useEnglish,
+} from './i18n.js';
 import {
   QUIET_DAYS, atShop, codeId, codeText, faultSummary, quietDays,
 } from './signals.js';
@@ -40,6 +42,7 @@ let trailers = []; // trailers docs
 let trSortKey = 'lastReportedAt'; // most recently reported first
 let trSortDir = -1;
 let openTruckId = null; // truck shown in the detail dialog
+let lastSyncIso = null; // meta/sync lastRun, for "Updated X ago"
 let work = null; // the open "Log work" form ({ vehicleId, jobs, extra, unticked, repair, days })
 let truckFilter = 'all'; // Trucks tab status buttons (TRUCK_FILTERS)
 let sortKey = 'name';
@@ -459,6 +462,7 @@ function showTab() {
   const tab = currentTab();
   for (const x of TABS) $(`${x}-view`).hidden = x !== tab;
   const shop = tab === 'shop';
+  useEnglish(!shop);
   $('admin-nav').hidden = shop;
   $('shop-top').hidden = !shop;
   for (const a of document.querySelectorAll('.tabs a')) {
@@ -724,6 +728,7 @@ function nextCell(v) {
 
 // A dash lamp's name in the current language (the code name if a label is missing).
 const lampName = (lamp) => t('lamp')?.[lamp] ?? lamp;
+const SHORT_LAMP = { stop: 'STOP', warning: 'Check eng.', emissions: 'Emissions', protect: 'Protect' };
 
 // Truck number plus small flags from Samsara: lamps, at the shop, no signal.
 function nameCell(v) {
@@ -740,10 +745,12 @@ function nameCell(v) {
 function signalBadges(v, { short = false } = {}) {
   const out = [];
   for (const lamp of v.faults?.lamps ?? []) {
-    out.push(el('span', `sig sig-${lamp === 'stop' ? 'stop' : 'lamp'}`, short && lamp !== 'stop' ? '⚠' : lampName(lamp)));
+    const badge = el('span', `sig sig-${lamp === 'stop' ? 'stop' : 'lamp'}`, short ? SHORT_LAMP[lamp] : lampName(lamp));
+    badge.title = lampName(lamp);
+    out.push(badge);
   }
   if (v.here) out.push(el('span', 'sig sig-here', t('atShop')));
-  if (v.quiet != null && v.quiet >= QUIET_DAYS && !v.shop) out.push(el('span', 'sig sig-quiet', short ? `📡 ${v.quiet}d` : t('noSignal', v.quiet)));
+  if (v.quiet != null && v.quiet >= QUIET_DAYS && !v.shop) out.push(el('span', 'sig sig-quiet', short ? `No signal ${v.quiet}d` : t('noSignal', v.quiet)));
   return out;
 }
 
@@ -773,7 +780,7 @@ function faultsBox(v, { showMinor = true } = {}) {
       box.append(el('p', 'muted', t('minorCodes', f.minor.length)));
     }
   }
-  if (f.time) box.append(el('p', 'item-meta', `Samsara · ${timeAgo(f.time)}`));
+  if (f.time) box.append(el('p', 'item-meta', `Samsara · ${agoText(f.time)}`));
   return box;
 }
 
@@ -1086,8 +1093,8 @@ function renderShop() {
       || flag(b.due.some((r) => r.status === 'overdue')) - flag(a.due.some((r) => r.status === 'overdue'))
       || (a.due[0]?.urgency ?? 0) - (b.due[0]?.urgency ?? 0));
 
-  $('shop-title').textContent = t('shopTitle');
-  $('shop-count').textContent = vehicles.length ? (trucks.length ? t('shopCount', trucks.length) : t('shopEmpty')) : '';
+  $('shop-title').textContent = vehicles.length ? (trucks.length ? t('shopCount', trucks.length) : t('shopEmpty')) : t('shopTitle');
+  $('shop-count').textContent = lastSyncIso ? t('updated', agoText(lastSyncIso)) : '';
   $('shop-cards').replaceChildren(...trucks.map(({ v, due }) => {
     const card = el('button', `shop-card${due.some((r) => r.status === 'overdue') || v.faults?.stop ? ' has-overdue' : ''}`);
     card.type = 'button';
@@ -1102,9 +1109,12 @@ function renderShop() {
     }
     if (v.shop) card.append(el('div', 'shop-oos', `${t('outOfService')}${v.shop.reason ? ` · ${v.shop.reason}` : ''}`));
     // The codes that matter (a STOP lamp's code first), then what's due.
-    (v.faults?.major ?? []).slice(0, 2).forEach((c) => card.append(el('div', 'fault-line', `⚠ ${codeText(c)}`)));
-    due.slice(0, 3).forEach((r) => card.append(dueLine(r)));
-    if (due.length > 3) card.append(el('div', 'due-more', t('more', due.length - 3)));
+    // Kept short: one fault code and two due items, then "+N more".
+    const codes = v.faults?.major ?? [];
+    codes.slice(0, 1).forEach((c) => card.append(el('div', 'fault-line', `⚠ ${codeText(c)}`)));
+    due.slice(0, 2).forEach((r) => card.append(dueLine(r)));
+    const hidden = Math.max(0, codes.length - 1) + Math.max(0, due.length - 2);
+    if (hidden) card.append(el('div', 'due-more', t('more', hidden)));
     card.append(el('div', 'shop-cta', `${t('logWork')} →`));
     card.addEventListener('click', () => openWork(v.id));
     return card;
@@ -1204,9 +1214,9 @@ function checkRow(text, checked, onChange, hint, extraClass = '') {
 function buildWork() {
   const v = workTruck();
   $('w-close').textContent = t('close');
-  $('w-title').textContent = v ? `${t('logWork')} · ${v.name}` : t('logWork');
+  $('w-title').textContent = v ? v.name : t('logWork');
   $('w-sub').textContent = v
-    ? [[v.year, titleCase(v.make || ''), titleCase(v.model || '')].filter(Boolean).join(' '), v.odometerMiles != null && `${fmt.format(v.odometerMiles)} mi`].filter(Boolean).join(' · ')
+    ? [t('logWork'), v.odometerMiles != null && `${fmt.format(v.odometerMiles)} mi`].filter(Boolean).join(' · ')
     : t('pickTruck');
   const body = $('w-body');
   body.replaceChildren();
@@ -1371,14 +1381,18 @@ function buildWork() {
   details.append(milesField.wrap, dateField.wrap);
   // Engine hours are wrong on several trucks in Samsara; mechanics don't need them.
   if (!shopMode) details.append(field(t('hours'), hours));
-  details.append(field(t('note'), note), field(t('loggedBy'), who));
+  const wide = (f) => { f.classList.add('wide'); return f; };
+  details.append(wide(field(t('note'), note)), wide(field(t('loggedBy'), who)));
 
   const error = el('p', 'form-error');
   error.hidden = true;
   const cancel = Object.assign(el('button', 'btn btn-ghost btn-cancel', t('cancel')), { type: 'button' });
   cancel.addEventListener('click', () => $('work').close());
   const faultBox = faultsBox(v, { showMinor: false });
-  form.append(...(faultBox ? [faultBox] : []), dueBox, jobs, marks, details, error, save, cancel);
+  // Save stays at the bottom of the screen while scrolling.
+  const actions = el('div', 'work-actions');
+  actions.append(error, save, cancel);
+  form.append(...(faultBox ? [faultBox] : []), dueBox, jobs, marks, details, actions);
   body.append(form);
   refresh();
 
@@ -1538,7 +1552,9 @@ function watchFleet() {
     }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'sync'), (snap) => {
       const t = snap.data()?.lastRun?.toDate();
-      $('last-sync').textContent = t ? `Updated ${timeAgo(t.toISOString())}` : '';
+      lastSyncIso = t ? t.toISOString() : null;
+      $('last-sync').textContent = t ? `Updated ${timeAgo(lastSyncIso)}` : '';
+      renderShop();
     }, () => {}),
   );
 }

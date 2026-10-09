@@ -76,6 +76,8 @@ const TEXT = {
     activeFaults: 'Active engine faults',
     minorCodes: (n) => `+${n} minor ${n === 1 ? 'code' : 'codes'}`,
     fixedCodes: 'Codes this repair fixed',
+    updated: (x) => `Updated ${x}`,
+    ago: { now: 'just now', min: (n) => `${n} min ago`, h: (n) => `${n} h ago`, d: (n) => `${n} ${n === 1 ? 'day' : 'days'} ago` },
   },
   es: {
     shopTitle: 'Camiones que necesitan servicio',
@@ -151,6 +153,8 @@ const TEXT = {
     activeFaults: 'Fallas activas del motor',
     minorCodes: (n) => `+${n} ${n === 1 ? 'código menor' : 'códigos menores'}`,
     fixedCodes: 'Códigos que arregló esta reparación',
+    updated: (x) => `Actualizado ${x}`,
+    ago: { now: 'ahora', min: (n) => `hace ${n} min`, h: (n) => `hace ${n} h`, d: (n) => `hace ${n} ${n === 1 ? 'día' : 'días'}` },
   },
 };
 
@@ -163,6 +167,12 @@ let lang = (() => {
   return (navigator.language ?? '').toLowerCase().startsWith('es') ? 'es' : 'en';
 })();
 
+// The admin side is English for now; the shop view (and Log work opened from
+// it) follows the switch.
+let english = false;
+export function useEnglish(on) { english = Boolean(on); }
+const active = () => (english ? 'en' : lang);
+
 export const getLang = () => lang;
 export function setLang(next) {
   lang = next === 'es' ? 'es' : 'en';
@@ -173,7 +183,7 @@ document.documentElement.lang = lang;
 
 // t('key') or t('key', ...args) for the text functions above.
 export function t(key, ...args) {
-  const v = TEXT[lang][key] ?? TEXT.en[key];
+  const v = TEXT[active()][key] ?? TEXT.en[key];
   return typeof v === 'function' ? v(...args) : v;
 }
 
@@ -181,5 +191,17 @@ export function t(key, ...args) {
 export function dateText(value) {
   if (!value) return '—';
   const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
-  return d.toLocaleDateString(lang === 'es' ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString(active() === 'es' ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// "10 min ago" / "hace 10 min".
+export function agoText(iso) {
+  if (!iso) return '—';
+  const a = t('ago');
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (mins < 1) return a.now;
+  if (mins < 60) return a.min(mins);
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return a.h(hours);
+  return a.d(Math.round(hours / 24));
 }
