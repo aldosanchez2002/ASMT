@@ -11,6 +11,7 @@ import {
   truckMaintenance, visitServices,
 } from './maintenance.js';
 import { JOBS, itemKeysFor } from './services.js';
+import { dateText, getLang, setLang, t } from './i18n.js';
 import { downloadLog, downloadTruckRecord } from './records.js';
 
 const app = initializeApp(firebaseConfig);
@@ -210,6 +211,7 @@ function render() {
   renderSchedules();
   renderLog();
   renderTrailers();
+  renderShop();
 }
 
 // ---- Trailers tab --------------------------------------------------------
@@ -428,16 +430,20 @@ function renderLog() {
 
 // ---- Schedules tab ---------------------------------------------------------
 
-const TABS = ['trucks', 'trailers', 'schedules', 'log'];
+// The shop view is the main page; the rest is the admin side.
+const TABS = ['shop', 'trucks', 'trailers', 'schedules', 'log'];
 
 function currentTab() {
   const tab = location.hash.slice(1);
-  return TABS.includes(tab) ? tab : 'trucks';
+  return TABS.includes(tab) ? tab : 'shop';
 }
 
 function showTab() {
   const tab = currentTab();
-  for (const t of TABS) $(`${t}-view`).hidden = t !== tab;
+  for (const x of TABS) $(`${x}-view`).hidden = x !== tab;
+  const shop = tab === 'shop';
+  $('admin-nav').hidden = shop;
+  $('shop-top').hidden = !shop;
   for (const a of document.querySelectorAll('.tabs a')) {
     a.classList.toggle('active', a.dataset.tab === tab);
     a.setAttribute('aria-current', a.dataset.tab === tab ? 'page' : 'false');
@@ -961,10 +967,66 @@ function field(label, input) {
   return wrap;
 }
 
+// ---- Shop view (main page) ----------------------------------------------------
+// For mechanics: only the trucks that need work, most urgent first, each one
+// a tap away from "Log work". English / Spanish.
+
+const DUE = (r) => r.status === 'overdue' || r.status === 'soon';
+const num = (n) => fmt.format(Math.abs(n));
+
+// "32,966 mi overdue" / "in 4,000 mi", whichever runs out first, in the current language.
+function dueWhen(r) {
+  const options = [];
+  if (r.milesLeft != null) options.push({ ratio: r.milesLeft / (r.item.intervalMiles || r.item.firstDueMiles), n: r.milesLeft, u: 'Miles' });
+  if (r.hoursLeft != null) options.push({ ratio: r.hoursLeft / r.item.intervalHours, n: r.hoursLeft, u: 'Hours' });
+  if (r.daysLeft != null) options.push({ ratio: r.daysLeft / (r.item.intervalMonths * 30.4), n: r.daysLeft, u: 'Days' });
+  const o = options.sort((x, y) => x.ratio - y.ratio)[0];
+  if (!o) return '';
+  return o.n < 0 ? t(`${o.u.toLowerCase()}Overdue`, num(o.n)) : t(`in${o.u}`, num(o.n));
+}
+
+function dueLine(r) {
+  const line = el('div', `due-line due-${r.status}`);
+  const text = el('div', 'due-text');
+  text.append(el('span', 'due-name', r.item.name), el('span', 'due-when', dueWhen(r)));
+  if (r.last?.source === 'baseline') text.append(el('span', 'due-note', `(${t('noRecord')})`));
+  line.append(statusDot(r.status), text);
+  return line;
+}
+
+function renderShop() {
+  if (currentTab() !== 'shop') return;
+  for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
+  $('admin-link').textContent = t('admin');
+  const trucks = vehicles.map(withMaintenance)
+    .map((v) => ({ v, due: v.rows.filter(DUE) }))
+    .filter(({ v, due }) => v.shop || due.length)
+    .sort((a, b) => Number(Boolean(b.v.shop)) - Number(Boolean(a.v.shop))
+      || Number(b.due.some((r) => r.status === 'overdue')) - Number(a.due.some((r) => r.status === 'overdue'))
+      || (a.due[0]?.urgency ?? 0) - (b.due[0]?.urgency ?? 0));
+
+  $('shop-title').textContent = t('shopTitle');
+  $('shop-count').textContent = vehicles.length ? (trucks.length ? t('shopCount', trucks.length) : t('shopEmpty')) : '';
+  $('shop-cards').replaceChildren(...trucks.map(({ v, due }) => {
+    const card = el('button', `shop-card${due.some((r) => r.status === 'overdue') ? ' has-overdue' : ''}`);
+    card.type = 'button';
+    const head = el('div', 'shop-card-head');
+    head.append(el('span', 'shop-truck', v.name), el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
+    card.append(head);
+    if (v.shop) card.append(el('div', 'shop-oos', `${t('outOfService')}${v.shop.reason ? ` · ${v.shop.reason}` : ''}`));
+    due.slice(0, 3).forEach((r) => card.append(dueLine(r)));
+    if (due.length > 3) card.append(el('div', 'due-more', t('more', due.length - 3)));
+    card.append(el('div', 'shop-cta', `${t('logWork')} →`));
+    card.addEventListener('click', () => openWork(v.id));
+    return card;
+  }));
+  $('shop-other').textContent = t('anotherTruck');
+}
+
 // ---- Log work ----------------------------------------------------------------
-// One form for everything done on a truck in one visit: shop jobs (PM, oil
-// change, ...), any single service, and repairs. A save writes the visit to
-// the service log, which is what every due date is worked out from.
+// One form for everything done on a truck in one visit: what's due on it, shop
+// jobs (PM, oil change, ...), any single service, and repairs. A save writes
+// the visit to the service log, which is what every due date is worked out from.
 
 const LOGGED_BY_KEY = 'aslog.loggedBy';
 function rememberedName() {
@@ -985,6 +1047,10 @@ function itemNameFor(key) {
   return item.name;
 }
 
+// Job label (and hint) in the current language.
+const jobLabel = (j) => t('jobs')[j.id]?.[0] ?? j.label;
+const jobHint = (j) => t('jobs')[j.id]?.[1] ?? j.hint;
+// Log text stays in English so the records read the same for everyone.
 const jobText = (j) => (j.hint ? `${j.label} (${j.hint})` : j.label);
 
 // The truck being logged, with its maintenance rows.
@@ -993,12 +1059,13 @@ const workTruck = () => {
   return v ? withMaintenance(v) : null;
 };
 
-// Items the form will mark done: what the ticked jobs cover plus any added
-// one by one, limited to items that apply to this truck.
-function workKeys(v) {
+// Items the form will mark done: what the ticked jobs cover plus any ticked
+// one by one, limited to items that apply to this truck, minus anything unticked.
+function workKeys(v, { includeUnticked = false } = {}) {
   const applies = new Set(v.rows.map((r) => r.key));
   const fromJobs = JOBS.filter((j) => work.jobs.has(j.id)).flatMap((j) => itemKeysFor(v, j.tags, schedules));
-  return [...new Set([...fromJobs, ...work.extra])].filter((k) => applies.has(k));
+  return [...new Set([...fromJobs, ...work.extra])]
+    .filter((k) => applies.has(k) && (includeUnticked || !work.unticked.has(k)));
 }
 
 // Log line text: the job names when every item a job covers is saved, then
@@ -1036,8 +1103,8 @@ async function loadDays(vehicleId) {
   }
 }
 
-function checkRow(text, checked, onChange, hint) {
-  const label = el('label', 'check-row');
+function checkRow(text, checked, onChange, hint, extraClass = '') {
+  const label = el('label', `check-row ${extraClass}`.trim());
   const box = Object.assign(el('input'), { type: 'checkbox', checked });
   box.addEventListener('change', () => onChange(box.checked));
   label.append(box, el('span', 'check-text', text));
@@ -1047,109 +1114,149 @@ function checkRow(text, checked, onChange, hint) {
 
 function buildWork() {
   const v = workTruck();
-  $('w-title').textContent = v ? `Log work · ${v.name}` : 'Log work';
+  $('w-close').textContent = t('close');
+  $('w-title').textContent = v ? `${t('logWork')} · ${v.name}` : t('logWork');
   $('w-sub').textContent = v
     ? [[v.year, titleCase(v.make || ''), titleCase(v.model || '')].filter(Boolean).join(' '), v.odometerMiles != null && `${fmt.format(v.odometerMiles)} mi`].filter(Boolean).join(' · ')
-    : 'Pick the truck first.';
+    : t('pickTruck');
   const body = $('w-body');
   body.replaceChildren();
 
-  // From the Log tab there's no truck yet.
+  // From "another truck" or the Log tab there's no truck yet.
   if (!work.vehicleId || !v) {
     const select = el('select', 'truck-pick');
-    select.append(Object.assign(el('option', null, 'Choose a truck…'), { value: '' }));
+    select.append(Object.assign(el('option', null, t('chooseTruck')), { value: '' }));
     [...vehicles].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }))
       .forEach((x) => select.append(Object.assign(el('option', null, x.name), { value: x.id })));
     select.addEventListener('change', () => { if (select.value) { work.vehicleId = select.value; work.days = null; buildWork(); } });
-    body.append(field('Truck', select));
+    body.append(field(t('truck'), select));
     return;
   }
 
+  const shopMode = currentTab() === 'shop';
   const form = el('form', 'work-form');
   const today = new Date().toLocaleDateString('en-CA');
+  const save = Object.assign(el('button', 'btn btn-save', t('save')), { type: 'submit' });
 
-  // 1. What was done.
+  // 1. What's due on this truck: unticked; tap each one that was done.
+  const dueBox = el('div', 'work-due');
+  // 2. Shop jobs and repairs.
   const jobs = el('fieldset', 'work-jobs');
-  jobs.append(el('legend', 'section-title', 'What was done?'));
+  // 3. Everything the save marks done (live list).
+  const marks = el('div', 'work-marks');
+
+  function refresh() {
+    const keys = workKeys(v);
+    const due = v.rows.filter(DUE);
+    dueBox.replaceChildren();
+    if (due.length) {
+      dueBox.append(el('div', 'section-title', t('dueHere')), el('p', 'muted', t('dueHint')));
+      for (const r of due) {
+        const row = checkRow(r.item.name, keys.includes(r.key), (on) => {
+          if (on) { work.extra.add(r.key); work.unticked.delete(r.key); } else { work.extra.delete(r.key); work.unticked.add(r.key); }
+          refresh();
+        }, [dueWhen(r), r.last?.source === 'baseline' && `(${t('noRecord')})`].filter(Boolean).join(' '), `due-${r.status}`);
+        dueBox.append(row);
+      }
+    }
+    marks.replaceChildren(el('div', 'section-title', t('marksDone')));
+    if (!keys.length) marks.append(el('p', 'muted', work.jobs.size ? t('nothingOnSchedule') : t('tickAJob')));
+    for (const k of workKeys(v, { includeUnticked: true })) {
+      marks.append(checkRow(itemNameFor(k) ?? k, !work.unticked.has(k), (on) => {
+        if (on) work.unticked.delete(k); else work.unticked.add(k);
+        refresh();
+      }));
+    }
+    const shown = workKeys(v, { includeUnticked: true });
+    const others = v.rows.filter((r) => !shown.includes(r.key));
+    if (others.length) {
+      const add = el('select', 'add-item');
+      add.append(Object.assign(el('option', null, t('addService')), { value: '' }));
+      others.forEach((r) => add.append(Object.assign(el('option', null, r.item.name), { value: r.key })));
+      add.addEventListener('change', () => { if (add.value) { work.extra.add(add.value); work.unticked.delete(add.value); refresh(); } });
+      marks.append(add);
+    }
+    const n = keys.length + (work.repair ? 1 : 0);
+    save.textContent = n ? t('saveCount', n, v.name) : t('save');
+  }
+
+  jobs.append(el('legend', 'section-title', t('whatDone')));
   for (const j of JOBS) {
-    jobs.append(checkRow(j.label, work.jobs.has(j.id), (on) => {
+    jobs.append(checkRow(jobLabel(j), work.jobs.has(j.id), (on) => {
       if (on) work.jobs.add(j.id); else work.jobs.delete(j.id);
-      renderMarks();
-    }, j.hint));
+      refresh();
+    }, jobHint(j)));
   }
   const repairBox = el('div', 'repair-box');
-  const repairText = Object.assign(el('textarea'), { rows: 2, placeholder: 'What was repaired? (for example: replaced A/C compressor)' });
-  const cost = Object.assign(el('input'), { type: 'number', min: 0, step: '0.01', inputMode: 'decimal', placeholder: 'Optional' });
-  repairBox.append(field('Repair', repairText), field('Cost ($)', cost));
+  const repairText = Object.assign(el('textarea'), { rows: 2, placeholder: t('repairPlaceholder') });
+  const cost = Object.assign(el('input'), { type: 'number', min: 0, step: '0.01', inputMode: 'decimal', placeholder: t('optional') });
+  repairBox.append(field(t('repair'), repairText), field(t('cost'), cost));
   repairBox.hidden = !work.repair;
-  jobs.append(checkRow('Repair / other work', work.repair, (on) => {
+  jobs.append(checkRow(t('repairOther'), work.repair, (on) => {
     work.repair = on;
     repairBox.hidden = !on;
     if (on) repairText.focus();
+    refresh();
   }));
   jobs.append(repairBox);
 
-  // 2. What it marks done (live list; untick anything that wasn't done).
-  const marks = el('div', 'work-marks');
-  function renderMarks() {
-    const keys = workKeys(v);
-    marks.replaceChildren(el('div', 'section-title', 'This marks done'));
-    if (!keys.length) {
-      marks.append(el('p', 'muted', work.jobs.size
-        ? 'Nothing on this truck\'s schedule. It will still be in the log.'
-        : 'Tick a job above, or add a service below.'));
-    }
-    for (const k of keys) {
-      marks.append(checkRow(itemNameFor(k) ?? k, !work.unticked.has(k), (on) => {
-        if (on) work.unticked.delete(k); else work.unticked.add(k);
-      }));
-    }
-    const others = v.rows.filter((r) => !keys.includes(r.key));
-    if (others.length) {
-      const add = el('select', 'add-item');
-      add.append(Object.assign(el('option', null, '+ Add another service…'), { value: '' }));
-      others.forEach((r) => add.append(Object.assign(el('option', null, r.item.name), { value: r.key })));
-      add.addEventListener('change', () => { if (add.value) { work.extra.add(add.value); work.unticked.delete(add.value); renderMarks(); } });
-      marks.append(add);
-    }
-  }
-  renderMarks();
-
-  // 3. When, and who.
+  // 4. Miles and date: from Samsara, shown as text with a "Change" link, so
+  // the usual same-day log needs no typing.
   const miles = Object.assign(el('input'), { type: 'number', min: 0, required: true, inputMode: 'numeric', value: v.odometerMiles ?? '' });
   const date = Object.assign(el('input'), { type: 'date', required: true, max: today, value: today });
   const hours = Object.assign(el('input'), { type: 'number', min: 0, inputMode: 'numeric', value: v.engineHours ?? '' });
-  const note = Object.assign(el('input'), { type: 'text', placeholder: 'Shop or invoice # (optional)' });
-  const who = Object.assign(el('input'), { type: 'text', placeholder: 'Your name', value: rememberedName(), autocomplete: 'name' });
-  const details = el('div', 'work-details');
-  const milesField = field('Miles', miles);
-  const samsaraHint = el('span', 'samsara-hint');
-  milesField.append(samsaraHint);
-  details.append(milesField, field('Date', date), field('Engine hours (optional)', hours), field('Note', note), field('Logged by', who));
+  const note = Object.assign(el('input'), { type: 'text', placeholder: t('notePlaceholder') });
+  const who = Object.assign(el('input'), { type: 'text', placeholder: t('yourName'), value: rememberedName(), autocomplete: 'name' });
 
-  // Miles come from Samsara unless someone types them: today's live reading,
-  // or Samsara's reading for a past date.
+  const fixed = (label, input, textFor) => {
+    const wrap = el('div', 'field fixed-field');
+    const shown = el('div', 'fixed-value');
+    const value = el('span', 'fixed-text');
+    const changeBtn = Object.assign(el('button', 'link-btn', t('change')), { type: 'button' });
+    shown.append(value, changeBtn);
+    input.hidden = true;
+    changeBtn.addEventListener('click', () => { input.hidden = false; shown.hidden = true; input.focus(); });
+    wrap.append(el('span', null, label), shown, input);
+    const update = () => { value.textContent = textFor(); };
+    update();
+    return { wrap, update, edit: () => changeBtn.click() };
+  };
   let milesSource = v.local ? 'typed' : 'samsara';
+  let milesNote = v.local ? '' : t('fromSamsara');
+  const milesField = fixed(t('miles'), miles, () => `${miles.value ? fmt.format(Number(miles.value)) : '—'} mi${milesNote ? ` · ${milesNote}` : ''}`);
+  const dateField = fixed(t('date'), date, () => (date.value === today ? t('today') : dateText(date.value)));
+  const milesHint = el('span', 'samsara-hint');
+  milesField.wrap.append(milesHint);
+  if (v.local || v.odometerMiles == null) milesField.edit();
   miles.addEventListener('input', () => { milesSource = 'typed'; });
   hours.addEventListener('input', () => { milesSource = 'typed'; });
+
+  // A past date fills in Samsara's reading for that day.
   function applyDate() {
+    dateField.update();
     if (v.local || !work.days) return;
     if (date.value === today) {
       miles.value = v.odometerMiles ?? '';
       hours.value = v.engineHours ?? '';
       milesSource = 'samsara';
-      samsaraHint.textContent = '';
-      return;
-    }
-    const near = readingsNear(work.days, date.value);
-    if (near?.reading) {
-      miles.value = near.reading.miles;
-      hours.value = near.reading.hours ?? '';
-      milesSource = 'samsara';
-      samsaraHint.textContent = `From Samsara for ${niceDate(date.value)}`;
+      milesNote = t('fromSamsara');
     } else {
-      samsaraHint.textContent = near ? '' : `No Samsara reading for ${niceDate(date.value)}`;
+      const near = readingsNear(work.days, date.value);
+      if (near?.reading) {
+        miles.value = near.reading.miles;
+        hours.value = near.reading.hours ?? '';
+        milesSource = 'samsara';
+        milesNote = t('fromSamsaraFor', dateText(date.value));
+      } else {
+        milesNote = '';
+        milesField.edit();
+        milesHint.textContent = t('noSamsaraFor', dateText(date.value));
+        milesField.update();
+        return;
+      }
     }
+    milesHint.textContent = '';
+    milesField.update();
   }
   date.addEventListener('change', applyDate);
   if (!v.local && !work.days) {
@@ -1161,37 +1268,40 @@ function buildWork() {
     });
   }
 
+  const details = el('div', 'work-details');
+  details.append(milesField.wrap, dateField.wrap);
+  // Engine hours are wrong on several trucks in Samsara; mechanics don't need them.
+  if (!shopMode) details.append(field(t('hours'), hours));
+  details.append(field(t('note'), note), field(t('loggedBy'), who));
+
   const error = el('p', 'form-error');
   error.hidden = true;
-  const save = Object.assign(el('button', 'btn btn-save', 'Save'), { type: 'submit' });
-  const cancel = Object.assign(el('button', 'btn btn-ghost btn-cancel', 'Cancel'), { type: 'button' });
+  const cancel = Object.assign(el('button', 'btn btn-ghost btn-cancel', t('cancel')), { type: 'button' });
   cancel.addEventListener('click', () => $('work').close());
-  form.append(jobs, marks, details, error, save, cancel);
+  form.append(dueBox, jobs, marks, details, error, save, cancel);
   body.append(form);
+  refresh();
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fail = (msg) => { error.textContent = msg; error.hidden = false; error.scrollIntoView({ block: 'nearest' }); };
-    const keys = workKeys(v).filter((k) => !work.unticked.has(k));
+    const keys = workKeys(v);
     const m = Number(miles.value);
     const repair = repairText.value.trim();
     // Catch typos before they're saved.
-    if (!keys.length && !work.jobs.size && !work.repair) return fail('Tick what was done.');
-    if (work.repair && !repair) return fail('Describe the repair.');
-    if (date.value > today) return fail('The date can\'t be in the future.');
-    if (!v.local && v.odometerMiles != null && m > v.odometerMiles + 500) {
-      return fail(`That's more than the truck's current ${fmt.format(v.odometerMiles)} mi. Check the number.`);
-    }
+    if (!keys.length && !work.jobs.size && !work.repair) return fail(t('errTick'));
+    if (work.repair && !repair) return fail(t('errRepair'));
+    if (date.value > today) return fail(t('errFuture'));
+    if (!v.local && v.odometerMiles != null && m > v.odometerMiles + 500) return fail(t('errTooHigh', fmt.format(v.odometerMiles)));
     // Back-dated work: compare with what Samsara recorded around that day.
     const off = !v.local && milesSource === 'typed' && milesMismatch(work.days, date.value, m);
-    if (off && !confirm(`Samsara shows ${v.name} at ${off.lo === off.hi ? fmt.format(off.lo) : `${fmt.format(off.lo)}–${fmt.format(off.hi)}`} mi `
-      + `around ${niceDate(date.value)}. You typed ${fmt.format(m)}. Save anyway?`)) return;
+    if (off && !confirm(t('confirmSamsara', v.name, off.lo === off.hi ? fmt.format(off.lo) : `${fmt.format(off.lo)}–${fmt.format(off.hi)}`,
+      dateText(date.value), fmt.format(m)))) return;
     const older = v.rows.filter((r) => keys.includes(r.key) && r.last?.source === 'done' && m < r.last.miles);
-    if (older.length && !confirm(`${older.map((r) => r.item.name).join(', ')} already has a later service on record `
-      + `(${fmt.format(older[0].last.miles)} mi). Save this older one anyway?`)) return;
+    if (older.length && !confirm(t('confirmOlder', older.map((r) => r.item.name).join(', '), fmt.format(older[0].last.miles)))) return;
 
     save.disabled = true;
-    save.textContent = 'Saving…';
+    save.textContent = t('saving');
     const loggedBy = who.value.trim();
     if (loggedBy) rememberName(loggedBy);
     const common = {
@@ -1199,7 +1309,7 @@ function buildWork() {
       vehicleName: v.name,
       date: date.value,
       miles: m,
-      hours: hours.value === '' ? null : Number(hours.value),
+      hours: shopMode && milesSource === 'typed' ? null : (hours.value === '' ? null : Number(hours.value)),
       note: note.value.trim(),
       loggedBy: loggedBy || null,
       milesSource,
@@ -1226,9 +1336,9 @@ function buildWork() {
     }
     try {
       await batch.commit();
-      const summary = [keys.length || work.jobs.size ? workSummary(v, keys) : null, work.repair ? `repair` : null].filter(Boolean).join(' + ');
+      const summary = [keys.length || work.jobs.size ? workSummary(v, keys) : null, work.repair ? t('repairWord') : null].filter(Boolean).join(' + ');
       $('work').close();
-      showUndo(`Saved on ${v.name}: ${summary}`, async () => {
+      showUndo(t('saved', v.name, summary), async () => {
         const undo = writeBatch(db);
         refs.forEach((ref) => undo.delete(ref));
         if (oldMiles && m > (oldMiles.odometerMiles ?? -1)) undo.set(doc(db, 'vehicles', v.id), oldMiles, { merge: true });
@@ -1236,8 +1346,8 @@ function buildWork() {
       });
     } catch (err) {
       save.disabled = false;
-      save.textContent = 'Save';
-      fail(`Could not save: ${err.message}`);
+      refresh();
+      fail(t('couldNotSave', err.message));
     }
   });
 }
@@ -1247,13 +1357,13 @@ let undoTimer;
 function showUndo(message, undo) {
   const bar = $('toast');
   clearTimeout(undoTimer);
-  const btn = el('button', 'btn btn-undo', 'Undo');
+  const btn = el('button', 'btn btn-undo', t('undo'));
   btn.type = 'button';
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
       await undo();
-      bar.replaceChildren(el('span', null, 'Undone.'));
+      bar.replaceChildren(el('span', null, t('undone')));
       undoTimer = setTimeout(() => { bar.hidden = true; }, 2500);
     } catch (err) {
       showAppError(`Could not undo: ${err.message}`);
@@ -1363,7 +1473,10 @@ $('sign-in').addEventListener('click', async () => {
 });
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
-addEventListener('hashchange', () => { showTab(); renderSchedules(); renderLog(); renderTrailers(); });
+addEventListener('hashchange', () => { showTab(); render(); });
+for (const b of document.querySelectorAll('#lang button')) {
+  b.addEventListener('click', () => { setLang(b.dataset.lang); render(); });
+}
 $('tr-search').addEventListener('input', renderTrailers);
 $('tr-filter').addEventListener('change', renderTrailers);
 for (const th of document.querySelectorAll('th[data-trsort]')) {
@@ -1407,6 +1520,7 @@ $('truck').addEventListener('close', () => { openTruckId = null; });
 $('w-close').addEventListener('click', () => $('work').close());
 $('work').addEventListener('close', () => { work = null; });
 $('log-add').addEventListener('click', () => openWork(null));
+$('shop-other').addEventListener('click', () => openWork(null));
 // Clicking the dimmed backdrop closes the dialog.
 $('truck').addEventListener('click', (e) => { if (e.target === $('truck')) $('truck').close(); });
 for (const th of document.querySelectorAll('th[data-sort]')) {

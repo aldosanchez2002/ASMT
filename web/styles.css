@@ -646,3 +646,50 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 }
 .field textarea { resize: vertical; }
 .samsara-hint { font-size: 12px; color: var(--muted); min-height: 1em; }
+
+/* ---- Shop view (main page) ---- */
+.top { gap: 12px; }
+.shop-top { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.lang { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.lang button {
+  font: inherit; font-size: 14px; font-weight: 700; min-width: 48px; min-height: 40px;
+  border: none; background: var(--surface); color: var(--muted); cursor: pointer;
+}
+.lang button.active { background: var(--accent); color: var(--accent-text); }
+.admin-link { font-size: 14px; color: var(--muted); }
+.tab-shop { color: var(--muted); }
+.shop-title { margin: 8px 0 2px; font-size: 20px; text-transform: none; letter-spacing: 0; }
+#shop-count { margin: 0 0 12px; }
+.shop-cards { display: grid; gap: 10px; }
+.shop-card {
+  font: inherit; text-align: left; color: var(--text); cursor: pointer;
+  display: grid; gap: 6px; padding: 14px 16px;
+  border: 1px solid var(--border); border-left: 6px solid var(--amber); border-radius: 10px; background: var(--surface);
+}
+.shop-card.has-overdue { border-left-color: var(--red); }
+.shop-card:hover { background: var(--row-hover); }
+.shop-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.shop-truck { font-size: 22px; font-weight: 800; }
+.shop-miles { font-size: 14px; color: var(--muted); white-space: nowrap; }
+.shop-oos { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+.due-line { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 8px; font-size: 15px; }
+.due-line .dot { align-self: center; }
+.due-text { display: flex; flex-wrap: wrap; gap: 0 8px; }
+.due-name { font-weight: 600; }
+.due-when { font-size: 14px; font-weight: 700; }
+.due-overdue .due-when { color: var(--red); }
+.due-soon .due-when { color: var(--amber); }
+.due-note, .due-more { font-size: 13px; color: var(--muted); }
+.shop-cta { margin-top: 2px; font-size: 16px; font-weight: 700; color: var(--accent); }
+.shop-other { display: block; width: 100%; min-height: 48px; margin-top: 14px; font-size: 16px; }
+
+/* Log work: what's due, and miles/date shown as text */
+.work-due { display: grid; gap: 6px; }
+.work-due .section-title { margin: 0; }
+.work-due p { margin: 0; font-size: 13px; }
+.check-row.due-overdue { border-left: 5px solid var(--red); }
+.check-row.due-soon { border-left: 5px solid var(--amber); }
+.check-row.due-overdue .check-hint { color: var(--red); font-weight: 700; }
+.check-row.due-soon .check-hint { color: var(--amber); font-weight: 700; }
+.fixed-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; min-height: 40px; padding-top: 6px; }
+.fixed-text { font-size: 17px; font-weight: 700; color: var(--text); }

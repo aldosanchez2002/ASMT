@@ -21,6 +21,13 @@
 <body>
   <header class="top">
     <h1>aslog.dev</h1>
+    <div id="shop-top" class="shop-top" hidden>
+      <div id="lang" class="lang" role="group" aria-label="Language">
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="es">ES</button>
+      </div>
+      <a id="admin-link" class="admin-link" href="#trucks">Admin</a>
+    </div>
     <div id="user-box" class="user-box" hidden>
       <span id="user-email"></span>
       <button id="sign-out" class="btn btn-ghost">Sign out</button>
@@ -48,8 +55,16 @@
     </section>
 
     <section id="fleet" hidden>
-      <nav class="tabs" aria-label="Views">
-        <a href="#" data-tab="trucks">Trucks</a>
+      <div id="shop-view" hidden>
+        <h2 id="shop-title" class="shop-title"></h2>
+        <p id="shop-count" class="muted"></p>
+        <div id="shop-cards" class="shop-cards"></div>
+        <button id="shop-other" class="btn btn-ghost shop-other" type="button"></button>
+      </div>
+
+      <nav id="admin-nav" class="tabs" aria-label="Views" hidden>
+        <a href="#" class="tab-shop">← Shop</a>
+        <a href="#trucks" data-tab="trucks">Trucks</a>
         <a href="#trailers" data-tab="trailers">Trailers</a>
         <a href="#schedules" data-tab="schedules">Schedules</a>
         <a href="#log" data-tab="log"><span class="hide-sm">Service log</span><span class="show-sm-inline">Log</span></a>

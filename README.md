@@ -2,6 +2,10 @@
 
 A simple web app that lists every truck in the fleet with its model and current miles. The data comes from Samsara.
 
+## Shop view (main page)
+
+`aslog.dev` opens on the **shop view**, made for mechanics: only the trucks that need work (out of service first, then overdue, then due soon), each a big card listing what's due. Tapping a card opens **Log work** with a **Due on this truck** section at the top (unticked; tap each one that was done), the shop jobs (PM, oil change, …) and repairs. Miles and date are filled in from Samsara and shown as text with a **Change** link; engine hours are hidden here. The save button says what it records ("Save: 4 items on T-23"). **EN | ES** at the top switches the shop view and the form between English and Spanish (remembered per device, `web/i18n.js`); log entries are always saved in English. **Admin** (top right) opens the full app: Trucks, Trailers, Schedules and Service log (`#trucks`, `#trailers`, `#schedules`, `#log`).
+
 ## How it works (and why your Samsara key stays safe)
 
 ```
