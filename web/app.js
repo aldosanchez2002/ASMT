@@ -12,6 +12,9 @@ import {
 } from './maintenance.js';
 import { JOBS, itemKeysFor } from './services.js';
 import { dateText, getLang, setLang, t } from './i18n.js';
+import {
+  QUIET_DAYS, atShop, codeId, codeText, faultSummary, quietDays,
+} from './signals.js';
 import { downloadLog, downloadTruckRecord } from './records.js';
 
 const app = initializeApp(firebaseConfig);
@@ -91,8 +94,21 @@ function withMaintenance(v) {
   const shop = statusDocs[v.id]?.outOfService ? statusDocs[v.id] : null;
   const next = shop ? undefined : mostUrgent(rows);
   const rank = next ? STATUS_RANK[next.status] : shop ? 4 : 3;
-  return { ...v, rows, next, shop, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)) };
+  // From Samsara: dash lamps and fault codes, parked in the yard, device gone quiet.
+  // Fault readings older than a week (a truck that stopped reporting) are kept
+  // for the popup but don't flag the truck.
+  const allFaults = faultSummary(v.faults);
+  const stale = allFaults && (quietDays(allFaults.time) ?? Infinity) > FRESH_FAULT_DAYS;
+  const faults = stale ? null : allFaults;
+  const oldFaults = stale ? allFaults : null;
+  const here = !v.local && atShop(v.location);
+  const quiet = v.local ? null : quietDays(v.lastReportedAt);
+  return {
+    ...v, rows, next, shop, faults, oldFaults, here, quiet, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)),
+  };
 }
+
+const FRESH_FAULT_DAYS = 7;
 
 const plural = (n, word) => `${fmt.format(n)} ${word}${Math.abs(n) === 1 ? '' : 's'}`;
 
@@ -165,11 +181,12 @@ const TRUCK_FILTERS = [
   { id: 'overdue', label: 'Overdue', test: (v) => v.next?.status === 'overdue' },
   { id: 'soon', label: 'Due soon', test: (v) => v.next?.status === 'soon' },
   { id: 'out', label: 'Out of service', test: (v) => Boolean(v.shop) },
+  { id: 'quiet', label: 'No signal 3+ days', test: (v) => !v.shop && v.quiet != null && v.quiet >= QUIET_DAYS },
 ];
 
 function statusFilter(counts) {
-  // "Out of service" only shows when a truck is out of service (or it's selected).
-  const shown = TRUCK_FILTERS.filter((f) => f.id !== 'out' || counts.out || truckFilter === 'out');
+  // "Out of service" and "No signal" only show when they apply (or are selected).
+  const shown = TRUCK_FILTERS.filter((f) => !['out', 'quiet'].includes(f.id) || counts[f.id] || truckFilter === f.id);
   const bar = el('div', 'status-filter');
   bar.style.setProperty('--n', shown.length);
   bar.setAttribute('role', 'group');
@@ -705,6 +722,58 @@ function nextCell(v) {
   return td;
 }
 
+// Truck number plus small flags from Samsara: lamps, at the shop, no signal.
+function nameCell(v) {
+  const td = cell(v.name || '—', 'strong nowrap pin');
+  const flags = signalBadges(v, { short: true });
+  if (flags.length) {
+    const div = el('div', 'name-flags');
+    div.append(...flags);
+    td.append(div);
+  }
+  return td;
+}
+
+function signalBadges(v, { short = false } = {}) {
+  const out = [];
+  for (const lamp of v.faults?.lamps ?? []) {
+    out.push(el('span', `sig sig-${lamp === 'stop' ? 'stop' : 'lamp'}`, short && lamp !== 'stop' ? '⚠' : t('lamp')[lamp]));
+  }
+  if (v.here) out.push(el('span', 'sig sig-here', t('atShop')));
+  if (v.quiet != null && v.quiet >= QUIET_DAYS && !v.shop) out.push(el('span', 'sig sig-quiet', short ? `📡 ${v.quiet}d` : t('noSignal', v.quiet)));
+  return out;
+}
+
+// Lamps and the codes that matter, for the truck popup and the Log work form.
+function faultsBox(v, { showMinor = true } = {}) {
+  const f = v.faults ?? (showMinor ? v.oldFaults : null);
+  if (!f) return null;
+  const box = el('div', 'faults-box');
+  box.append(el('div', 'section-title', t('activeFaults')));
+  if (f.lamps.length) {
+    const lamps = el('div', 'fault-lamps');
+    f.lamps.forEach((l) => lamps.append(el('span', `sig sig-${l === 'stop' ? 'stop' : 'lamp'}`, t('lamp')[l])));
+    box.append(lamps);
+  }
+  const ul = el('ul', 'fault-list');
+  f.major.forEach((c) => ul.append(el('li', null, codeText(c))));
+  if (f.major.length) box.append(ul);
+  if (f.minor.length) {
+    if (showMinor) {
+      const more = el('details', 'fault-minor');
+      more.append(el('summary', null, t('minorCodes', f.minor.length)));
+      const ul2 = el('ul', 'fault-list');
+      f.minor.forEach((c) => ul2.append(el('li', null, codeText(c))));
+      more.append(ul2);
+      box.append(more);
+    } else {
+      box.append(el('p', 'muted', t('minorCodes', f.minor.length)));
+    }
+  }
+  if (f.time) box.append(el('p', 'item-meta', `Samsara · ${timeAgo(f.time)}`));
+  return box;
+}
+
 function row(v) {
   const tr = document.createElement('tr');
   tr.className = ['clickable', isQuiet(v) && 'quiet'].filter(Boolean).join(' ');
@@ -715,7 +784,7 @@ function row(v) {
   const milesCell = cell(miles, 'num strong');
   if (v.odometerSource === 'gps') milesCell.title = 'GPS odometer (no ECU reading)';
   tr.append(
-    cell(v.name || '—', 'strong nowrap pin'),
+    nameCell(v),
     milesCell,
     nextCell(v),
     cell(v.year || '—'),
@@ -831,6 +900,10 @@ function renderTruck(v) {
   pdfBtn.addEventListener('click', () => exportTruck(v, pdfBtn));
   body.append(logBtn, pdfBtn);
   if (v.shop) body.append(shopBanner(v));
+  const where = [v.here ? t('atShop') : v.location?.address, v.quiet != null && v.quiet >= QUIET_DAYS ? t('noSignal', v.quiet) : null].filter(Boolean);
+  if (where.length) body.append(el('p', 'muted truck-where', `📍 ${where.join(' · ')}`));
+  const fb = faultsBox(v);
+  if (fb) body.append(fb);
   if (v.local) {
     body.append(el('p', 'muted', 'Local truck: not in Samsara, so its miles only change when a service is logged.'));
   }
@@ -998,22 +1071,35 @@ function renderShop() {
   if (currentTab() !== 'shop') return;
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
   $('admin-link').textContent = t('admin');
+  // Listed: anything due, out of service, or a STOP lamp. Order: STOP lamp,
+  // then parked at the shop, out of service, overdue, most urgent.
+  const flag = (x) => Number(Boolean(x));
   const trucks = vehicles.map(withMaintenance)
     .map((v) => ({ v, due: v.rows.filter(DUE) }))
-    .filter(({ v, due }) => v.shop || due.length)
-    .sort((a, b) => Number(Boolean(b.v.shop)) - Number(Boolean(a.v.shop))
-      || Number(b.due.some((r) => r.status === 'overdue')) - Number(a.due.some((r) => r.status === 'overdue'))
+    .filter(({ v, due }) => v.shop || due.length || v.faults?.stop)
+    .sort((a, b) => flag(b.v.faults?.stop) - flag(a.v.faults?.stop)
+      || flag(b.v.here) - flag(a.v.here)
+      || flag(b.v.shop) - flag(a.v.shop)
+      || flag(b.due.some((r) => r.status === 'overdue')) - flag(a.due.some((r) => r.status === 'overdue'))
       || (a.due[0]?.urgency ?? 0) - (b.due[0]?.urgency ?? 0));
 
   $('shop-title').textContent = t('shopTitle');
   $('shop-count').textContent = vehicles.length ? (trucks.length ? t('shopCount', trucks.length) : t('shopEmpty')) : '';
   $('shop-cards').replaceChildren(...trucks.map(({ v, due }) => {
-    const card = el('button', `shop-card${due.some((r) => r.status === 'overdue') ? ' has-overdue' : ''}`);
+    const card = el('button', `shop-card${due.some((r) => r.status === 'overdue') || v.faults?.stop ? ' has-overdue' : ''}`);
     card.type = 'button';
     const head = el('div', 'shop-card-head');
     head.append(el('span', 'shop-truck', v.name), el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
     card.append(head);
+    const badges = signalBadges(v);
+    if (badges.length) {
+      const row = el('div', 'shop-signals');
+      row.append(...badges);
+      card.append(row);
+    }
     if (v.shop) card.append(el('div', 'shop-oos', `${t('outOfService')}${v.shop.reason ? ` · ${v.shop.reason}` : ''}`));
+    // The codes that matter (a STOP lamp's code first), then what's due.
+    (v.faults?.major ?? []).slice(0, 2).forEach((c) => card.append(el('div', 'fault-line', `⚠ ${codeText(c)}`)));
     due.slice(0, 3).forEach((r) => card.append(dueLine(r)));
     if (due.length > 3) card.append(el('div', 'due-more', t('more', due.length - 3)));
     card.append(el('div', 'shop-cta', `${t('logWork')} →`));
@@ -1191,6 +1277,16 @@ function buildWork() {
   const repairText = Object.assign(el('textarea'), { rows: 2, placeholder: t('repairPlaceholder') });
   const cost = Object.assign(el('input'), { type: 'number', min: 0, step: '0.01', inputMode: 'decimal', placeholder: t('optional') });
   repairBox.append(field(t('repair'), repairText), field(t('cost'), cost));
+  // Which of the truck's fault codes the repair fixed (saved with the repair).
+  const fixedCodes = new Set();
+  if (v.faults?.major.length) {
+    const box = el('div', 'fixed-codes');
+    box.append(el('div', 'section-title', t('fixedCodes')));
+    v.faults.major.forEach((c) => box.append(checkRow(codeText(c), false, (on) => {
+      if (on) fixedCodes.add(codeId(c)); else fixedCodes.delete(codeId(c));
+    })));
+    repairBox.append(box);
+  }
   repairBox.hidden = !work.repair;
   jobs.append(checkRow(t('repairOther'), work.repair, (on) => {
     work.repair = on;
@@ -1278,7 +1374,8 @@ function buildWork() {
   error.hidden = true;
   const cancel = Object.assign(el('button', 'btn btn-ghost btn-cancel', t('cancel')), { type: 'button' });
   cancel.addEventListener('click', () => $('work').close());
-  form.append(dueBox, jobs, marks, details, error, save, cancel);
+  const faultBox = faultsBox(v, { showMinor: false });
+  form.append(...(faultBox ? [faultBox] : []), dueBox, jobs, marks, details, error, save, cancel);
   body.append(form);
   refresh();
 
@@ -1326,7 +1423,9 @@ function buildWork() {
     }
     if (work.repair) {
       const ref = doc(collection(db, 'serviceLog'));
-      batch.set(ref, { ...common, type: 'repair', services: [], itemName: repair, cost: cost.value === '' ? null : Number(cost.value) });
+      batch.set(ref, {
+        ...common, type: 'repair', services: [], itemName: repair, cost: cost.value === '' ? null : Number(cost.value), faultsFixed: [...fixedCodes],
+      });
       refs.push(ref);
     }
     // Local trucks aren't in Samsara: a logged visit is how their miles move.

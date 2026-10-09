@@ -70,6 +70,12 @@ const TEXT = {
     couldNotSave: (m) => `Could not save: ${m}`,
     undo: 'Undo',
     undone: 'Undone.',
+    lamp: { stop: 'STOP lamp', warning: 'Check engine', emissions: 'Emissions lamp', protect: 'Protect lamp' },
+    atShop: 'At the shop',
+    noSignal: (n) => `No Samsara signal for ${n} days`,
+    activeFaults: 'Active engine faults',
+    minorCodes: (n) => `+${n} minor ${n === 1 ? 'code' : 'codes'}`,
+    fixedCodes: 'Codes this repair fixed',
   },
   es: {
     shopTitle: 'Camiones que necesitan servicio',
@@ -139,6 +145,12 @@ const TEXT = {
     couldNotSave: (m) => `No se pudo guardar: ${m}`,
     undo: 'Deshacer',
     undone: 'Deshecho.',
+    lamp: { stop: 'Luz STOP', warning: 'Revisar motor', emissions: 'Luz de emisiones', protect: 'Luz de protección' },
+    atShop: 'En el taller',
+    noSignal: (n) => `Sin señal de Samsara por ${n} días`,
+    activeFaults: 'Fallas activas del motor',
+    minorCodes: (n) => `+${n} ${n === 1 ? 'código menor' : 'códigos menores'}`,
+    fixedCodes: 'Códigos que arregló esta reparación',
   },
 };
 

@@ -43,3 +43,37 @@ export function readingFromStats(s) {
 // The odometerDaily field for a reading: one per truck per day (UTC date of
 // the reading), later readings that day replacing earlier ones.
 export const dailyField = (day) => `days.\`${day}\``;
+
+// Samsara's faultCodes stat -> { time, lamps, codes } (J1939 trucks).
+export function faultsFromStats(s) {
+  const f = s.faultCodes;
+  if (!f) return null;
+  const j = f.j1939 ?? {};
+  const l = j.checkEngineLights ?? {};
+  return {
+    time: f.time ?? null,
+    lamps: { stop: Boolean(l.stopIsOn), warning: Boolean(l.warningIsOn), emissions: Boolean(l.emissionsIsOn), protect: Boolean(l.protectIsOn) },
+    codes: (j.diagnosticTroubleCodes ?? []).map((c) => ({
+      spn: c.spnId ?? null,
+      fmi: c.fmiId ?? null,
+      spnText: c.spnDescription ?? '',
+      fmiText: c.fmiDescription ?? '',
+      source: c.sourceAddressName ?? '',
+      mil: c.milStatus ?? null,
+      count: c.occurrenceCount ?? null,
+    })),
+  };
+}
+
+// Samsara's gps stat -> { lat, lon, speedMph, address, time }.
+export function locationFromStats(s) {
+  const g = s.gps;
+  if (!g || g.latitude == null) return null;
+  return {
+    lat: g.latitude,
+    lon: g.longitude,
+    speedMph: g.speedMilesPerHour ?? 0,
+    address: g.reverseGeo?.formattedLocation ?? '',
+    time: g.time ?? null,
+  };
+}

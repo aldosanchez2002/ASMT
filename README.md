@@ -6,6 +6,14 @@ A simple web app that lists every truck in the fleet with its model and current 
 
 `aslog.dev` opens on the **shop view**, made for mechanics: only the trucks that need work (out of service first, then overdue, then due soon), each a big card listing what's due. Tapping a card opens **Log work** with a **Due on this truck** section at the top (unticked; tap each one that was done), the shop jobs (PM, oil change, …) and repairs. Miles and date are filled in from Samsara and shown as text with a **Change** link; engine hours are hidden here. The save button says what it records ("Save: 4 items on T-23"). **EN | ES** at the top switches the shop view and the form between English and Spanish (remembered per device, `web/i18n.js`); log entries are always saved in English. **Admin** (top right) opens the full app: Trucks, Trailers, Schedules and Service log (`#trucks`, `#trailers`, `#schedules`, `#log`).
 
+### Signals from Samsara
+
+Each sync also saves, on every truck: `faults` (dash lamps: STOP, check engine, emissions, protect, and the active J1939 codes) and `location` (lat/lon, speed, address). `web/signals.js` turns them into what the screens show:
+
+- **STOP lamp** trucks are always listed in the shop view, at the top, even with nothing due. Check-engine and emissions lamps show as badges, and the codes that matter (engine, aftertreatment, brakes, air system; not body/cab computer chatter) show on the card, in the truck popup and at the top of Log work, where a repair can record which codes it fixed (`faultsFixed`). Fault readings older than 7 days are only shown in the popup.
+- **At the shop**: parked (under 3 mph) within 250 m of the Windermere Ave yard (`SHOP` in `web/signals.js`). Those trucks come right after STOP-lamp trucks in the shop view.
+- **No signal**: Samsara hasn't heard from the truck in 3+ days. Admin → Trucks has a **No signal 3+ days** button.
+
 ## How it works (and why your Samsara key stays safe)
 
 ```

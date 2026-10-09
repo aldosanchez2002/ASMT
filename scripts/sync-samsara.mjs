@@ -21,7 +21,9 @@ import {
   schedulesVersion, validate,
 } from './schedules.mjs';
 import { WINDOW_DAYS, classify, metricsFromReport, nextState } from './duty.mjs';
-import { METERS_PER_MILE, dailyField, samsaraGetAll } from './samsara.mjs';
+import {
+  METERS_PER_MILE, dailyField, faultsFromStats, locationFromStats, samsaraGetAll,
+} from './samsara.mjs';
 
 // Trucks that haven't reported in this many days are left off the site.
 const STALE_AFTER_DAYS = 100;
@@ -35,15 +37,21 @@ if (!process.env.SAMSARA_API_KEY) {
 // Returns the trucks that reported recently, plus the IDs of the ones that
 // haven't (so they can be removed from Firestore).
 async function fetchFleet() {
-  const [vehicles, odoStats, gpsStats] = await Promise.all([
+  const [vehicles, odoStats, gpsStats, faultStats] = await Promise.all([
     samsaraGetAll('/fleet/vehicles'),
     samsaraGetAll('/fleet/vehicles/stats', {
       types: 'obdOdometerMeters,gpsOdometerMeters,obdEngineSeconds',
     }),
     samsaraGetAll('/fleet/vehicles/stats', { types: 'gps' }),
+    // Fault codes are a nice-to-have: the sync still runs without them.
+    samsaraGetAll('/fleet/vehicles/stats', { types: 'faultCodes' }).catch((err) => {
+      console.warn(`Skipping fault codes: ${err.message}`);
+      return [];
+    }),
   ]);
   const odoById = new Map(odoStats.map((s) => [s.id, s]));
   const gpsById = new Map(gpsStats.map((s) => [s.id, s]));
+  const faultById = new Map(faultStats.map((s) => [s.id, s]));
 
   const fleet = vehicles.map((v) => {
     const s = odoById.get(v.id) ?? {};
@@ -62,6 +70,8 @@ async function fetchFleet() {
       odometerTime: odo?.time ?? null,
       engineHours: s.obdEngineSeconds ? Math.round(s.obdEngineSeconds.value / 3600) : null,
       lastReportedAt: gpsById.get(v.id)?.gps?.time ?? odo?.time ?? null,
+      location: gpsById.has(v.id) ? locationFromStats(gpsById.get(v.id)) : null,
+      faults: faultById.has(v.id) ? faultsFromStats(faultById.get(v.id)) : null,
       scheduleIds: scheduleIdsFor(v),
     };
   });
