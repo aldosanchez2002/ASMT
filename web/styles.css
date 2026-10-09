@@ -645,3 +645,4 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
   border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
 }
 .field textarea { resize: vertical; }
+.samsara-hint { font-size: 12px; color: var(--muted); min-height: 1em; }

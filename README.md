@@ -126,6 +126,13 @@ Tracking starts from the first sync after schedules are assigned: for every serv
 
 **Log work** (truck popup, or **+ Log work** on the Log tab) is the one form for a visit: tick the shop jobs (**PM** = oil, fuel filters, grease, levels; **Oil change**; **Air filter**; **Air dryer**; defined in `web/services.js`), add any other single service, and/or describe a **repair** with an optional cost. The "This marks done" list shows exactly which of the truck's items the save covers; untick anything that wasn't done. One save writes the service line and the repair line together (`source: 'app'`, `loggedBy`, remembered on the device), with a 10-second Undo. **Mark done** on an item opens the same form with that item ticked. On a local truck, a visit with higher miles also updates its miles.
 
+**Samsara miles in Log work.** Each sync also saves every truck's reading for the day in `odometerDaily/{vehicleId}.days` (`{ "YYYY-MM-DD": { miles, hours, at } }`, UTC dates). Log work fills in miles and engine hours from Samsara: today's live reading, or that day's reading when the date is changed. If someone types miles more than 1,000 mi outside Samsara's readings from the day before to the day after, it asks before saving. Each visit records `milesSource` (`samsara` or `typed`). Local trucks have no readings. `scripts/backfill-odometer.mjs` filled in the past 12 months once (one Samsara call per day: `/fleet/vehicles/stats?time=…`):
+
+```bash
+SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs --days 365          # dry run
+SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs --days 365 --apply
+```
+
 On the site, the **Next service** column shows each truck's most urgent item. Click a truck to see every item with its due point (miles, engine hours or date, whichever comes first) and status: overdue, due soon (within 10% of the interval, at least 2,500 mi, or 30 days) or OK. **Mark done** logs a service; miles, hours and date default to the truck's current values and can be edited to back-date a service.
 
 | Collection | Contents |

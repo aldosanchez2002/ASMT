@@ -3,11 +3,12 @@ import {
   getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
-  getFirestore, collection, deleteField, doc, onSnapshot, serverTimestamp, setDoc, writeBatch,
+  getFirestore, collection, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, writeBatch,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig, requireSignIn } from './firebase-config.js';
 import {
-  dutyFor, effectiveSettings, lastDoneFrom, matchesRule, mostUrgent, resolveItems, truckMaintenance, visitServices,
+  dutyFor, effectiveSettings, lastDoneFrom, matchesRule, milesMismatch, mostUrgent, readingsNear, resolveItems,
+  truckMaintenance, visitServices,
 } from './maintenance.js';
 import { JOBS, itemKeysFor } from './services.js';
 import { downloadLog, downloadTruckRecord } from './records.js';
@@ -35,7 +36,7 @@ let trailers = []; // trailers docs
 let trSortKey = 'lastReportedAt'; // most recently reported first
 let trSortDir = -1;
 let openTruckId = null; // truck shown in the detail dialog
-let work = null; // the open "Log work" form ({ vehicleId, jobs, extra, unticked, repair })
+let work = null; // the open "Log work" form ({ vehicleId, jobs, extra, unticked, repair, days })
 let truckFilter = 'all'; // Trucks tab status buttons (TRUCK_FILTERS)
 let sortKey = 'name';
 let sortDir = 1;
@@ -1019,9 +1020,20 @@ function workSummary(v, keys) {
 }
 
 function openWork(vehicleId, { keys = [] } = {}) {
-  work = { vehicleId, jobs: new Set(), extra: new Set(keys), unticked: new Set(), repair: false };
+  work = { vehicleId, jobs: new Set(), extra: new Set(keys), unticked: new Set(), repair: false, days: null };
   buildWork();
   if (!$('work').open) $('work').showModal();
+}
+
+// Samsara's daily readings for the truck being logged (saved by the sync),
+// loaded when the form opens. Local trucks have none.
+async function loadDays(vehicleId) {
+  try {
+    const snap = await getDoc(doc(db, 'odometerDaily', vehicleId));
+    return snap.data()?.days ?? {};
+  } catch {
+    return {}; // no check rather than a broken form
+  }
 }
 
 function checkRow(text, checked, onChange, hint) {
@@ -1048,7 +1060,7 @@ function buildWork() {
     select.append(Object.assign(el('option', null, 'Choose a truck…'), { value: '' }));
     [...vehicles].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }))
       .forEach((x) => select.append(Object.assign(el('option', null, x.name), { value: x.id })));
-    select.addEventListener('change', () => { if (select.value) { work.vehicleId = select.value; buildWork(); } });
+    select.addEventListener('change', () => { if (select.value) { work.vehicleId = select.value; work.days = null; buildWork(); } });
     body.append(field('Truck', select));
     return;
   }
@@ -1110,7 +1122,44 @@ function buildWork() {
   const note = Object.assign(el('input'), { type: 'text', placeholder: 'Shop or invoice # (optional)' });
   const who = Object.assign(el('input'), { type: 'text', placeholder: 'Your name', value: rememberedName(), autocomplete: 'name' });
   const details = el('div', 'work-details');
-  details.append(field('Miles', miles), field('Date', date), field('Engine hours (optional)', hours), field('Note', note), field('Logged by', who));
+  const milesField = field('Miles', miles);
+  const samsaraHint = el('span', 'samsara-hint');
+  milesField.append(samsaraHint);
+  details.append(milesField, field('Date', date), field('Engine hours (optional)', hours), field('Note', note), field('Logged by', who));
+
+  // Miles come from Samsara unless someone types them: today's live reading,
+  // or Samsara's reading for a past date.
+  let milesSource = v.local ? 'typed' : 'samsara';
+  miles.addEventListener('input', () => { milesSource = 'typed'; });
+  hours.addEventListener('input', () => { milesSource = 'typed'; });
+  function applyDate() {
+    if (v.local || !work.days) return;
+    if (date.value === today) {
+      miles.value = v.odometerMiles ?? '';
+      hours.value = v.engineHours ?? '';
+      milesSource = 'samsara';
+      samsaraHint.textContent = '';
+      return;
+    }
+    const near = readingsNear(work.days, date.value);
+    if (near?.reading) {
+      miles.value = near.reading.miles;
+      hours.value = near.reading.hours ?? '';
+      milesSource = 'samsara';
+      samsaraHint.textContent = `From Samsara for ${niceDate(date.value)}`;
+    } else {
+      samsaraHint.textContent = near ? '' : `No Samsara reading for ${niceDate(date.value)}`;
+    }
+  }
+  date.addEventListener('change', applyDate);
+  if (!v.local && !work.days) {
+    const forTruck = v.id;
+    loadDays(forTruck).then((d) => {
+      if (work?.vehicleId !== forTruck) return;
+      work.days = d;
+      applyDate();
+    });
+  }
 
   const error = el('p', 'form-error');
   error.hidden = true;
@@ -1133,6 +1182,10 @@ function buildWork() {
     if (!v.local && v.odometerMiles != null && m > v.odometerMiles + 500) {
       return fail(`That's more than the truck's current ${fmt.format(v.odometerMiles)} mi. Check the number.`);
     }
+    // Back-dated work: compare with what Samsara recorded around that day.
+    const off = !v.local && milesSource === 'typed' && milesMismatch(work.days, date.value, m);
+    if (off && !confirm(`Samsara shows ${v.name} at ${off.lo === off.hi ? fmt.format(off.lo) : `${fmt.format(off.lo)}–${fmt.format(off.hi)}`} mi `
+      + `around ${niceDate(date.value)}. You typed ${fmt.format(m)}. Save anyway?`)) return;
     const older = v.rows.filter((r) => keys.includes(r.key) && r.last?.source === 'done' && m < r.last.miles);
     if (older.length && !confirm(`${older.map((r) => r.item.name).join(', ')} already has a later service on record `
       + `(${fmt.format(older[0].last.miles)} mi). Save this older one anyway?`)) return;
@@ -1149,6 +1202,7 @@ function buildWork() {
       hours: hours.value === '' ? null : Number(hours.value),
       note: note.value.trim(),
       loggedBy: loggedBy || null,
+      milesSource,
       source: 'app',
       loggedAt: serverTimestamp(),
     };

@@ -54,6 +54,27 @@ export function lastDoneFrom(visits = [], trackingStarts = {}) {
   return out;
 }
 
+// Samsara's daily readings (odometerDaily/{vehicleId}.days, keyed by UTC
+// date) around a day. Work done on a local day falls between the reading at
+// the end of the day before and the end of the day after, which also covers
+// the UTC/local date shift.
+const shiftDay = (day, n) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+export function readingsNear(days = {}, day) {
+  if (!day) return null;
+  const near = [-1, 0, 1].map((n) => days?.[shiftDay(day, n)]).filter((r) => r?.miles != null);
+  if (!near.length) return null;
+  const miles = near.map((r) => r.miles);
+  return { reading: days[day] ?? null, lo: Math.min(...miles), hi: Math.max(...miles) };
+}
+
+// Whether miles typed for a day disagree with Samsara by more than `slack`.
+// Returns the Samsara range to show, or null when they agree (or there's no reading).
+export function milesMismatch(days, day, miles, slack = 1000) {
+  const near = readingsNear(days, day);
+  if (!near || miles == null || Number.isNaN(miles)) return null;
+  return miles < near.lo - slack || miles > near.hi + slack ? near : null;
+}
+
 // Whether a truck falls under an assignment rule's { make, model, yearMin, yearMax }.
 // Model matching is "contains", so "NEW CASCADIA 126\" SLEEPERCAB" matches CASCADIA.
 // Shared by the sync (scripts/schedules.mjs) and the site's Schedules tab.

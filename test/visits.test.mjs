@@ -85,3 +85,27 @@ test('an oil change has no chassis service; the air filter only where the schedu
   assert.deepEqual(itemKeysFor(truck(['kenworth-t680-onhighway']), tagsFor('airFilter'), scheduleById), ['kenworth-t680-onhighway__air-filter']);
   assert.deepEqual(itemKeysFor(truck([]), tagsFor('pm'), scheduleById), []);
 });
+
+import { milesMismatch, readingsNear } from '../web/maintenance.js';
+
+const days = {
+  '2026-10-01': { miles: 690000, hours: 3150 },
+  '2026-10-02': { miles: 690600, hours: 3155 },
+  '2026-10-03': { miles: 691200, hours: 3160 },
+};
+
+test('Samsara readings around a day span the day before to the day after', () => {
+  assert.deepEqual(readingsNear(days, '2026-10-02'), { reading: days['2026-10-02'], lo: 690000, hi: 691200 });
+  assert.equal(readingsNear(days, '2026-10-04').reading, null); // only the day before has a reading
+  assert.equal(readingsNear(days, '2026-10-04').hi, 691200);
+  assert.equal(readingsNear(days, '2026-09-01'), null);
+  assert.equal(readingsNear({}, '2026-10-02'), null);
+});
+
+test('typed miles far from Samsara are flagged; close ones and no data are not', () => {
+  assert.equal(milesMismatch(days, '2026-10-02', 690500), null);
+  assert.equal(milesMismatch(days, '2026-10-02', 691900), null); // within 1,000 mi slack
+  assert.ok(milesMismatch(days, '2026-10-02', 629123)); // the T-23-style typo
+  assert.ok(milesMismatch(days, '2026-10-02', 700000));
+  assert.equal(milesMismatch(days, '2026-08-01', 1), null);
+});

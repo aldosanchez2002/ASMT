@@ -21,39 +21,15 @@ import {
   schedulesVersion, validate,
 } from './schedules.mjs';
 import { WINDOW_DAYS, classify, metricsFromReport, nextState } from './duty.mjs';
+import { METERS_PER_MILE, dailyField, samsaraGetAll } from './samsara.mjs';
 
-const SAMSARA_BASE = 'https://api.samsara.com';
-const METERS_PER_MILE = 1609.344;
 // Trucks that haven't reported in this many days are left off the site.
 const STALE_AFTER_DAYS = 100;
 const dryRun = process.argv.includes('--dry-run');
 
-const apiKey = process.env.SAMSARA_API_KEY;
-if (!apiKey) {
+if (!process.env.SAMSARA_API_KEY) {
   console.error('Missing SAMSARA_API_KEY');
   process.exit(1);
-}
-
-// Follows Samsara's cursor pagination and returns every item.
-async function samsaraGetAll(path, params = {}) {
-  const items = [];
-  let after;
-  do {
-    const url = new URL(path, SAMSARA_BASE);
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    if (after) url.searchParams.set('after', after);
-
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-    });
-    if (!res.ok) {
-      throw new Error(`Samsara ${path} failed: ${res.status} ${await res.text()}`);
-    }
-    const body = await res.json();
-    items.push(...(body.data ?? []));
-    after = body.pagination?.hasNextPage ? body.pagination.endCursor : undefined;
-  } while (after);
-  return items;
 }
 
 // Returns the trucks that reported recently, plus the IDs of the ones that
@@ -135,11 +111,11 @@ async function fetchDutyMetrics() {
   const reports = [];
   let after;
   do {
-    const url = new URL('/fleet/reports/vehicles/fuel-energy', SAMSARA_BASE);
+    const url = new URL('/fleet/reports/vehicles/fuel-energy', 'https://api.samsara.com');
     url.searchParams.set('startDate', start.toISOString());
     url.searchParams.set('endDate', end.toISOString());
     if (after) url.searchParams.set('after', after);
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } });
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${process.env.SAMSARA_API_KEY}`, Accept: 'application/json' } });
     if (!res.ok) throw new Error(`Samsara fuel-energy report failed: ${res.status} ${await res.text()}`);
     const body = await res.json();
     reports.push(...(body.data?.vehicleReports ?? []));
@@ -198,6 +174,12 @@ function allowedEmails() {
     .filter(Boolean);
 }
 
+// Today's odometer and engine hours for each truck, kept as one reading per
+// day so "Log work" can check miles typed for a past date.
+const dailyReadings = (fleet) => fleet
+  .filter((v) => v.odometerMiles != null && v.odometerTime)
+  .map((v) => ({ id: v.id, day: v.odometerTime.slice(0, 10), reading: { miles: v.odometerMiles, hours: v.engineHours, at: v.odometerTime } }));
+
 // Writes with admin credentials, which bypass the Firestore rules.
 async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccountJson) {
   const { initializeApp, cert } = await import('firebase-admin/app');
@@ -233,6 +215,9 @@ async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, s
   }
   for (const id of staleIds) {
     batch.delete(db.collection('vehicles').doc(id));
+  }
+  for (const { id, day, reading } of dailyReadings(fleet)) {
+    batch.set(db.collection('odometerDaily').doc(id), { days: { [day]: reading } }, { merge: true });
   }
   for (const c of trailers.active) {
     batch.set(db.collection('trailers').doc(c.id), { ...c, updatedAt: FieldValue.serverTimestamp() });
@@ -273,6 +258,7 @@ async function writeWithPublicApi(fleet, staleIds, trailers, metricsById) {
     })),
     ...fleet.map((v) => setWrite(`vehicles/${v.id}`, v, 'updatedAt')),
     ...staleIds.map((id) => deleteWrite(`vehicles/${id}`)),
+    ...dailyReadings(fleet).map(({ id, day, reading }) => mergeWrite(`odometerDaily/${id}`, { [dailyField(day)]: reading })),
     ...trailers.active.map((c) => setWrite(`trailers/${c.id}`, c, 'updatedAt')),
     ...trailers.staleIds.map((id) => deleteWrite(`trailers/${id}`)),
     ...scheduleDocs().map((sch) => setWrite(`maintenanceSchedules/${sch.id}`, sch)),
