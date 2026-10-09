@@ -160,7 +160,7 @@ export function planWorkLog(log, vehicles, records, status = {}) {
       vehicleId: v.id,
       vehicleName: v.name,
       outOfService: true,
-      reason: s.reason ?? 'In shop',
+      reason: s.reason ?? 'Out of service',
       since: s.since ?? null,
     };
   }

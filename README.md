@@ -150,5 +150,5 @@ node scripts/seed-work-log.mjs --undo path/to/work-log.backup-….json
 
 ## Out of service
 
-**Truck popup → Mark out of service (in shop)** saves `vehicleStatus/{vehicleId}` (`outOfService`, `reason`, `since`). The truck shows **In shop**, isn't counted as overdue or due soon, and the sync keeps it listed even after Samsara has been silent for 100+ days. **Back in service** in the popup undoes it.
+**Truck popup → Mark out of service** saves `vehicleStatus/{vehicleId}` (`outOfService`, `reason`, `since`). The truck shows **Out of service**, isn't counted as overdue or due soon, and the sync keeps it listed even after Samsara has been silent for 100+ days. **Back in service** in the popup undoes it.
 

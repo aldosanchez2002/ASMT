@@ -79,7 +79,7 @@ const STATUS_LABEL = {
 // Attaches each truck's maintenance rows and its most urgent item.
 function withMaintenance(v) {
   const rows = truckMaintenance(v, schedules, records[v.id]?.items, new Date(), settings(), dutyModels(), dutyDocs[v.id]);
-  // Out-of-service trucks (in the shop) aren't counted as due until they're back.
+  // Out-of-service trucks aren't counted as due until they're back.
   const shop = statusDocs[v.id]?.outOfService ? statusDocs[v.id] : null;
   const next = shop ? undefined : mostUrgent(rows);
   const rank = next ? STATUS_RANK[next.status] : shop ? 4 : 3;
@@ -161,7 +161,7 @@ function render() {
     .sort(compare);
   const overdue = all.filter((v) => v.next?.status === 'overdue').length;
   const soon = all.filter((v) => v.next?.status === 'soon').length;
-  const inShop = all.filter((v) => v.shop).length;
+  const outOfService = all.filter((v) => v.shop).length;
 
   // Count by make + model.
   const counts = new Map();
@@ -171,9 +171,9 @@ function render() {
   }
   $('summary').replaceChildren(
     chip(`${visible.length} trucks`, true),
-    filterChip(`${overdue} overdue`, overdue ? 'chip-overdue' : ''),
-    filterChip(`${soon} due soon`, soon ? 'chip-soon' : ''),
-    ...(inShop ? [chip(`${inShop} in shop`)] : []),
+    chip(`${overdue} overdue`, false, overdue ? 'chip-overdue' : ''),
+    chip(`${soon} due soon`, false, soon ? 'chip-soon' : ''),
+    ...(outOfService ? [chip(`${outOfService} out of service`)] : []),
     ...[...counts].sort((a, b) => b[1] - a[1]).map(([k, n]) => chip(`${titleCase(k)} · ${n}`, false, 'hide-sm')),
   );
 
@@ -650,17 +650,6 @@ function renderGroup(g) {
   body.append(el('p', 'muted footnote', `Duty cycle: ${assignments.dutyCycle}. ${assignments.notes}`));
 }
 
-// A chip that toggles the list between all trucks and "Overdue or due soon".
-function filterChip(text, extraClass) {
-  const b = el('button', ['chip', 'chip-btn', extraClass].filter(Boolean).join(' '), text);
-  b.type = 'button';
-  b.addEventListener('click', () => {
-    $('filter').value = $('filter').value === 'attention' ? 'all' : 'attention';
-    render();
-  });
-  return b;
-}
-
 function chip(text, strong = false, extraClass = '') {
   return el('span', ['chip', strong && 'chip-strong', extraClass].filter(Boolean).join(' '), text);
 }
@@ -679,7 +668,7 @@ function cell(text, className = '') {
 function nextCell(v) {
   const td = el('td', 'next-cell');
   if (v.shop) {
-    td.append(el('span', 'badge badge-shop', 'In shop'), el('span', 'next-when', v.shop.reason || 'Out of service'));
+    td.append(el('span', 'badge badge-shop', 'Out of service'), el('span', 'next-when', v.shop.reason || ''));
     return td;
   }
   if (!v.next) {
@@ -866,7 +855,7 @@ function renderTruck(v) {
   if (v.vin) body.append(el('p', 'muted footnote', `VIN ${v.vin}`));
 }
 
-// ---- Out of service (in the shop) ------------------------------------------
+// ---- Out of service ----------------------------------------------------------
 
 async function saveStatus(v, fields) {
   try {
@@ -899,7 +888,7 @@ function shopBanner(v) {
 
 // Kept at the bottom of the popup so it isn't tapped by mistake.
 function shopButton(v) {
-  const btn = el('button', 'btn btn-ghost btn-shop', 'Mark out of service (in shop)');
+  const btn = el('button', 'btn btn-ghost btn-shop', 'Mark out of service');
   btn.type = 'button';
   btn.addEventListener('click', async () => {
     const reason = prompt(`Why is ${v.name} out of service? (for example: engine overhaul)`);
@@ -907,7 +896,7 @@ function shopButton(v) {
     btn.disabled = true;
     await saveStatus(v, {
       outOfService: true,
-      reason: reason.trim() || 'In shop',
+      reason: reason.trim() || 'Out of service',
       since: new Date().toLocaleDateString('en-CA'),
     });
   });
