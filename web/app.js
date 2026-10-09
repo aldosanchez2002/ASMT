@@ -463,6 +463,7 @@ function showTab() {
   for (const x of TABS) $(`${x}-view`).hidden = x !== tab;
   const shop = tab === 'shop';
   useEnglish(!shop);
+  document.body.classList.toggle('shop-mode', shop);
   $('admin-nav').hidden = shop;
   $('shop-top').hidden = !shop;
   for (const a of document.querySelectorAll('.tabs a')) {
@@ -1073,6 +1074,13 @@ function dueLine(r) {
   const text = el('div', 'due-text');
   text.append(el('span', 'due-name', r.item.name), el('span', 'due-when', dueWhen(r)));
   if (r.last?.source === 'baseline') text.append(el('span', 'due-note', `(${t('noRecord')})`));
+  // How much of the interval is used up: a full bar means it's due now.
+  const used = r.status === 'overdue' ? 1 : Math.min(1, Math.max(0, 1 - (Number.isFinite(r.urgency) ? r.urgency : 1)));
+  const meter = el('div', 'meter');
+  const fill = el('i');
+  fill.style.width = `${Math.round(used * 100)}%`;
+  meter.append(fill);
+  text.append(meter);
   line.append(statusDot(r.status), text);
   return line;
 }
@@ -1095,31 +1103,43 @@ function renderShop() {
 
   $('shop-title').textContent = vehicles.length ? (trucks.length ? t('shopCount', trucks.length) : t('shopEmpty')) : t('shopTitle');
   $('shop-count').textContent = lastSyncIso ? t('updated', agoText(lastSyncIso)) : '';
-  $('shop-cards').replaceChildren(...trucks.map(({ v, due }) => {
-    const card = el('button', `shop-card${due.some((r) => r.status === 'overdue') || v.faults?.stop ? ' has-overdue' : ''}`);
-    card.type = 'button';
-    const head = el('div', 'shop-card-head');
-    head.append(el('span', 'shop-truck', v.name), el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
-    card.append(head);
-    const badges = signalBadges(v);
-    if (badges.length) {
-      const row = el('div', 'shop-signals');
-      row.append(...badges);
-      card.append(row);
-    }
-    if (v.shop) card.append(el('div', 'shop-oos', `${t('outOfService')}${v.shop.reason ? ` · ${v.shop.reason}` : ''}`));
-    // The codes that matter (a STOP lamp's code first), then what's due.
-    // Kept short: one fault code and two due items, then "+N more".
-    const codes = v.faults?.major ?? [];
-    codes.slice(0, 1).forEach((c) => card.append(el('div', 'fault-line', `⚠ ${codeText(c)}`)));
-    due.slice(0, 2).forEach((r) => card.append(dueLine(r)));
-    const hidden = Math.max(0, codes.length - 1) + Math.max(0, due.length - 2);
-    if (hidden) card.append(el('div', 'due-more', t('more', hidden)));
-    card.append(el('div', 'shop-cta', `${t('logWork')} →`));
-    card.addEventListener('click', () => openWork(v.id));
-    return card;
+  // Section headings: STOP lamp / At the shop / Out of service / Overdue / Due soon.
+  const groupOf = ({ v, due }) => (v.faults?.stop ? 'stop' : v.here ? 'here' : v.shop ? 'out'
+    : due.some((r) => r.status === 'overdue') ? 'overdue' : 'soon');
+  let lastGroup = null;
+  $('shop-cards').replaceChildren(...trucks.flatMap((entry) => {
+    const group = groupOf(entry);
+    const heading = group !== lastGroup ? [el('h3', `shop-group group-${group}`, t('groups')[group])] : [];
+    lastGroup = group;
+    return [...heading, shopCard(entry)];
   }));
   $('shop-other').textContent = t('anotherTruck');
+}
+
+// One truck in the shop view: its number, flags, the code that matters, what's due.
+function shopCard({ v, due }) {
+  const card = el('button', `shop-card${due.some((r) => r.status === 'overdue') || v.faults?.stop ? ' has-overdue' : ''}`);
+  card.type = 'button';
+  const head = el('div', 'shop-card-head');
+  head.append(el('span', 'shop-truck', v.name), el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
+  card.append(head);
+  const badges = signalBadges(v);
+  if (badges.length) {
+    const row = el('div', 'shop-signals');
+    row.append(...badges);
+    card.append(row);
+  }
+  if (v.shop) card.append(el('div', 'shop-oos', `${t('outOfService')}${v.shop.reason ? ` · ${v.shop.reason}` : ''}`));
+  // The codes that matter (a STOP lamp's code first), then what's due.
+  // Kept short: one fault code and two due items, then "+N more".
+  const codes = v.faults?.major ?? [];
+  codes.slice(0, 1).forEach((c) => card.append(el('div', 'fault-line', codeText(c))));
+  due.slice(0, 2).forEach((r) => card.append(dueLine(r)));
+  const hidden = Math.max(0, codes.length - 1) + Math.max(0, due.length - 2);
+  if (hidden) card.append(el('div', 'due-more', t('more', hidden)));
+  card.append(el('div', 'shop-cta', t('logWork')));
+  card.addEventListener('click', () => openWork(v.id));
+  return card;
 }
 
 // ---- Log work ----------------------------------------------------------------

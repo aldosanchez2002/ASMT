@@ -77,6 +77,7 @@ const TEXT = {
     minorCodes: (n) => `+${n} minor ${n === 1 ? 'code' : 'codes'}`,
     fixedCodes: 'Codes this repair fixed',
     updated: (x) => `Updated ${x}`,
+    groups: { stop: 'STOP lamp', here: 'At the shop', out: 'Out of service', overdue: 'Overdue', soon: 'Due soon' },
     ago: { now: 'just now', min: (n) => `${n} min ago`, h: (n) => `${n} h ago`, d: (n) => `${n} ${n === 1 ? 'day' : 'days'} ago` },
   },
   es: {
@@ -154,6 +155,7 @@ const TEXT = {
     minorCodes: (n) => `+${n} ${n === 1 ? 'código menor' : 'códigos menores'}`,
     fixedCodes: 'Códigos que arregló esta reparación',
     updated: (x) => `Actualizado ${x}`,
+    groups: { stop: 'Luz STOP', here: 'En el taller', out: 'Fuera de servicio', overdue: 'Vencido', soon: 'Pronto' },
     ago: { now: 'ahora', min: (n) => `hace ${n} min`, h: (n) => `hace ${n} h`, d: (n) => `hace ${n} ${n === 1 ? 'día' : 'días'}` },
   },
 };
