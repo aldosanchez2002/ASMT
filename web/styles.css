@@ -597,3 +597,35 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 .shop-banner .btn { justify-self: start; margin-top: 4px; }
 .shop-title { font-weight: 800; text-transform: uppercase; letter-spacing: .04em; font-size: 13px; }
 .btn-shop { display: block; margin-top: 18px; }
+
+/* ---- Trucks tab status buttons (count + filter) ---- */
+.status-filter {
+  display: grid;
+  grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr));
+  gap: 6px;
+  max-width: 620px;
+  margin-bottom: 12px;
+}
+.status-filter button {
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 58px;
+  padding: 8px 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.status-filter button:hover { background: var(--row-hover); }
+.sf-n { font-size: 22px; font-weight: 800; line-height: 1.1; }
+.sf-label { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.2; }
+.sf-overdue.has .sf-n { color: var(--red); }
+.sf-soon.has .sf-n { color: var(--amber); }
+.status-filter button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.status-filter button.active .sf-n, .status-filter button.active .sf-label { color: inherit; }
+.status-filter button.active .sf-label { font-weight: 600; }

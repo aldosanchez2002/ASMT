@@ -34,6 +34,7 @@ let trSortKey = 'lastReportedAt'; // most recently reported first
 let trSortDir = -1;
 let openTruckId = null; // truck shown in the detail dialog
 let openFormKey = null; // item whose "Mark done" form is open
+let truckFilter = 'all'; // Trucks tab status buttons (TRUCK_FILTERS)
 let sortKey = 'name';
 let sortDir = 1;
 let unsubscribers = [];
@@ -150,38 +151,49 @@ function compare(a, b) {
   return String(x).localeCompare(String(y), undefined, { numeric: true }) * sortDir;
 }
 
+// The status buttons above the trucks table: each shows a count and, when
+// tapped, shows only those trucks.
+const TRUCK_FILTERS = [
+  { id: 'all', label: 'All', test: () => true },
+  { id: 'overdue', label: 'Overdue', test: (v) => v.next?.status === 'overdue' },
+  { id: 'soon', label: 'Due soon', test: (v) => v.next?.status === 'soon' },
+  { id: 'out', label: 'Out of service', test: (v) => Boolean(v.shop) },
+];
+
+function statusFilter(counts) {
+  // "Out of service" only shows when a truck is out of service (or it's selected).
+  const shown = TRUCK_FILTERS.filter((f) => f.id !== 'out' || counts.out || truckFilter === 'out');
+  const bar = el('div', 'status-filter');
+  bar.style.setProperty('--n', shown.length);
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-label', 'Show trucks');
+  for (const f of shown) {
+    const b = el('button', `sf-${f.id}${counts[f.id] ? ' has' : ''}${truckFilter === f.id ? ' active' : ''}`);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(truckFilter === f.id));
+    b.append(el('span', 'sf-n', fmt.format(counts[f.id])), el('span', 'sf-label', f.label));
+    b.addEventListener('click', () => { truckFilter = f.id; render(); });
+    bar.append(b);
+  }
+  return bar;
+}
+
 function render() {
   const q = $('search').value.trim().toLowerCase();
-  const attentionOnly = $('filter').value === 'attention';
-
   const all = vehicles.map(withMaintenance);
-  const visible = all
-    .filter((v) => !q || [v.name, v.make, v.model, v.year, v.vin].join(' ').toLowerCase().includes(q))
-    .filter((v) => !attentionOnly || (v.next && v.next.status !== 'ok'))
-    .sort(compare);
-  const overdue = all.filter((v) => v.next?.status === 'overdue').length;
-  const soon = all.filter((v) => v.next?.status === 'soon').length;
-  const outOfService = all.filter((v) => v.shop).length;
-
-  // Count by make + model.
-  const counts = new Map();
-  for (const v of visible) {
-    const key = [v.make, v.model].filter(Boolean).join(' ') || 'Unknown';
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  $('summary').replaceChildren(
-    chip(`${visible.length} trucks`, true),
-    chip(`${overdue} overdue`, false, overdue ? 'chip-overdue' : ''),
-    chip(`${soon} due soon`, false, soon ? 'chip-soon' : ''),
-    ...(outOfService ? [chip(`${outOfService} out of service`)] : []),
-    ...[...counts].sort((a, b) => b[1] - a[1]).map(([k, n]) => chip(`${titleCase(k)} · ${n}`, false, 'hide-sm')),
-  );
+  const searched = all.filter((v) => !q || [v.name, v.make, v.model, v.year, v.vin].join(' ').toLowerCase().includes(q));
+  const counts = Object.fromEntries(TRUCK_FILTERS.map((f) => [f.id, searched.filter(f.test).length]));
+  const active = TRUCK_FILTERS.find((f) => f.id === truckFilter) ?? TRUCK_FILTERS[0];
+  const visible = searched.filter(active.test).sort(compare);
+  $('summary').replaceChildren(statusFilter(counts));
 
   $('rows').replaceChildren(...visible.map(row));
   $('empty').hidden = visible.length > 0;
-  $('empty').textContent = vehicles.length
-    ? 'No trucks match.'
-    : 'No trucks in the database yet. On GitHub, run Actions → "Sync Samsara to Firestore".';
+  $('rows').closest('.table-wrap').hidden = visible.length === 0;
+  $('empty').textContent = !vehicles.length
+    ? 'No trucks in the database yet. On GitHub, run Actions → "Sync Samsara to Firestore".'
+    : active.id === 'all' ? 'No trucks match.'
+      : `No ${active.label.toLowerCase()} trucks${q ? ' match the search' : ''}.`;
 
   for (const th of document.querySelectorAll('th[data-sort]')) {
     th.classList.toggle('sorted', th.dataset.sort === sortKey);
@@ -1150,7 +1162,6 @@ $('sign-in').addEventListener('click', async () => {
 });
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
-$('filter').addEventListener('change', render);
 addEventListener('hashchange', () => { showTab(); renderSchedules(); renderLog(); renderTrailers(); });
 $('tr-search').addEventListener('input', renderTrailers);
 $('tr-filter').addEventListener('change', renderTrailers);
