@@ -3,6 +3,8 @@
 // and due date of scheduled maintenance, and a dated record of what was done).
 // jsPDF is loaded from cdnjs the first time a PDF is made.
 
+import { visitServices } from './maintenance.js';
+
 const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const AUTOTABLE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
 
@@ -30,6 +32,8 @@ function niceDate(value) {
 }
 const entryDate = (e) => (e.date ? niceDate(e.date) : 'Not written');
 const workText = (e) => `${e.type === 'repair' ? 'Repair: ' : ''}${e.itemName || e.itemId}`;
+const notesText = (e) => [e.note, e.cost != null && `Cost $${fmt.format(e.cost)}`, e.loggedBy && `Logged by ${e.loggedBy}`]
+  .filter(Boolean).join(' · ');
 const fileSafe = (s) => String(s).replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-|-$/g, '');
 
 const RETENTION_NOTE = 'Retention: maintenance records (49 CFR 396.3) are kept where the vehicle is housed or maintained for 1 year and for '
@@ -149,7 +153,7 @@ function addTruckRecord(doc, { vehicle: v, rows, intervalText, entries, dutyText
     startY: y,
     head: [['Date', 'Work performed', 'Odometer', 'Engine h', 'Shop / notes']],
     body: entries.length
-      ? entries.map((e) => [entryDate(e), workText(e), num(e.miles), num(e.hours), e.note || ''])
+      ? entries.map((e) => [entryDate(e), workText(e), num(e.miles), num(e.hours), notesText(e)])
       : [[{ content: 'No services logged in aslog.dev for this period.', colSpan: 5, styles: { textColor: 110 } }]],
     columnStyles: { 0: { cellWidth: 70 }, 2: { cellWidth: 62, halign: 'right' }, 3: { cellWidth: 52, halign: 'right' } },
   });
@@ -162,7 +166,7 @@ function addTruckRecord(doc, { vehicle: v, rows, intervalText, entries, dutyText
     y = sectionTitle(doc, 'Annual inspection  (49 CFR 396.17)', y);
     doc.setFontSize(9.5);
     // The service record, or else the latest logged annual inspection.
-    const logged = entries.find((e) => e.scheduleId === 'dot-annual');
+    const logged = entries.find((e) => visitServices(e).includes('dot-annual__annual-inspection'));
     const lastRec = annual.last?.source === 'done' ? annual.last : logged;
     const last = lastRec
       ? `Last annual inspection: ${niceDate(lastRec.date)}${lastRec.note ? ` (${lastRec.note})` : ''}.`
@@ -196,7 +200,7 @@ export async function downloadLog({ entries, company, from, to }) {
     startY: y + 4,
     head: [['Date', 'Unit', 'Work performed', 'Odometer', 'Engine h', 'Shop / notes']],
     body: entries.length
-      ? entries.map((e) => [entryDate(e), e.vehicleName || e.vehicleId, workText(e), num(e.miles), num(e.hours), e.note || ''])
+      ? entries.map((e) => [entryDate(e), e.vehicleName || e.vehicleId, workText(e), num(e.miles), num(e.hours), notesText(e)])
       : [[{ content: 'No services logged for this period.', colSpan: 6, styles: { textColor: 110 } }]],
     columnStyles: { 0: { cellWidth: 70 }, 1: { cellWidth: 48 }, 3: { cellWidth: 62, halign: 'right' }, 4: { cellWidth: 52, halign: 'right' } },
   });

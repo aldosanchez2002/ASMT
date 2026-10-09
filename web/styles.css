@@ -222,15 +222,6 @@ dialog#truck::backdrop { background: rgba(0, 0, 0, .45); }
 .item-tasks ul { margin: 6px 0 0; padding-left: 20px; }
 .btn-sm { padding: 4px 10px; font-size: 13px; white-space: nowrap; flex: none; }
 
-.done-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 8px;
-  align-items: end;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border);
-}
 .field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 .field input {
   font: inherit;
@@ -507,9 +498,6 @@ details.duty { padding: 0 12px 6px; }
   font-size: 16px;
   font-weight: 700;
 }
-.done-form { grid-template-columns: 1fr 1fr; }
-.done-form .field:nth-child(4) { grid-column: 1 / -1; }
-.btn-save, .btn-cancel, .form-error { grid-column: 1 / -1; }
 .btn-save { min-height: 50px; font-size: 16px; font-weight: 700; }
 .btn-cancel { min-height: 44px; }
 .field { font-size: 13px; }
@@ -629,3 +617,31 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 .status-filter button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .status-filter button.active .sf-n, .status-filter button.active .sf-label { color: inherit; }
 .status-filter button.active .sf-label { font-weight: 600; }
+
+/* ---- Log work ---- */
+.btn-log { display: block; width: 100%; min-height: 50px; font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+.log-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.log-actions .btn-log { width: auto; flex: 1 1 200px; margin: 0; }
+#work { width: min(560px, 100vw - 24px); }
+.work-form { display: grid; gap: 14px; }
+.work-jobs { border: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.work-jobs legend { padding: 0; margin-bottom: 4px; }
+.work-marks { display: grid; gap: 6px; }
+.work-marks .section-title { margin: 0; }
+.work-marks p { margin: 0; }
+.check-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  min-height: 48px; padding: 8px 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer;
+}
+.check-row input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--accent); }
+.check-text { flex: 1 1 0; min-width: 0; font-size: 16px; font-weight: 600; }
+.check-hint { flex-basis: 100%; padding-left: 32px; font-size: 13px; color: var(--muted); }
+.repair-box { display: grid; grid-template-columns: 1fr; gap: 8px; padding-left: 4px; }
+.work-details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.work-details .field:nth-child(4), .work-details .field:nth-child(5) { grid-column: 1 / -1; }
+.field select, .field textarea, .add-item {
+  font: inherit; font-size: 16px; padding: 10px; width: 100%; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
+}
+.field textarea { resize: vertical; }

@@ -131,7 +131,10 @@
             <select id="log-unit"><option value="">All units</option></select>
           </label>
         </div>
-        <button id="log-pdf" class="btn btn-pdf" type="button">Download PDF</button>
+        <div class="log-actions">
+          <button id="log-add" class="btn btn-log" type="button">+ Log work</button>
+          <button id="log-pdf" class="btn btn-ghost btn-pdf" type="button">Download PDF</button>
+        </div>
         <p id="log-summary" class="muted"></p>
         <div class="table-wrap">
           <table class="log-table">
@@ -181,6 +184,17 @@
       <button id="t-close" class="btn btn-ghost" type="button">Close</button>
     </div>
     <div id="t-body"></div>
+  </dialog>
+
+  <dialog id="work" aria-labelledby="w-title">
+    <div class="dlg-head">
+      <div>
+        <h2 id="w-title">Log work</h2>
+        <p id="w-sub" class="muted"></p>
+      </div>
+      <button id="w-close" class="btn btn-ghost" type="button">Close</button>
+    </div>
+    <div id="w-body"></div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

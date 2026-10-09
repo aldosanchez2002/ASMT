@@ -122,12 +122,16 @@ Every sync classifies each truck's duty cycle from its last 90 days in Samsara (
 
 Tracking starts from the first sync after schedules are assigned: for every service item a truck doesn't have a record for yet, the sync writes a **baseline** ("treat as done today at the current miles and engine hours"). It never overwrites existing records.
 
+**The service log is the source of truth.** Each visit in `serviceLog` lists the items it counts as done (`services`: record keys). An item's "last done" is the latest visit that covered it (highest miles, then latest date), worked out in the browser by `lastDoneFrom()` in `web/maintenance.js`; with no visit, it's the item's tracking start in `serviceRecords`. Editing or deleting a visit therefore updates every due date that depends on it. (`scripts/migrate-visits.mjs` moved older entries to this model and checks that every due date is unchanged.)
+
+**Log work** (truck popup, or **+ Log work** on the Log tab) is the one form for a visit: tick the shop jobs (**PM** = oil, fuel filters, grease, levels; **Oil change**; **Air filter**; **Air dryer**; defined in `web/services.js`), add any other single service, and/or describe a **repair** with an optional cost. The "This marks done" list shows exactly which of the truck's items the save covers; untick anything that wasn't done. One save writes the service line and the repair line together (`source: 'app'`, `loggedBy`, remembered on the device), with a 10-second Undo. **Mark done** on an item opens the same form with that item ticked. On a local truck, a visit with higher miles also updates its miles.
+
 On the site, the **Next service** column shows each truck's most urgent item. Click a truck to see every item with its due point (miles, engine hours or date, whichever comes first) and status: overdue, due soon (within 10% of the interval, at least 2,500 mi, or 30 days) or OK. **Mark done** logs a service; miles, hours and date default to the truck's current values and can be edited to back-date a service.
 
 | Collection | Contents |
 |---|---|
-| `serviceRecords/{vehicleId}` | `items` map keyed `{scheduleId}__{itemId}` → the latest `{ miles, hours, date, source: 'baseline' \| 'done', note }` |
-| `serviceLog/{autoId}` | One entry per **Mark done**: truck, item, miles, hours, date, note, `loggedAt` |
+| `serviceRecords/{vehicleId}` | `items` map keyed `{scheduleId}__{itemId}` → the item's tracking start `{ miles, hours, date, source: 'baseline' }` |
+| `serviceLog/{autoId}` | One entry per visit line: truck, date, miles, hours, `services` (record keys), `itemName`, note, `loggedBy`, `type: 'repair'` + `cost` for repairs, `loggedAt` |
 
 The **Service log** tab (`aslog.dev/#log`) lists every logged service, newest first, filtered by period (last 7/30/90 days, 12 months, all time or a custom date range, on the service date) and by unit. Clicking a unit opens that truck.
 

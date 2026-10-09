@@ -3,12 +3,13 @@ import {
   getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
-  getFirestore, addDoc, collection, deleteDoc, deleteField, doc, onSnapshot, serverTimestamp, setDoc,
+  getFirestore, collection, deleteField, doc, onSnapshot, serverTimestamp, setDoc, writeBatch,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig, requireSignIn } from './firebase-config.js';
 import {
-  dutyFor, effectiveSettings, matchesRule, mostUrgent, resolveItems, truckMaintenance,
+  dutyFor, effectiveSettings, lastDoneFrom, matchesRule, mostUrgent, resolveItems, truckMaintenance, visitServices,
 } from './maintenance.js';
+import { JOBS, itemKeysFor } from './services.js';
 import { downloadLog, downloadTruckRecord } from './records.js';
 
 const app = initializeApp(firebaseConfig);
@@ -28,12 +29,13 @@ let statusDocs = {}; // vehicleId -> vehicleStatus doc ({ outOfService, reason, 
 const dutyModels = () => assignments?.dutyModels ?? {};
 const settings = () => effectiveSettings(assignments?.settings, savedSettings);
 const company = () => ({ name: savedSettings.companyName ?? '', usdot: savedSettings.usdot ?? '' });
-let serviceLog = []; // serviceLog docs (Mark done, repairs, paper work log, duty changes)
+let serviceLog = []; // serviceLog docs: visits (services and repairs) and duty changes
+let visitsByTruck = new Map(); // vehicleId -> that truck's serviceLog entries
 let trailers = []; // trailers docs
 let trSortKey = 'lastReportedAt'; // most recently reported first
 let trSortDir = -1;
 let openTruckId = null; // truck shown in the detail dialog
-let openFormKey = null; // item whose "Mark done" form is open
+let work = null; // the open "Log work" form ({ vehicleId, jobs, extra, unticked, repair })
 let truckFilter = 'all'; // Trucks tab status buttons (TRUCK_FILTERS)
 let sortKey = 'name';
 let sortDir = 1;
@@ -79,7 +81,10 @@ const STATUS_LABEL = {
 
 // Attaches each truck's maintenance rows and its most urgent item.
 function withMaintenance(v) {
-  const rows = truckMaintenance(v, schedules, records[v.id]?.items, new Date(), settings(), dutyModels(), dutyDocs[v.id]);
+  // The service log is the source of truth for "last done"; serviceRecords
+  // only holds each item's launch-day tracking start.
+  const last = lastDoneFrom(visitsByTruck.get(v.id), records[v.id]?.items);
+  const rows = truckMaintenance(v, schedules, last, new Date(), settings(), dutyModels(), dutyDocs[v.id]);
   // Out-of-service trucks aren't counted as due until they're back.
   const shop = statusDocs[v.id]?.outOfService ? statusDocs[v.id] : null;
   const next = shop ? undefined : mostUrgent(rows);
@@ -403,8 +408,10 @@ function renderLog() {
     const service = el('td', 'wrap-cell', e.itemName || e.itemId);
     if (e.type === 'duty') service.prepend(el('span', 'badge badge-auto', 'Auto'), ' ');
     if (e.type === 'repair') service.prepend(el('span', 'badge badge-repair', 'Repair'), ' ');
-    const sched = schedules.get(e.scheduleId);
-    if (sched) service.append(el('div', 'item-meta', sched.name));
+    const done = visitServices(e).map(itemNameFor).filter(Boolean);
+    if (done.length) service.append(el('div', 'item-meta', `Marked done: ${done.join(', ')}`));
+    const extra = [e.cost != null && `Cost $${fmt.format(e.cost)}`, e.loggedBy && `Logged by ${e.loggedBy}`].filter(Boolean);
+    if (extra.length) service.append(el('div', 'item-meta', extra.join(' · ')));
     if (e.note) service.append(el('div', 'item-meta show-sm', `"${e.note}"`));
     tr.append(
       el('td', null, e.date ? niceDate(e.date) : 'Not written'),
@@ -717,7 +724,6 @@ function row(v) {
 
 function openTruck(id) {
   openTruckId = id;
-  openFormKey = null;
   render();
   if (!$('truck').open) $('truck').showModal();
 }
@@ -810,10 +816,13 @@ function renderTruck(v) {
 
   const body = $('t-body');
   body.replaceChildren();
+  const logBtn = el('button', 'btn btn-log', 'Log work');
+  logBtn.type = 'button';
+  logBtn.addEventListener('click', () => openWork(v.id));
   const pdfBtn = el('button', 'btn btn-ghost btn-pdf', 'Download maintenance record (PDF)');
   pdfBtn.type = 'button';
   pdfBtn.addEventListener('click', () => exportTruck(v, pdfBtn));
-  body.append(pdfBtn);
+  body.append(logBtn, pdfBtn);
   if (v.shop) body.append(shopBanner(v));
   if (v.local) {
     body.append(el('p', 'muted', 'Local truck: not in Samsara, so its miles only change when a service is logged.'));
@@ -839,7 +848,6 @@ function renderTruck(v) {
   // 2. Everything else, grouped by schedule, behind one tap.
   const rest = v.rows.filter((r) => !attention.includes(r));
   const all = el('details', 'all-services');
-  all.open = rest.some((r) => r.key === openFormKey) || all.open;
   all.append(el('summary', 'section-title', `All other services (${rest.length})`));
   for (const scheduleId of v.scheduleIds) {
     const schedule = schedules.get(scheduleId);
@@ -937,14 +945,11 @@ function itemRow(v, r, showSchedule = false) {
     li.append(details);
   }
   if (r.status !== 'as-needed') {
-    if (openFormKey === r.key) {
-      li.append(doneForm(v, r));
-    } else {
-      const btn = el('button', 'btn btn-done', 'Mark done');
-      btn.type = 'button';
-      btn.addEventListener('click', () => { openFormKey = r.key; render(); });
-      li.append(btn);
-    }
+    // Opens "Log work" with this item ticked, so every save goes through one form.
+    const btn = el('button', 'btn btn-done', 'Mark done');
+    btn.type = 'button';
+    btn.addEventListener('click', () => openWork(v.id, { keys: [r.key] }));
+    li.append(btn);
   }
   return li;
 }
@@ -955,91 +960,232 @@ function field(label, input) {
   return wrap;
 }
 
-function doneForm(v, r) {
-  const form = el('form', 'done-form');
+// ---- Log work ----------------------------------------------------------------
+// One form for everything done on a truck in one visit: shop jobs (PM, oil
+// change, ...), any single service, and repairs. A save writes the visit to
+// the service log, which is what every due date is worked out from.
+
+const LOGGED_BY_KEY = 'aslog.loggedBy';
+function rememberedName() {
+  try { return localStorage.getItem(LOGGED_BY_KEY) ?? ''; } catch { return ''; }
+}
+function rememberName(name) {
+  try { localStorage.setItem(LOGGED_BY_KEY, name); } catch { /* private mode: not remembered */ }
+}
+
+// "schedule__item" -> the item's name, from the schedules. Items the fleet
+// setup switches off (e.g. the no-frame-filter fuel filter) give null.
+function itemNameFor(key) {
+  const [scheduleId, itemId] = key.split('__');
+  const item = schedules.get(scheduleId)?.items.find((i) => i.id === itemId);
+  if (!item) return null;
+  const s = settings();
+  if (item.onlyWhen && !Object.entries(item.onlyWhen).every(([k, val]) => s[k] === val)) return null;
+  return item.name;
+}
+
+const jobText = (j) => (j.hint ? `${j.label} (${j.hint})` : j.label);
+
+// The truck being logged, with its maintenance rows.
+const workTruck = () => {
+  const v = work?.vehicleId && vehicles.find((x) => x.id === work.vehicleId);
+  return v ? withMaintenance(v) : null;
+};
+
+// Items the form will mark done: what the ticked jobs cover plus any added
+// one by one, limited to items that apply to this truck.
+function workKeys(v) {
+  const applies = new Set(v.rows.map((r) => r.key));
+  const fromJobs = JOBS.filter((j) => work.jobs.has(j.id)).flatMap((j) => itemKeysFor(v, j.tags, schedules));
+  return [...new Set([...fromJobs, ...work.extra])].filter((k) => applies.has(k));
+}
+
+// Log line text: the job names when every item a job covers is saved, then
+// any other items by name. A ticked job with no matching item (an air filter
+// on a Cascadia) is still named, so the history shows the work.
+function workSummary(v, keys) {
+  const left = new Set(keys);
+  const applies = new Set(v.rows.map((r) => r.key));
+  const parts = [];
+  for (const j of JOBS.filter((x) => work.jobs.has(x.id))) {
+    const covers = itemKeysFor(v, j.tags, schedules).filter((k) => applies.has(k));
+    if (covers.every((k) => left.has(k))) {
+      parts.push(jobText(j));
+      covers.forEach((k) => left.delete(k));
+    }
+  }
+  for (const k of left) parts.push(itemNameFor(k) ?? k);
+  return parts.join(', ');
+}
+
+function openWork(vehicleId, { keys = [] } = {}) {
+  work = { vehicleId, jobs: new Set(), extra: new Set(keys), unticked: new Set(), repair: false };
+  buildWork();
+  if (!$('work').open) $('work').showModal();
+}
+
+function checkRow(text, checked, onChange, hint) {
+  const label = el('label', 'check-row');
+  const box = Object.assign(el('input'), { type: 'checkbox', checked });
+  box.addEventListener('change', () => onChange(box.checked));
+  label.append(box, el('span', 'check-text', text));
+  if (hint) label.append(el('span', 'check-hint', hint));
+  return label;
+}
+
+function buildWork() {
+  const v = workTruck();
+  $('w-title').textContent = v ? `Log work · ${v.name}` : 'Log work';
+  $('w-sub').textContent = v
+    ? [[v.year, titleCase(v.make || ''), titleCase(v.model || '')].filter(Boolean).join(' '), v.odometerMiles != null && `${fmt.format(v.odometerMiles)} mi`].filter(Boolean).join(' · ')
+    : 'Pick the truck first.';
+  const body = $('w-body');
+  body.replaceChildren();
+
+  // From the Log tab there's no truck yet.
+  if (!work.vehicleId || !v) {
+    const select = el('select', 'truck-pick');
+    select.append(Object.assign(el('option', null, 'Choose a truck…'), { value: '' }));
+    [...vehicles].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }))
+      .forEach((x) => select.append(Object.assign(el('option', null, x.name), { value: x.id })));
+    select.addEventListener('change', () => { if (select.value) { work.vehicleId = select.value; buildWork(); } });
+    body.append(field('Truck', select));
+    return;
+  }
+
+  const form = el('form', 'work-form');
   const today = new Date().toLocaleDateString('en-CA');
-  const miles = Object.assign(el('input'), {
-    type: 'number', min: 0, required: true, inputMode: 'numeric', value: v.odometerMiles ?? '',
-  });
+
+  // 1. What was done.
+  const jobs = el('fieldset', 'work-jobs');
+  jobs.append(el('legend', 'section-title', 'What was done?'));
+  for (const j of JOBS) {
+    jobs.append(checkRow(j.label, work.jobs.has(j.id), (on) => {
+      if (on) work.jobs.add(j.id); else work.jobs.delete(j.id);
+      renderMarks();
+    }, j.hint));
+  }
+  const repairBox = el('div', 'repair-box');
+  const repairText = Object.assign(el('textarea'), { rows: 2, placeholder: 'What was repaired? (for example: replaced A/C compressor)' });
+  const cost = Object.assign(el('input'), { type: 'number', min: 0, step: '0.01', inputMode: 'decimal', placeholder: 'Optional' });
+  repairBox.append(field('Repair', repairText), field('Cost ($)', cost));
+  repairBox.hidden = !work.repair;
+  jobs.append(checkRow('Repair / other work', work.repair, (on) => {
+    work.repair = on;
+    repairBox.hidden = !on;
+    if (on) repairText.focus();
+  }));
+  jobs.append(repairBox);
+
+  // 2. What it marks done (live list; untick anything that wasn't done).
+  const marks = el('div', 'work-marks');
+  function renderMarks() {
+    const keys = workKeys(v);
+    marks.replaceChildren(el('div', 'section-title', 'This marks done'));
+    if (!keys.length) {
+      marks.append(el('p', 'muted', work.jobs.size
+        ? 'Nothing on this truck\'s schedule. It will still be in the log.'
+        : 'Tick a job above, or add a service below.'));
+    }
+    for (const k of keys) {
+      marks.append(checkRow(itemNameFor(k) ?? k, !work.unticked.has(k), (on) => {
+        if (on) work.unticked.delete(k); else work.unticked.add(k);
+      }));
+    }
+    const others = v.rows.filter((r) => !keys.includes(r.key));
+    if (others.length) {
+      const add = el('select', 'add-item');
+      add.append(Object.assign(el('option', null, '+ Add another service…'), { value: '' }));
+      others.forEach((r) => add.append(Object.assign(el('option', null, r.item.name), { value: r.key })));
+      add.addEventListener('change', () => { if (add.value) { work.extra.add(add.value); work.unticked.delete(add.value); renderMarks(); } });
+      marks.append(add);
+    }
+  }
+  renderMarks();
+
+  // 3. When, and who.
+  const miles = Object.assign(el('input'), { type: 'number', min: 0, required: true, inputMode: 'numeric', value: v.odometerMiles ?? '' });
   const date = Object.assign(el('input'), { type: 'date', required: true, max: today, value: today });
   const hours = Object.assign(el('input'), { type: 'number', min: 0, inputMode: 'numeric', value: v.engineHours ?? '' });
   const note = Object.assign(el('input'), { type: 'text', placeholder: 'Shop or invoice # (optional)' });
+  const who = Object.assign(el('input'), { type: 'text', placeholder: 'Your name', value: rememberedName(), autocomplete: 'name' });
+  const details = el('div', 'work-details');
+  details.append(field('Miles', miles), field('Date', date), field('Engine hours (optional)', hours), field('Note', note), field('Logged by', who));
+
   const error = el('p', 'form-error');
   error.hidden = true;
-  const save = el('button', 'btn btn-save');
-  save.type = 'submit';
-  const cancel = el('button', 'btn btn-ghost btn-cancel', 'Cancel');
-  cancel.type = 'button';
-  cancel.addEventListener('click', () => { openFormKey = null; render(); });
-
-  const label = () => `Save: done at ${miles.value ? fmt.format(Number(miles.value)) : '—'} mi on ${niceDate(date.value)}`;
-  save.textContent = label();
-  miles.addEventListener('input', () => { save.textContent = label(); });
-  date.addEventListener('input', () => { save.textContent = label(); });
-
-  form.append(
-    field('Miles when done', miles),
-    field('Date done', date),
-    field('Engine hours (optional)', hours),
-    field('Note', note),
-    error,
-    save,
-    cancel,
-  );
+  const save = Object.assign(el('button', 'btn btn-save', 'Save'), { type: 'submit' });
+  const cancel = Object.assign(el('button', 'btn btn-ghost btn-cancel', 'Cancel'), { type: 'button' });
+  cancel.addEventListener('click', () => $('work').close());
+  form.append(jobs, marks, details, error, save, cancel);
+  body.append(form);
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const fail = (msg) => { error.textContent = msg; error.hidden = false; error.scrollIntoView({ block: 'nearest' }); };
+    const keys = workKeys(v).filter((k) => !work.unticked.has(k));
     const m = Number(miles.value);
+    const repair = repairText.value.trim();
     // Catch typos before they're saved.
-    const problem = v.odometerMiles != null && m > v.odometerMiles + 500
-      ? `That's more than the truck's current ${fmt.format(v.odometerMiles)} mi. Check the number.`
-      : r.last?.source === 'done' && m < r.last.miles
-        ? `That's less than the last time this was done (${fmt.format(r.last.miles)} mi). Check the number.`
-        : date.value > today ? 'The date can\'t be in the future.' : null;
-    if (problem) {
-      error.textContent = problem;
-      error.hidden = false;
-      return;
+    if (!keys.length && !work.jobs.size && !work.repair) return fail('Tick what was done.');
+    if (work.repair && !repair) return fail('Describe the repair.');
+    if (date.value > today) return fail('The date can\'t be in the future.');
+    if (!v.local && v.odometerMiles != null && m > v.odometerMiles + 500) {
+      return fail(`That's more than the truck's current ${fmt.format(v.odometerMiles)} mi. Check the number.`);
     }
+    const older = v.rows.filter((r) => keys.includes(r.key) && r.last?.source === 'done' && m < r.last.miles);
+    if (older.length && !confirm(`${older.map((r) => r.item.name).join(', ')} already has a later service on record `
+      + `(${fmt.format(older[0].last.miles)} mi). Save this older one anyway?`)) return;
+
     save.disabled = true;
     save.textContent = 'Saving…';
-    const record = {
+    const loggedBy = who.value.trim();
+    if (loggedBy) rememberName(loggedBy);
+    const common = {
+      vehicleId: v.id,
+      vehicleName: v.name,
+      date: date.value,
       miles: m,
       hours: hours.value === '' ? null : Number(hours.value),
-      date: date.value,
       note: note.value.trim(),
-      source: 'done',
+      loggedBy: loggedBy || null,
+      source: 'app',
+      loggedAt: serverTimestamp(),
     };
-    const previous = r.last ?? null;
+    // All or nothing: the service line, the repair line, and a local truck's miles.
+    const batch = writeBatch(db);
+    const refs = [];
+    if (keys.length || work.jobs.size) {
+      const ref = doc(collection(db, 'serviceLog'));
+      batch.set(ref, { ...common, services: keys, itemName: workSummary(v, keys) });
+      refs.push(ref);
+    }
+    if (work.repair) {
+      const ref = doc(collection(db, 'serviceLog'));
+      batch.set(ref, { ...common, type: 'repair', services: [], itemName: repair, cost: cost.value === '' ? null : Number(cost.value) });
+      refs.push(ref);
+    }
+    // Local trucks aren't in Samsara: a logged visit is how their miles move.
+    const oldMiles = v.local ? { odometerMiles: v.odometerMiles ?? null, odometerTime: v.odometerTime ?? null } : null;
+    if (v.local && m > (v.odometerMiles ?? -1)) {
+      batch.set(doc(db, 'vehicles', v.id), { odometerMiles: m, odometerTime: date.value }, { merge: true });
+    }
     try {
-      await setDoc(doc(db, 'serviceRecords', v.id), {
-        vehicleId: v.id,
-        items: { [r.key]: { ...record, loggedAt: serverTimestamp() } },
-      }, { merge: true });
-      const logRef = await addDoc(collection(db, 'serviceLog'), {
-        ...record,
-        vehicleId: v.id,
-        vehicleName: v.name,
-        scheduleId: r.schedule.id,
-        itemId: r.item.id,
-        itemName: r.item.name,
-        loggedAt: serverTimestamp(),
-      });
-      openFormKey = null;
-      render();
-      showUndo(`Saved: ${r.item.name} on ${v.name}`, async () => {
-        await setDoc(doc(db, 'serviceRecords', v.id), {
-          items: { [r.key]: previous ?? deleteField() },
-        }, { merge: true });
-        await deleteDoc(logRef);
+      await batch.commit();
+      const summary = [keys.length || work.jobs.size ? workSummary(v, keys) : null, work.repair ? `repair` : null].filter(Boolean).join(' + ');
+      $('work').close();
+      showUndo(`Saved on ${v.name}: ${summary}`, async () => {
+        const undo = writeBatch(db);
+        refs.forEach((ref) => undo.delete(ref));
+        if (oldMiles && m > (oldMiles.odometerMiles ?? -1)) undo.set(doc(db, 'vehicles', v.id), oldMiles, { merge: true });
+        await undo.commit();
       });
     } catch (err) {
       save.disabled = false;
-      save.textContent = label();
-      showAppError(`Could not save: ${err.message}`);
+      save.textContent = 'Save';
+      fail(`Could not save: ${err.message}`);
     }
   });
-  return form;
 }
 
 // A message bar with an Undo button that disappears after 10 seconds.
@@ -1061,7 +1207,7 @@ function showUndo(message, undo) {
   });
   bar.replaceChildren(el('span', null, message), btn);
   // An open popup sits above the page, so the bar goes inside it.
-  const host = [$('truck'), $('schedule')].find((d) => d.open) ?? document.body;
+  const host = [$('work'), $('truck'), $('schedule')].find((d) => d.open) ?? document.body;
   if (bar.parentElement !== host) host.append(bar);
   bar.hidden = false;
   undoTimer = setTimeout(() => { bar.hidden = true; }, 10000);
@@ -1105,7 +1251,8 @@ function watchFleet() {
         const e = d.data();
         return { ...e, id: d.id, loggedAtMs: e.loggedAt?.toMillis?.() ?? 0 };
       });
-      renderLog();
+      visitsByTruck = Map.groupBy(serviceLog, (e) => e.vehicleId);
+      render();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'vehicleStatus'), (snap) => {
       statusDocs = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
@@ -1202,7 +1349,10 @@ $('t-close').addEventListener('click', () => $('truck').close());
 $('s-close').addEventListener('click', () => $('schedule').close());
 $('schedule').addEventListener('close', () => { openGroupKey = null; });
 $('schedule').addEventListener('click', (e) => { if (e.target === $('schedule')) $('schedule').close(); });
-$('truck').addEventListener('close', () => { openTruckId = null; openFormKey = null; });
+$('truck').addEventListener('close', () => { openTruckId = null; });
+$('w-close').addEventListener('click', () => $('work').close());
+$('work').addEventListener('close', () => { work = null; });
+$('log-add').addEventListener('click', () => openWork(null));
 // Clicking the dimmed backdrop closes the dialog.
 $('truck').addEventListener('click', (e) => { if (e.target === $('truck')) $('truck').close(); });
 for (const th of document.querySelectorAll('th[data-sort]')) {
