@@ -4,14 +4,14 @@ A simple web app that lists every truck in the fleet with its model and current 
 
 ## Shop view (main page)
 
-`aslog.dev` opens on the **shop view**, made for mechanics: only the trucks that need work (out of service first, then overdue, then due soon), each a big card listing what's due. Tapping a card opens **Log work** with a **Due on this truck** section at the top (unticked; tap each one that was done), the shop jobs (PM, oil change, …) and repairs. Miles and date are filled in from Samsara and shown as text with a **Change** link; engine hours are hidden here. The save button says what it records ("Save: 4 items on T-23"). **EN | ES** at the top switches the shop view and the form between English and Spanish (remembered per device, `web/i18n.js`); log entries are always saved in English. **Admin** (top right) opens the full app: Trucks, Trailers, Schedules and Service log (`#trucks`, `#trailers`, `#schedules`, `#log`).
+`aslog.dev` opens on the **shop view**, made for mechanics: only the trucks that need work (out of service first, then overdue, then due soon), each a big card listing what's due. Tapping a card opens **Record work** with a **Due on this truck** section at the top (unticked; tap each one that was done), the shop jobs (PM, oil change, …) and repairs. Miles and date are filled in from Samsara and shown as text with a **Change** link; engine hours are hidden here. The save button says what it records ("Save: 4 items on T-23"). **EN | ES** at the top switches the shop view and the form between English and Spanish (remembered per device, `web/i18n.js`); log entries are always saved in English. **Admin** (top right) opens the full app: Trucks, Trailers, Schedules and Service log (`#trucks`, `#trailers`, `#schedules`, `#log`).
 
 ### Signals from Samsara
 
 Each sync also saves, on every truck: `faults` (dash lamps: STOP, check engine, emissions, protect, and the active J1939 codes) and `location` (lat/lon, speed, address). `web/signals.js` turns them into what the screens show:
 
-- **STOP lamp** trucks are always listed in the shop view, at the top, even with nothing due. Check-engine and emissions lamps show as badges, and the codes that matter (engine, aftertreatment, brakes, air system; not body/cab computer chatter) show on the card, in the truck popup and at the top of Log work, where a repair can record which codes it fixed (`faultsFixed`). Fault readings older than 7 days are only shown in the popup.
-- **At the shop**: parked (under 3 mph) within 250 m of the Windermere Ave yard (`SHOP` in `web/signals.js`). Those trucks come right after STOP-lamp trucks in the shop view.
+- **STOP lamp** trucks are always listed in the shop view, at the top, even with nothing due. Check-engine and emissions lamps show as badges, and the codes that matter (engine, aftertreatment, brakes, air system; not body/cab computer chatter) show on the card, in the truck popup and at the top of Record work, where a repair can record which codes it fixed (`faultsFixed`). Fault readings older than 7 days are only shown in the popup.
+- **In yard**: parked (under 3 mph) within 250 m of the Windermere Ave yard (`SHOP` in `web/signals.js`). Those trucks come right after STOP-lamp trucks in the shop view.
 - **No signal**: Samsara hasn't heard from the truck in 3+ days. Admin → Trucks has a **No signal 3+ days** button.
 
 ## How it works (and why your Samsara key stays safe)
@@ -136,16 +136,16 @@ Tracking starts from the first sync after schedules are assigned: for every serv
 
 **The service log is the source of truth.** Each visit in `serviceLog` lists the items it counts as done (`services`: record keys). An item's "last done" is the latest visit that covered it (highest miles, then latest date), worked out in the browser by `lastDoneFrom()` in `web/maintenance.js`; with no visit, it's the item's tracking start in `serviceRecords`. Editing or deleting a visit therefore updates every due date that depends on it. (`scripts/migrate-visits.mjs` moved older entries to this model and checks that every due date is unchanged.)
 
-**Log work** (truck popup, or **+ Log work** on the Log tab) is the one form for a visit: tick the shop jobs (**PM** = oil, fuel filters, grease, levels; **Oil change**; **Air filter**; **Air dryer**; defined in `web/services.js`), add any other single service, and/or describe a **repair** with an optional cost. The "This marks done" list shows exactly which of the truck's items the save covers; untick anything that wasn't done. One save writes the service line and the repair line together (`source: 'app'`, `loggedBy`, remembered on the device), with a 10-second Undo. **Mark done** on an item opens the same form with that item ticked. On a local truck, a visit with higher miles also updates its miles.
+**Record work** (truck popup, or **+ Record work** on the Log tab) is the one form for a visit: tick the shop jobs (**PM** = oil, fuel filters, grease, levels; **Oil change**; **Air filter**; **Air dryer**; defined in `web/services.js`), add any other single service, and/or describe a **repair** with an optional cost. The "This marks done" list shows exactly which of the truck's items the save covers; untick anything that wasn't done. One save writes the service line and the repair line together (`source: 'app'`, `loggedBy`, remembered on the device), with a 10-second Undo. **Record work** on an item on an item opens the same form with that item ticked. On a local truck, a visit with higher miles also updates its miles.
 
-**Samsara miles in Log work.** Each sync also saves every truck's reading for the day in `odometerDaily/{vehicleId}.days` (`{ "YYYY-MM-DD": { miles, hours, at } }`, UTC dates). Log work fills in miles and engine hours from Samsara: today's live reading, or that day's reading when the date is changed. If someone types miles more than 1,000 mi outside Samsara's readings from the day before to the day after, it asks before saving. Each visit records `milesSource` (`samsara` or `typed`). Local trucks have no readings. `scripts/backfill-odometer.mjs` filled in the past 12 months once (one Samsara call per day: `/fleet/vehicles/stats?time=…`):
+**Samsara miles in Record work.** Each sync also saves every truck's reading for the day in `odometerDaily/{vehicleId}.days` (`{ "YYYY-MM-DD": { miles, hours, at } }`, UTC dates). Record work fills in miles and engine hours from Samsara: today's live reading, or that day's reading when the date is changed. If someone types miles more than 1,000 mi outside Samsara's readings from the day before to the day after, it asks before saving. Each visit records `milesSource` (`samsara` or `typed`). Local trucks have no readings. `scripts/backfill-odometer.mjs` filled in the past 12 months once (one Samsara call per day: `/fleet/vehicles/stats?time=…`):
 
 ```bash
 SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs --days 365          # dry run
 SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs --days 365 --apply
 ```
 
-On the site, the **Next service** column shows each truck's most urgent item. Click a truck to see every item with its due point (miles, engine hours or date, whichever comes first) and status: overdue, due soon (within 10% of the interval, at least 2,500 mi, or 30 days) or OK. **Mark done** logs a service; miles, hours and date default to the truck's current values and can be edited to back-date a service.
+On the site, the **Next service** column shows each truck's most urgent item. Click a truck to see every item with its due point (miles, engine hours or date, whichever comes first) and status: overdue, due soon (within 10% of the interval, at least 2,500 mi, or 30 days) or OK. **Record work** on an item logs a service; miles, hours and date default to the truck's current values and can be edited to back-date a service.
 
 | Collection | Contents |
 |---|---|
@@ -167,7 +167,7 @@ node scripts/seed-work-log.mjs --undo path/to/work-log.backup-….json
 ```
 
 - Every line becomes a `serviceLog` entry (`source: 'worklog'`, fixed ids `worklog-NNN-<unit>`, so re-runs don't duplicate). Repairs get `type: 'repair'` and show with a **Repair** label in the Log tab and PDFs. Lines with no date show "Not written".
-- Each entry's `services` say what it counts as done: `oil`, `fuelFilters`, `chassisPm` (M1 / A / 15k), `airFilter`, `airDryer`, matched to the items the truck's schedules have. The latest one (highest miles) becomes the item's record, replacing the launch-day tracking start. A newer **Mark done** from the app is kept.
+- Each entry's `services` say what it counts as done: `oil`, `fuelFilters`, `chassisPm` (M1 / A / 15k), `airFilter`, `airDryer`, matched to the items the truck's schedules have. The latest one (highest miles) becomes the item's record, replacing the launch-day tracking start. A newer **Record work** on an item from the app is kept.
 - `localTrucks` are added to `vehicles` as `local-<name>` with `local: true`: trucks that aren't in Samsara. Their miles come from their latest logged service and the sync never touches them.
 - `outOfService` writes `vehicleStatus/{vehicleId}` (see below).
 

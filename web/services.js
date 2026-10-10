@@ -1,4 +1,4 @@
-// What each kind of shop job counts as done. Shared by the website ("Log work")
+// What each kind of shop job counts as done. Shared by the website ("Record work")
 // and the scripts (paper work log import), so they can't drift apart.
 // Plain ES module, no dependencies.
 

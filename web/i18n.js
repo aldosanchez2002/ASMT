@@ -1,4 +1,4 @@
-// English / Spanish text for the shop view and the Log work form. Each device
+// English / Spanish text for the shop view and the Record work form. Each device
 // remembers its choice; the first visit follows the phone's language.
 
 const TEXT = {
@@ -6,7 +6,7 @@ const TEXT = {
     shopTitle: 'Trucks that need work',
     shopCount: (n) => (n === 1 ? '1 truck needs work' : `${n} trucks need work`),
     shopEmpty: 'Nothing is due right now.',
-    anotherTruck: 'Log work on another truck…',
+    anotherTruck: 'Record work on another truck…',
     admin: 'Admin',
     shopView: 'Shop view',
     outOfService: 'Out of service',
@@ -20,7 +20,7 @@ const TEXT = {
     inMiles: (x) => `in ${x} mi`,
     inHours: (x) => `in ${x} h`,
     inDays: (x) => `in ${x} days`,
-    logWork: 'Log work',
+    logWork: 'Record work',
     pickTruck: 'Pick the truck first.',
     truck: 'Truck',
     chooseTruck: 'Choose a truck…',
@@ -71,13 +71,13 @@ const TEXT = {
     undo: 'Undo',
     undone: 'Undone.',
     lamp: { stop: 'STOP lamp', warning: 'Check engine', emissions: 'Emissions lamp', protect: 'Protect lamp' },
-    atShop: 'At the shop',
+    atShop: 'In yard',
     noSignal: (n) => `No Samsara signal for ${n} days`,
     activeFaults: 'Active engine faults',
     minorCodes: (n) => `+${n} minor ${n === 1 ? 'code' : 'codes'}`,
     fixedCodes: 'Codes this repair fixed',
     updated: (x) => `Updated ${x}`,
-    groups: { stop: 'STOP lamp', here: 'At the shop', out: 'Out of service', overdue: 'Overdue', soon: 'Due soon' },
+    groups: { stop: 'STOP lamp', here: 'In yard', out: 'Out of service', overdue: 'Overdue', soon: 'Due soon' },
     ago: { now: 'just now', min: (n) => `${n} min ago`, h: (n) => `${n} h ago`, d: (n) => `${n} ${n === 1 ? 'day' : 'days'} ago` },
   },
   es: {
@@ -149,13 +149,13 @@ const TEXT = {
     undo: 'Deshacer',
     undone: 'Deshecho.',
     lamp: { stop: 'Luz STOP', warning: 'Revisar motor', emissions: 'Luz de emisiones', protect: 'Luz de protección' },
-    atShop: 'En el taller',
+    atShop: 'En la yarda',
     noSignal: (n) => `Sin señal de Samsara por ${n} días`,
     activeFaults: 'Fallas activas del motor',
     minorCodes: (n) => `+${n} ${n === 1 ? 'código menor' : 'códigos menores'}`,
     fixedCodes: 'Códigos que arregló esta reparación',
     updated: (x) => `Actualizado ${x}`,
-    groups: { stop: 'Luz STOP', here: 'En el taller', out: 'Fuera de servicio', overdue: 'Vencido', soon: 'Pronto' },
+    groups: { stop: 'Luz STOP', here: 'En la yarda', out: 'Fuera de servicio', overdue: 'Vencido', soon: 'Pronto' },
     ago: { now: 'ahora', min: (n) => `hace ${n} min`, h: (n) => `hace ${n} h`, d: (n) => `hace ${n} ${n === 1 ? 'día' : 'días'}` },
   },
 };
@@ -169,7 +169,7 @@ let lang = (() => {
   return (navigator.language ?? '').toLowerCase().startsWith('es') ? 'es' : 'en';
 })();
 
-// The admin side is English for now; the shop view (and Log work opened from
+// The admin side is English for now; the shop view (and Record work opened from
 // it) follows the switch.
 let english = false;
 export function useEnglish(on) { english = Boolean(on); }

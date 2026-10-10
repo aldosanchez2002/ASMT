@@ -43,7 +43,7 @@ let trSortKey = 'lastReportedAt'; // most recently reported first
 let trSortDir = -1;
 let openTruckId = null; // truck shown in the detail dialog
 let lastSyncIso = null; // meta/sync lastRun, for "Updated X ago"
-let work = null; // the open "Log work" form ({ vehicleId, jobs, extra, unticked, repair, days })
+let work = null; // the open "Record work" form ({ vehicleId, jobs, extra, unticked, repair, days })
 let truckFilter = 'all'; // Trucks tab status buttons (TRUCK_FILTERS)
 let sortKey = 'name';
 let sortDir = 1;
@@ -417,7 +417,7 @@ function renderLog() {
   $('log-rows').closest('.table-wrap').hidden = rows.length === 0;
   $('log-empty').textContent = serviceLog.length
     ? 'No services match these filters.'
-    : 'No services logged yet. Open a truck on the Trucks tab and use "Mark done".';
+    : 'No services recorded yet. Open a truck and use "Record work".';
 
   $('log-rows').replaceChildren(...rows.map((e) => {
     const tr = el('tr');
@@ -731,7 +731,7 @@ function nextCell(v) {
 const lampName = (lamp) => t('lamp')?.[lamp] ?? lamp;
 const SHORT_LAMP = { stop: 'STOP', warning: 'Check eng.', emissions: 'Emissions', protect: 'Protect' };
 
-// Truck number plus small flags from Samsara: lamps, at the shop, no signal.
+// Truck number plus small flags from Samsara: lamps, in the yard, no signal.
 function nameCell(v) {
   const td = cell(v.name || '—', 'strong nowrap pin');
   const flags = signalBadges(v, { short: true });
@@ -755,7 +755,7 @@ function signalBadges(v, { short = false } = {}) {
   return out;
 }
 
-// Lamps and the codes that matter, for the truck popup and the Log work form.
+// Lamps and the codes that matter, for the truck popup and the Record work form.
 function faultsBox(v, { showMinor = true } = {}) {
   const f = v.faults ?? (showMinor ? v.oldFaults : null);
   if (!f) return null;
@@ -903,7 +903,7 @@ function renderTruck(v) {
 
   const body = $('t-body');
   body.replaceChildren();
-  const logBtn = el('button', 'btn btn-log', 'Log work');
+  const logBtn = el('button', 'btn btn-log', 'Record work');
   logBtn.type = 'button';
   logBtn.addEventListener('click', () => openWork(v.id));
   const pdfBtn = el('button', 'btn btn-ghost btn-pdf', 'Download maintenance record (PDF)');
@@ -1036,8 +1036,8 @@ function itemRow(v, r, showSchedule = false) {
     li.append(details);
   }
   if (r.status !== 'as-needed') {
-    // Opens "Log work" with this item ticked, so every save goes through one form.
-    const btn = el('button', 'btn btn-done', 'Mark done');
+    // Opens "Record work" with this item ticked, so every save goes through one form.
+    const btn = el('button', 'btn btn-done', 'Record work');
     btn.type = 'button';
     btn.addEventListener('click', () => openWork(v.id, { keys: [r.key] }));
     li.append(btn);
@@ -1053,7 +1053,7 @@ function field(label, input) {
 
 // ---- Shop view (main page) ----------------------------------------------------
 // For mechanics: only the trucks that need work, most urgent first, each one
-// a tap away from "Log work". English / Spanish.
+// a tap away from "Record work". English / Spanish.
 
 const DUE = (r) => r.status === 'overdue' || r.status === 'soon';
 const num = (n) => fmt.format(Math.abs(n));
@@ -1090,7 +1090,7 @@ function renderShop() {
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
   $('admin-link').textContent = t('admin');
   // Listed: anything due, out of service, or a STOP lamp. Order: STOP lamp,
-  // then parked at the shop, out of service, overdue, most urgent.
+  // then parked in the yard, out of service, overdue, most urgent.
   const flag = (x) => Number(Boolean(x));
   const trucks = vehicles.map(withMaintenance)
     .map((v) => ({ v, due: v.rows.filter(DUE) }))
@@ -1103,7 +1103,7 @@ function renderShop() {
 
   $('shop-title').textContent = vehicles.length ? (trucks.length ? t('shopCount', trucks.length) : t('shopEmpty')) : t('shopTitle');
   $('shop-count').textContent = lastSyncIso ? t('updated', agoText(lastSyncIso)) : '';
-  // Section headings: STOP lamp / At the shop / Out of service / Overdue / Due soon.
+  // Section headings: STOP lamp / In yard / Out of service / Overdue / Due soon.
   const groupOf = ({ v, due }) => (v.faults?.stop ? 'stop' : v.here ? 'here' : v.shop ? 'out'
     : due.some((r) => r.status === 'overdue') ? 'overdue' : 'soon');
   let lastGroup = null;
@@ -1130,7 +1130,7 @@ function shopCard({ v, due }) {
     card.append(row);
   }
   // Under the "Out of service" heading the card only needs the reason; in the
-  // STOP lamp or At the shop sections it says it's out of service too.
+  // STOP lamp or In yard sections it says it's out of service too.
   const inOutGroup = !v.faults?.stop && !v.here;
   if (v.shop) {
     const label = inOutGroup ? v.shop.reason : [t('outOfService'), v.shop.reason].filter(Boolean).join(' · ');
@@ -1148,7 +1148,7 @@ function shopCard({ v, due }) {
   return card;
 }
 
-// ---- Log work ----------------------------------------------------------------
+// ---- Record work ----------------------------------------------------------------
 // One form for everything done on a truck in one visit: what's due on it, shop
 // jobs (PM, oil change, ...), any single service, and repairs. A save writes
 // the visit to the service log, which is what every due date is worked out from.

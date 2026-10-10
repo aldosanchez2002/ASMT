@@ -1,5 +1,5 @@
 // What Samsara tells us beyond miles: engine fault lamps and codes, whether a
-// truck is parked at the shop, and whether its Samsara device has gone quiet.
+// truck is parked in the yard, and whether its Samsara device has gone quiet.
 // Plain ES module, shared by the site and the tests.
 
 // The shop yard on Windermere Ave, El Paso (centre of where the trucks park).
@@ -15,7 +15,7 @@ export function distanceM(a, b) {
   return 2 * 6371000 * Math.asin(Math.sqrt(h));
 }
 
-// Parked at the shop: within the yard radius and not driving.
+// Parked in the yard: within the yard radius and not driving.
 export function atShop(location, shop = SHOP) {
   if (location?.lat == null || location?.lon == null) return false;
   return distanceM(location, shop) <= shop.radiusM && (location.speedMph ?? 0) < 3;

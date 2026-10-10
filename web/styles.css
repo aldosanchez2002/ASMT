@@ -618,7 +618,7 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 .status-filter button.active .sf-n, .status-filter button.active .sf-label { color: inherit; }
 .status-filter button.active .sf-label { font-weight: 600; }
 
-/* ---- Log work ---- */
+/* ---- Record work ---- */
 .btn-log { display: block; width: 100%; min-height: 50px; font-size: 17px; font-weight: 700; margin-bottom: 8px; }
 .log-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .log-actions .btn-log { width: auto; flex: 1 1 200px; margin: 0; }
@@ -682,7 +682,7 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 .shop-cta { margin-top: 2px; font-size: 16px; font-weight: 700; color: var(--accent); }
 .shop-other { display: block; width: 100%; min-height: 48px; margin-top: 14px; font-size: 16px; }
 
-/* Log work: what's due, and miles/date shown as text */
+/* Record work: what's due, and miles/date shown as text */
 .work-due { display: grid; gap: 6px; }
 .work-due .section-title { margin: 0; }
 .work-due p { margin: 0; font-size: 13px; }
@@ -693,7 +693,7 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 .fixed-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; min-height: 40px; padding-top: 6px; }
 .fixed-text { font-size: 17px; font-weight: 700; color: var(--text); }
 
-/* ---- Samsara signals: lamps, at the shop, no signal ---- */
+/* ---- Samsara signals: lamps, in the yard, no signal ---- */
 .sig { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
 .sig-stop { background: var(--red); color: #fff; }
 .sig-lamp { background: var(--amber-bg); color: var(--amber); }
@@ -712,7 +712,7 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 .fixed-codes .section-title { margin: 4px 0 0; }
 .truck-where { margin: 6px 0; }
 
-/* Log work dialog: same frame as the truck popup; full screen on phones */
+/* Record work dialog: same frame as the truck popup; full screen on phones */
 dialog#work {
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
@@ -737,7 +737,7 @@ dialog#work::backdrop { background: rgba(0, 0, 0, .45); }
 }
 
 /* =====================================================================
-   SHOP FLOOR theme: shop view (body.shop-mode) and the Log work form.
+   SHOP FLOOR theme: shop view (body.shop-mode) and the Record work form.
    Black, safety yellow and red on light concrete; condensed type for
    truck numbers; square edges and thick rules. Built for bright shops,
    gloves and quick reading.
@@ -833,7 +833,7 @@ body.shop-mode .shop-other {
   font: 800 17px var(--cond); letter-spacing: .06em; text-transform: uppercase; min-height: 54px;
 }
 
-/* ---- Log work form, same theme ---- */
+/* ---- Record work form, same theme ---- */
 dialog#work { background: var(--floor-bg); color: var(--floor-ink); font-family: 'Barlow', system-ui, sans-serif; border-radius: 0; border: 2px solid var(--floor-line); }
 #work .dlg-head { background: #111; color: #fff; border-bottom: none; }
 #work .dlg-head .muted { color: #bbb; }
