@@ -872,3 +872,85 @@ dialog#work { background: var(--floor-bg); color: var(--floor-ink); font-family:
 @media (prefers-color-scheme: dark) {
   #work .btn-save, body.shop-mode .shop-cta { background: var(--floor-yellow); color: #111; }
 }
+
+/* =====================================================================
+   SHOP FLOOR, calm version: the admin screens (Trucks, Trailers,
+   Schedules, Service log) and the truck / schedule popups. White and
+   black, the same condensed numbers and square edges; yellow only marks
+   what's selected.
+   ===================================================================== */
+body:not(.shop-mode) { font-family: 'Barlow', system-ui, sans-serif; }
+body:not(.shop-mode) .top { border-bottom: 3px solid var(--floor-line); }
+body:not(.shop-mode) .brand { font: 800 24px/1 var(--cond); letter-spacing: .05em; text-transform: uppercase; }
+body:not(.shop-mode) .brand-log { box-shadow: inset 0 -6px 0 var(--floor-yellow); }
+body:not(.shop-mode) .brand-dev { color: var(--muted); font-weight: 600; text-transform: lowercase; letter-spacing: 0; }
+
+/* Tabs */
+body:not(.shop-mode) .tabs a { font: 800 17px var(--cond); text-transform: uppercase; letter-spacing: .06em; }
+body:not(.shop-mode) .tabs a.active { color: var(--floor-ink); box-shadow: inset 0 -4px 0 var(--floor-ink); border-bottom-color: transparent; }
+body:not(.shop-mode) .tabs { border-bottom: 2px solid var(--floor-line); }
+
+/* Inputs and buttons */
+body:not(.shop-mode) .toolbar input[type="search"], body:not(.shop-mode) select, body:not(.shop-mode) .field input,
+#truck select, #truck input, #schedule select { border: 2px solid var(--floor-line); border-radius: 0; font-family: 'Barlow', sans-serif; }
+body:not(.shop-mode) .btn, #truck .btn, #schedule .btn {
+  border-radius: 0; font: 800 16px var(--cond); letter-spacing: .06em; text-transform: uppercase;
+}
+body:not(.shop-mode) .btn:not(.btn-ghost), #truck .btn:not(.btn-ghost) { background: #111; border: 2px solid #111; color: var(--floor-yellow); }
+body:not(.shop-mode) .btn-ghost, #truck .btn-ghost, #schedule .btn-ghost { border: 2px solid var(--floor-line); background: transparent; color: var(--floor-ink); }
+body:not(.shop-mode) .btn-log, #truck .btn-log { font-size: 19px; letter-spacing: .1em; }
+
+/* Status buttons over the trucks table */
+body:not(.shop-mode) .status-filter button { border: 2px solid var(--floor-line); border-radius: 0; }
+body:not(.shop-mode) .sf-n { font: 800 28px/1 var(--cond); }
+body:not(.shop-mode) .sf-label { font: 700 13px var(--cond); text-transform: uppercase; letter-spacing: .04em; color: var(--floor-muted); }
+body:not(.shop-mode) .sf-overdue.has .sf-n { color: var(--floor-red); }
+body:not(.shop-mode) .sf-soon.has .sf-n { color: var(--floor-ink); box-shadow: inset 0 -5px 0 var(--floor-yellow); }
+body:not(.shop-mode) .status-filter button.active { background: #111; border-color: #111; color: #fff; }
+body:not(.shop-mode) .status-filter button.active .sf-n { color: var(--floor-yellow); box-shadow: none; }
+body:not(.shop-mode) .status-filter button.active .sf-label { color: #fff; }
+
+/* Tables */
+body:not(.shop-mode) .table-wrap { border: 2px solid var(--floor-line); border-radius: 0; box-shadow: none; }
+body:not(.shop-mode) th { font: 800 14px var(--cond); letter-spacing: .07em; color: var(--floor-ink); border-bottom: 2px solid var(--floor-line); }
+body:not(.shop-mode) .trucks-table td.pin, body:not(.shop-mode) .trucks-table td:first-child { font: 800 22px/1.1 var(--cond); letter-spacing: .01em; }
+body:not(.shop-mode) td.num { font-family: var(--mono); font-weight: 700; font-size: 14px; }
+body:not(.shop-mode) .log-table td:nth-child(2) .link-btn, body:not(.shop-mode) .trailers-table td.strong { font: 800 19px var(--cond); }
+
+/* Flags, badges, chips: square */
+.sig, .badge, .chip, .cat-tag, .status { border-radius: 0 !important; }
+body:not(.shop-mode) .sig, #truck .sig { font: 800 12px var(--cond); letter-spacing: .05em; text-transform: uppercase; }
+body:not(.shop-mode) .sig-stop, #truck .sig-stop { background: var(--floor-red); color: #fff; }
+body:not(.shop-mode) .sig-lamp, #truck .sig-lamp { background: var(--floor-yellow); color: #111; }
+body:not(.shop-mode) .sig-here, #truck .sig-here { background: #111; color: #fff; }
+body:not(.shop-mode) .chip, body:not(.shop-mode) .badge { font-family: var(--cond); font-weight: 700; letter-spacing: .04em; }
+.cat-engine { background: #111; color: #fff; }
+.cat-chassis { background: var(--floor-yellow); color: #111; }
+
+/* Schedules tab cards and fleet setup */
+body:not(.shop-mode) .group-row, body:not(.shop-mode) .setup, body:not(.shop-mode) .panel { border: 2px solid var(--floor-line); border-radius: 0; box-shadow: none; }
+body:not(.shop-mode) .group-name { font: 800 21px var(--cond); }
+body:not(.shop-mode) .setup-title { font: 800 18px var(--cond); text-transform: uppercase; letter-spacing: .03em; }
+body:not(.shop-mode) .segmented button, #schedule .segmented button { border-radius: 0; border: 2px solid var(--floor-line); font: 700 15px var(--cond); text-transform: uppercase; letter-spacing: .04em; }
+body:not(.shop-mode) .segmented button.active, #schedule .segmented button.active { background: #111; border-color: #111; color: var(--floor-yellow); }
+
+/* Truck and schedule popups */
+dialog#truck, dialog#schedule { border-radius: 0; border: 2px solid var(--floor-line); font-family: 'Barlow', system-ui, sans-serif; }
+#truck .dlg-head, #schedule .dlg-head { border-bottom: 3px solid var(--floor-line); }
+#truck #t-title, #schedule #s-title { font: 800 32px/1 var(--cond); letter-spacing: .02em; }
+#truck .section-title, #schedule .section-title { font: 800 16px var(--cond); letter-spacing: .08em; color: var(--floor-ink); }
+#truck .item { border: 2px solid var(--floor-line); border-radius: 0; box-shadow: none; }
+#truck .item-overdue { border-left: 10px solid var(--floor-red); }
+#truck .item-soon { border-left: 10px solid var(--floor-yellow); }
+#truck .item-name { font-weight: 700; }
+#truck .status { font: 800 13px var(--cond); letter-spacing: .06em; }
+#truck .status-overdue { background: var(--floor-red); }
+#truck .status-soon { background: var(--floor-yellow); color: #111; }
+#truck .status-ok { background: #111; }
+#truck .item-due { font-family: var(--mono); font-weight: 700; font-size: 14px; }
+#truck .faults-box, #truck .shop-banner { border: 2px solid var(--floor-line); border-radius: 0; }
+#truck .faults-box { border-left: 10px solid var(--floor-red); }
+#truck details.duty { border: 2px solid var(--floor-line); border-radius: 0; }
+.toast { border-radius: 0; }
+body:not(.shop-mode) .log-filters .field select, body:not(.shop-mode) .log-filters .field input { border: 2px solid var(--floor-line); border-radius: 0; }
+body:not(.shop-mode) .log-table td:nth-child(2) .link-btn { color: var(--floor-ink); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }

@@ -1129,7 +1129,13 @@ function shopCard({ v, due }) {
     row.append(...badges);
     card.append(row);
   }
-  if (v.shop) card.append(el('div', 'shop-oos', `${t('outOfService')}${v.shop.reason ? ` · ${v.shop.reason}` : ''}`));
+  // Under the "Out of service" heading the card only needs the reason; in the
+  // STOP lamp or At the shop sections it says it's out of service too.
+  const inOutGroup = !v.faults?.stop && !v.here;
+  if (v.shop) {
+    const label = inOutGroup ? v.shop.reason : [t('outOfService'), v.shop.reason].filter(Boolean).join(' · ');
+    if (label) card.append(el('div', 'shop-oos', label));
+  }
   // The codes that matter (a STOP lamp's code first), then what's due.
   // Kept short: one fault code and two due items, then "+N more".
   const codes = v.faults?.major ?? [];
