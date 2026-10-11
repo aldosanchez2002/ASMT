@@ -954,3 +954,26 @@ dialog#truck, dialog#schedule { border-radius: 0; border: 2px solid var(--floor-
 .toast { border-radius: 0; }
 body:not(.shop-mode) .log-filters .field select, body:not(.shop-mode) .log-filters .field input { border: 2px solid var(--floor-line); border-radius: 0; }
 body:not(.shop-mode) .log-table td:nth-child(2) .link-btn { color: var(--floor-ink); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+
+/* ---- Trailer tire drawing (popup and Record trailer work) ---- */
+.tire-diagram { display: grid; gap: 6px; padding: 10px; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.tire-front { text-align: center; font: 800 14px var(--cond); letter-spacing: .08em; text-transform: uppercase; color: var(--floor-muted); }
+.tire-row { display: grid; grid-template-columns: 44px 1fr 18px 1fr; align-items: stretch; gap: 6px; }
+.tire-head { align-items: end; }
+.tire-side { text-align: center; font: 800 13px var(--cond); letter-spacing: .06em; text-transform: uppercase; color: var(--floor-muted); }
+.tire-axle { align-self: center; font: 800 14px/1.1 var(--cond); text-transform: uppercase; }
+.tire-gap { background: repeating-linear-gradient(0deg, var(--floor-track) 0 6px, transparent 6px 12px); width: 4px; justify-self: center; }
+.tire-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.tire {
+  display: grid; gap: 2px; justify-items: center; align-content: center; min-height: 74px; padding: 6px 2px;
+  border: 2px solid var(--floor-line); background: #222; color: #fff; font: inherit; text-align: center;
+}
+button.tire { cursor: pointer; }
+.tire-pos { font: 800 12px var(--cond); letter-spacing: .06em; text-transform: uppercase; color: #bbb; }
+.tire-mi { font: 700 13px var(--mono); }
+.tire-note { font-size: 11px; color: #bbb; }
+.tire.unrecorded .tire-note { font-style: italic; }
+.tire.on { background: var(--floor-yellow); color: #111; border-color: #111; }
+.tire.on .tire-pos, .tire.on .tire-note { color: #111; }
+.work-tires { display: grid; gap: 6px; }
+.work-tires .section-title, .work-tires p { margin: 0; }

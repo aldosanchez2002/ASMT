@@ -111,6 +111,11 @@ Built for roadside and compliance inspections under 49 CFR Part 396:
 
 ## Trailers
 
+**Trailer miles** come from Samsara GPS (no hubodometers, and most trackers report no odometer): each sync adds up the distance between every trailer's GPS points since the last run (`scripts/trailer-miles.mjs`; hops under 100 m are ignored so parked drift doesn't count) into `trailerMiles/{trailerId}` (`miles`, `startedAt`, `last` point, daily `days`). Miles start at 0 the first time a trailer is seen.
+
+**Tires and repairs.** Trailers only get tire changes and repairs, so there's no schedule, just a log. Tires are tracked by **position**: 8 on a tandem with duals (Axle 1 = front, Left = driver side, Outer/Inner; `web/trailers.js`). A tire's miles are the trailer's miles since the last record that changed that position, or since tracking began ("no record"). **Record trailer work** (shop view button, or a trailer's popup on the Trailers tab) shows a top-down drawing: tap the tires that were changed, and/or describe a repair with a cost. Entries go in `serviceLog` with `assetType: 'trailer'` and `tires: ['1LO', …]`, so they also show in the Service log and its PDF. Click a trailer on the Trailers tab for its tire miles and history.
+
+
 The sync also pulls every Samsara trailer into `trailers/{samsaraId}` (name, tracker model and serial, latitude/longitude, address, speed, `lastReportedAt`), skipping units silent for 100+ days. The **Trailers** tab (`aslog.dev/#trailers`) lists them with moving / parked / quiet 7+ days counts, search, sorting and a map link per unit.
 
 ## Duty cycles (automatic)

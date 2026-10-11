@@ -21,6 +21,7 @@ import {
   schedulesVersion, validate,
 } from './schedules.mjs';
 import { WINDOW_DAYS, classify, metricsFromReport, nextState } from './duty.mjs';
+import { addGpsMiles, pointsByTrailer } from './trailer-miles.mjs';
 import {
   METERS_PER_MILE, dailyField, faultsFromStats, locationFromStats, samsaraGetAll,
 } from './samsara.mjs';
@@ -114,6 +115,25 @@ async function fetchTrailers() {
   };
 }
 
+// Trailer miles: add up each active trailer's GPS points since the last run
+// (at most the last 24 h). A trailer seen for the first time starts at 0.
+async function trailerMilesDocs(activeTrailers) {
+  const prev = await listDocs('trailerMiles');
+  const now = new Date();
+  const lastTimes = Object.values(prev).map((d) => d.last?.time).filter(Boolean).sort();
+  const since = new Date(Math.max(now.getTime() - 24 * 3600000, lastTimes.length ? Date.parse(lastTimes[0]) : now.getTime() - 3600000));
+  const history = await samsaraGetAll('/fleet/trailers/stats/history', {
+    types: 'gps', startTime: since.toISOString(), endTime: now.toISOString(),
+  });
+  const points = pointsByTrailer(history);
+  const docs = {};
+  for (const t of activeTrailers) {
+    const start = t.latitude != null ? [{ lat: t.latitude, lon: t.longitude, time: t.lastReportedAt }] : [];
+    docs[t.id] = prev[t.id] ? addGpsMiles(prev[t.id], points[t.id] ?? [], now) : addGpsMiles(null, start, now);
+  }
+  return docs;
+}
+
 // Samsara fuel & energy report for the last WINDOW_DAYS: vehicleId -> metrics.
 async function fetchDutyMetrics() {
   const end = new Date();
@@ -191,7 +211,7 @@ const dailyReadings = (fleet) => fleet
   .map((v) => ({ id: v.id, day: v.odometerTime.slice(0, 10), reading: { miles: v.odometerMiles, hours: v.engineHours, at: v.odometerTime } }));
 
 // Writes with admin credentials, which bypass the Firestore rules.
-async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccountJson) {
+async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccountJson, trailerMiles = {}) {
   const { initializeApp, cert } = await import('firebase-admin/app');
   const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
 
@@ -235,6 +255,7 @@ async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, s
   for (const id of trailers.staleIds) {
     batch.delete(db.collection('trailers').doc(id));
   }
+  for (const [id, d] of Object.entries(trailerMiles)) batch.set(db.collection('trailerMiles').doc(id), d);
   for (const schedule of scheduleDocs()) {
     batch.set(db.collection('maintenanceSchedules').doc(schedule.id), schedule);
   }
@@ -253,7 +274,7 @@ async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, s
 }
 
 // Writes with the public web API key (see firestore-rest.mjs).
-async function writeWithPublicApi(fleet, staleIds, trailers, metricsById) {
+async function writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles = {}) {
   const baselines = missingBaselines(fleet, await listDocs('serviceRecords'));
   const duty = metricsById
     ? classifyFleet(fleet, metricsById, await listDocs('dutyCycles'))
@@ -271,6 +292,7 @@ async function writeWithPublicApi(fleet, staleIds, trailers, metricsById) {
     ...dailyReadings(fleet).map(({ id, day, reading }) => mergeWrite(`odometerDaily/${id}`, { [dailyField(day)]: reading })),
     ...trailers.active.map((c) => setWrite(`trailers/${c.id}`, c, 'updatedAt')),
     ...trailers.staleIds.map((id) => deleteWrite(`trailers/${id}`)),
+    ...Object.entries(trailerMiles).map(([id, d]) => setWrite(`trailerMiles/${id}`, d)),
     ...scheduleDocs().map((sch) => setWrite(`maintenanceSchedules/${sch.id}`, sch)),
     setWrite('meta/schedules', assignmentsDoc()),
     ...allowedEmails().map((email) => setWrite(`allowedUsers/${email}`, { email })),
@@ -322,6 +344,14 @@ if (unmatched.length) {
   );
 }
 
+// Best-effort, like duty classification: the sync still runs without it.
+const trailerMiles = await trailerMilesDocs(trailers.active).catch((err) => {
+  console.warn(`Skipping trailer miles: ${err.message}`);
+  return {};
+});
+const moved = Object.values(trailerMiles).filter((d) => d.miles > 0).length;
+console.log(`Trailer miles: ${Object.keys(trailerMiles).length} trailer(s), ${moved} with miles since tracking began`);
+
 if (dryRun) {
   const { docs } = metricsById ? classifyFleet(fleet, metricsById, {}) : { docs: {} };
   console.table(
@@ -337,8 +367,8 @@ if (dryRun) {
 } else {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
   const { baselines, dutyChanges, dutyClassified } = serviceAccount
-    ? await writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccount)
-    : await writeWithPublicApi(fleet, staleIds, trailers, metricsById);
+    ? await writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccount, trailerMiles)
+    : await writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles);
   console.log(`Classified duty cycles for ${dutyClassified} truck(s); ${dutyChanges.length} change(s)`);
   for (const c of dutyChanges) console.log(`  ${c.vehicleName}: ${c.itemName} (${c.note})`);
   const added = Object.values(baselines).reduce((n, items) => n + Object.keys(items).length, 0);

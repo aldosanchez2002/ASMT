@@ -12,6 +12,9 @@ import {
 } from './maintenance.js';
 import { JOBS, itemKeysFor } from './services.js';
 import {
+  TIRE_POSITIONS, milesOn, positionName, tireStatus,
+} from './trailers.js';
+import {
   agoText, dateText, getLang, setLang, t, useEnglish,
 } from './i18n.js';
 import {
@@ -39,6 +42,8 @@ const company = () => ({ name: savedSettings.companyName ?? '', usdot: savedSett
 let serviceLog = []; // serviceLog docs: visits (services and repairs) and duty changes
 let visitsByTruck = new Map(); // vehicleId -> that truck's serviceLog entries
 let trailers = []; // trailers docs
+let trailerMilesById = {}; // trailerId -> trailerMiles doc (GPS miles)
+let openTrailerId = null; // trailer shown in the detail dialog
 let trSortKey = 'lastReportedAt'; // most recently reported first
 let trSortDir = -1;
 let openTruckId = null; // truck shown in the detail dialog
@@ -228,6 +233,7 @@ function render() {
   }
 
   if (openTruckId) renderTruck(all.find((v) => v.id === openTruckId));
+  if (openTrailerId) renderTrailer();
   renderSchedules();
   renderLog();
   renderTrailers();
@@ -248,6 +254,7 @@ function renderTrailers() {
     || (filter === 'quiet' && isQuiet(c));
 
   const visible = trailers
+    .map((c) => ({ ...c, miles: trailerMilesById[c.id]?.miles ?? null }))
     .filter((c) => !q || [c.name, c.location, c.trackerModel, c.trackerSerial].join(' ').toLowerCase().includes(q))
     .filter(matchesFilter)
     .sort((a, b) => {
@@ -270,7 +277,10 @@ function renderTrailers() {
 
   $('tr-rows').replaceChildren(...visible.map((c) => {
     const tr = el('tr');
-    if (isQuiet(c)) tr.className = 'quiet';
+    tr.className = ['clickable', isQuiet(c) && 'quiet'].filter(Boolean).join(' ');
+    tr.tabIndex = 0;
+    tr.addEventListener('click', () => openTrailer(c.id));
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') openTrailer(c.id); });
     const loc = el('td', 'wrap-cell');
     if (c.latitude != null && c.longitude != null) {
       const a = el('a', null, c.location || `${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}`);
@@ -279,6 +289,7 @@ function renderTrailers() {
         target: '_blank',
         rel: 'noopener',
       });
+      a.addEventListener('click', (e) => e.stopPropagation());
       loc.append(a);
     } else {
       loc.textContent = c.location || '—';
@@ -293,6 +304,7 @@ function renderTrailers() {
     unit.append(unitStatus);
     tr.append(
       unit,
+      el('td', 'num', c.miles == null ? '—' : fmt.format(Math.round(c.miles))),
       loc,
       status,
       el('td', 'muted-cell', timeAgo(c.lastReportedAt)),
@@ -425,7 +437,8 @@ function renderLog() {
     const link = el('button', 'link-btn', e.vehicleName || e.vehicleId);
     link.type = 'button';
     link.addEventListener('click', () => {
-      if (vehicles.some((v) => v.id === e.vehicleId)) openTruck(e.vehicleId);
+      if (e.assetType === 'trailer') openTrailer(e.vehicleId);
+      else if (vehicles.some((v) => v.id === e.vehicleId)) openTruck(e.vehicleId);
     });
     unitCell.append(link);
     const service = el('td', 'wrap-cell', e.itemName || e.itemId);
@@ -1114,6 +1127,7 @@ function renderShop() {
     return [...heading, shopCard(entry)];
   }));
   $('shop-other').textContent = t('anotherTruck');
+  $('shop-trailer').textContent = t('recordTrailer');
 }
 
 // One truck in the shop view: its number, flags, the code that matters, what's due.
@@ -1238,6 +1252,7 @@ function checkRow(text, checked, onChange, hint, extraClass = '') {
 }
 
 function buildWork() {
+  if (work?.kind === 'trailer') { buildTrailerWork(); return; }
   const v = workTruck();
   $('w-close').textContent = t('close');
   $('w-title').textContent = v ? v.name : t('logWork');
@@ -1494,6 +1509,222 @@ function buildWork() {
   });
 }
 
+// ---- Trailers: popup, tire positions, Record trailer work -----------------------
+// Trailers only get tire changes and repairs. Tires are tracked by position
+// (8 on a tandem with duals); their miles come from the trailer's GPS miles.
+
+const trailerEntries = (id) => serviceLog.filter((e) => e.assetType === 'trailer' && e.vehicleId === id);
+const trailerById = (id) => trailers.find((x) => x.id === id);
+
+// Top-down drawing: front at the top, driver side (left) on the left.
+// Each tile shows its position and the miles on that tire; in the form a tap selects it.
+function tireDiagram(status, { selected = null, onToggle = null } = {}) {
+  const wrap = el('div', 'tire-diagram');
+  wrap.append(el('div', 'tire-front', `▲ ${t('front')}`));
+  const head = el('div', 'tire-row tire-head');
+  head.append(el('span'), el('span', 'tire-side', t('left')), el('span', 'tire-gap'), el('span', 'tire-side', t('right')));
+  wrap.append(head);
+  for (const axle of ['1', '2']) {
+    const row = el('div', 'tire-row');
+    row.append(el('span', 'tire-axle', `${t('axle')} ${axle}`));
+    const side = (positions) => {
+      const g = el('div', 'tire-pair');
+      for (const pos of positions) {
+        const st = status[pos];
+        const tile = el(onToggle ? 'button' : 'div', `tire${selected?.has(pos) ? ' on' : ''}${st?.recorded ? '' : ' unrecorded'}`);
+        if (onToggle) {
+          tile.type = 'button';
+          tile.setAttribute('aria-pressed', String(Boolean(selected?.has(pos))));
+          tile.title = positionName(pos, getLang());
+          tile.addEventListener('click', () => onToggle(pos));
+        }
+        tile.append(
+          el('span', 'tire-pos', pos[2] === 'O' ? t('outerShort') : t('innerShort')),
+          el('span', 'tire-mi', st ? `${fmt.format(st.miles)} mi` : '—'),
+        );
+        if (st && !st.recorded) tile.append(el('span', 'tire-note', t('noRecordShort')));
+        else if (st?.since) tile.append(el('span', 'tire-note', dateText(st.since)));
+        g.append(tile);
+      }
+      return g;
+    };
+    row.append(side([`${axle}LO`, `${axle}LI`]), el('span', 'tire-gap'), side([`${axle}RI`, `${axle}RO`]));
+    wrap.append(row);
+  }
+  return wrap;
+}
+
+function openTrailer(id) {
+  openTrailerId = id;
+  openTruckId = null;
+  renderTrailer();
+  if (!$('truck').open) $('truck').showModal();
+}
+
+function renderTrailer() {
+  const c = trailerById(openTrailerId);
+  if (!c) { $('truck').close(); return; }
+  const m = trailerMilesById[c.id];
+  $('t-title').textContent = c.name;
+  $('t-sub').textContent = [t('trailer'), m ? t('trailerMiles', fmt.format(Math.round(m.miles)), dateText(m.startedAt)) : null].filter(Boolean).join(' · ');
+  const body = $('t-body');
+  body.replaceChildren();
+  const btn = el('button', 'btn btn-log', t('trailerWork'));
+  btn.type = 'button';
+  btn.addEventListener('click', () => openTrailerWork(c.id));
+  body.append(btn);
+  const here = atShop({ lat: c.latitude, lon: c.longitude, speedMph: c.speedMph });
+  body.append(el('p', 'muted truck-where', `📍 ${here ? t('atShop') : c.location || '—'} · ${timeAgo(c.lastReportedAt)}`));
+  body.append(el('h3', 'section-title', t('tiresTitle')), tireDiagram(tireStatus(trailerEntries(c.id), m)));
+  if (m) body.append(el('p', 'item-meta', t('milesStart', dateText(m.startedAt))));
+  body.append(el('h3', 'section-title', t('history')));
+  const entries = trailerEntries(c.id).sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.loggedAtMs ?? 0) - (a.loggedAtMs ?? 0));
+  if (!entries.length) body.append(el('p', 'muted', t('noHistory')));
+  for (const e of entries.slice(0, 20)) {
+    const item = el('div', 'item');
+    const name = el('div', 'item-name');
+    if (e.type === 'repair') name.append(el('span', 'badge badge-repair', 'Repair'), ' ');
+    name.append(el('span', null, e.itemName));
+    item.append(name, el('div', 'item-meta', [dateText(e.date), e.miles != null && `${fmt.format(Math.round(e.miles))} mi`,
+      e.cost != null && `$${fmt.format(e.cost)}`, e.loggedBy, e.note].filter(Boolean).join(' · ')));
+    body.append(item);
+  }
+}
+
+function openTrailerWork(trailerId) {
+  work = { kind: 'trailer', trailerId, tires: new Set(), repair: false };
+  buildWork();
+  if (!$('work').open) $('work').showModal();
+}
+
+function buildTrailerWork() {
+  const c = work.trailerId && trailerById(work.trailerId);
+  $('w-close').textContent = t('close');
+  $('w-title').textContent = c ? c.name : t('trailerWork');
+  const m = c && trailerMilesById[c.id];
+  $('w-sub').textContent = c ? [t('trailerWork'), m && `${fmt.format(Math.round(m.miles))} mi`].filter(Boolean).join(' · ') : t('pickTruck');
+  const body = $('w-body');
+  body.replaceChildren();
+
+  // No trailer yet: pick one (trailers parked in the yard first).
+  if (!c) {
+    const select = el('select', 'truck-pick');
+    select.append(Object.assign(el('option', null, t('chooseTrailer')), { value: '' }));
+    const inYard = (x) => atShop({ lat: x.latitude, lon: x.longitude, speedMph: x.speedMph });
+    [...trailers].sort((a, b) => Number(inYard(b)) - Number(inYard(a))
+      || String(a.name).localeCompare(String(b.name), undefined, { numeric: true }))
+      .forEach((x) => select.append(Object.assign(el('option', null, `${x.name}${inYard(x) ? ` · ${t('atShop')}` : ''}`), { value: x.id })));
+    select.addEventListener('change', () => { if (select.value) { work.trailerId = select.value; buildWork(); } });
+    body.append(field(t('trailer'), select));
+    return;
+  }
+
+  const form = el('form', 'work-form');
+  const today = new Date().toLocaleDateString('en-CA');
+  const save = Object.assign(el('button', 'btn btn-save', t('save')), { type: 'submit' });
+  const status = tireStatus(trailerEntries(c.id), m);
+
+  // 1. Tires changed: tap the tiles.
+  const tires = el('div', 'work-tires');
+  const drawTires = () => {
+    tires.replaceChildren(el('div', 'section-title', t('tiresChanged')), el('p', 'muted', t('tapTires')),
+      tireDiagram(status, {
+        selected: work.tires,
+        onToggle: (pos) => { if (work.tires.has(pos)) work.tires.delete(pos); else work.tires.add(pos); drawTires(); count(); },
+      }));
+  };
+  // 2. Repairs.
+  const jobs = el('fieldset', 'work-jobs');
+  const repairBox = el('div', 'repair-box');
+  const repairText = Object.assign(el('textarea'), { rows: 2, placeholder: t('repairPlaceholder') });
+  const cost = Object.assign(el('input'), { type: 'number', min: 0, step: '0.01', inputMode: 'decimal', placeholder: t('optional') });
+  repairBox.append(field(t('repair'), repairText), field(t('cost'), cost));
+  repairBox.hidden = true;
+  jobs.append(checkRow(t('repairOther'), false, (on) => {
+    work.repair = on;
+    repairBox.hidden = !on;
+    if (on) repairText.focus();
+    count();
+  }), repairBox);
+  // 3. When and who.
+  const date = Object.assign(el('input'), { type: 'date', required: true, max: today, value: today });
+  const note = Object.assign(el('input'), { type: 'text', placeholder: t('notePlaceholder') });
+  const who = Object.assign(el('input'), { type: 'text', placeholder: t('yourName'), value: rememberedName(), autocomplete: 'name' });
+  const wide = (f) => { f.classList.add('wide'); return f; };
+  const details = el('div', 'work-details');
+  details.append(wide(field(t('date'), date)), wide(field(t('note'), note)), wide(field(t('loggedBy'), who)));
+  const error = el('p', 'form-error');
+  error.hidden = true;
+  const cancel = Object.assign(el('button', 'btn btn-ghost btn-cancel', t('cancel')), { type: 'button' });
+  cancel.addEventListener('click', () => $('work').close());
+  const actions = el('div', 'work-actions');
+  actions.append(error, save, cancel);
+  form.append(tires, jobs, details, actions);
+  body.append(form);
+  function count() {
+    const n = work.tires.size + (work.repair ? 1 : 0);
+    save.textContent = n ? t('saveCount', n, c.name) : t('save');
+  }
+  drawTires();
+  count();
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fail = (msg) => { error.textContent = msg; error.hidden = false; error.scrollIntoView({ block: 'nearest' }); };
+    const repair = repairText.value.trim();
+    if (!work.tires.size && !work.repair) return fail(t('errTrailer'));
+    if (work.repair && !repair) return fail(t('errRepair'));
+    if (date.value > today) return fail(t('errFuture'));
+    save.disabled = true;
+    save.textContent = t('saving');
+    const loggedBy = who.value.trim();
+    if (loggedBy) rememberName(loggedBy);
+    const common = {
+      assetType: 'trailer',
+      vehicleId: c.id,
+      vehicleName: c.name,
+      date: date.value,
+      miles: Math.round(milesOn(m, date.value)),
+      hours: null,
+      note: note.value.trim(),
+      loggedBy: loggedBy || null,
+      milesSource: 'samsara-gps',
+      source: 'app',
+      services: [],
+      loggedAt: serverTimestamp(),
+    };
+    const batch = writeBatch(db);
+    const refs = [];
+    if (work.tires.size) {
+      const order = TIRE_POSITIONS.filter((p) => work.tires.has(p));
+      const ref = doc(collection(db, 'serviceLog'));
+      // Log text stays in English, like the truck records.
+      batch.set(ref, { ...common, tires: order, itemName: `Tires changed: ${order.map((p) => positionName(p, 'en')).join(', ')}` });
+      refs.push(ref);
+    }
+    if (work.repair) {
+      const ref = doc(collection(db, 'serviceLog'));
+      batch.set(ref, { ...common, type: 'repair', itemName: repair, cost: cost.value === '' ? null : Number(cost.value) });
+      refs.push(ref);
+    }
+    // Worked out before closing the form (closing clears `work`).
+    const summary = [work.tires.size ? t('tiresChanged') : null, work.repair ? t('repairWord') : null].filter(Boolean).join(' + ');
+    try {
+      await batch.commit();
+      $('work').close();
+      showUndo(t('saved', c.name, summary), async () => {
+        const undo = writeBatch(db);
+        refs.forEach((ref) => undo.delete(ref));
+        await undo.commit();
+      });
+    } catch (err) {
+      save.disabled = false;
+      count();
+      fail(t('couldNotSave', err.message));
+    }
+  });
+}
+
 // A message bar with an Undo button that disappears after 10 seconds.
 let undoTimer;
 function showUndo(message, undo) {
@@ -1551,6 +1782,12 @@ function watchFleet() {
     onSnapshot(collection(db, 'trailers'), (snap) => {
       trailers = snap.docs.map((d) => d.data());
       renderTrailers();
+      if (openTrailerId) renderTrailer();
+    }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'trailerMiles'), (snap) => {
+      trailerMilesById = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+      renderTrailers();
+      if (openTrailerId) renderTrailer();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'serviceLog'), (snap) => {
       serviceLog = snap.docs.map((d) => {
@@ -1660,7 +1897,8 @@ $('t-close').addEventListener('click', () => $('truck').close());
 $('s-close').addEventListener('click', () => $('schedule').close());
 $('schedule').addEventListener('close', () => { openGroupKey = null; });
 $('schedule').addEventListener('click', (e) => { if (e.target === $('schedule')) $('schedule').close(); });
-$('truck').addEventListener('close', () => { openTruckId = null; });
+$('truck').addEventListener('close', () => { openTruckId = null; openTrailerId = null; });
+$('shop-trailer').addEventListener('click', () => openTrailerWork(null));
 $('w-close').addEventListener('click', () => $('work').close());
 $('work').addEventListener('close', () => { work = null; });
 $('log-add').addEventListener('click', () => openWork(null));
