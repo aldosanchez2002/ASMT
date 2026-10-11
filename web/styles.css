@@ -977,3 +977,44 @@ button.tire { cursor: pointer; }
 .tire.on .tire-pos, .tire.on .tire-note { color: #111; }
 .work-tires { display: grid; gap: 6px; }
 .work-tires .section-title, .work-tires p { margin: 0; }
+
+/* ---- Shop view: Trucks | Trailers switch ---- */
+.shop-side { display: grid; grid-template-columns: 1fr 1fr; margin: 4px 0 6px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.shop-side button {
+  font: inherit; font-weight: 700; font-size: 17px; min-height: 52px; border: none; cursor: pointer;
+  background: var(--surface); color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.shop-side button + button { border-left: 1px solid var(--border); }
+.shop-side button.active { background: var(--accent); color: var(--accent-text); }
+.side-count:empty { display: none; }
+.side-count { font-size: 14px; padding: 1px 7px; border-radius: 999px; background: rgba(0,0,0,.12); }
+.shop-search { width: 100%; min-height: 48px; font: inherit; font-size: 17px; padding: 0 12px; margin: 4px 0 2px; border: 1px solid var(--border); border-radius: 8px; box-sizing: border-box; }
+.trailer-row {
+  font: inherit; text-align: left; color: var(--text); cursor: pointer; width: 100%;
+  display: grid; grid-template-columns: 84px 1fr auto; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+}
+.trailer-name { font-size: 22px; font-weight: 800; }
+.trailer-info { display: grid; gap: 2px; min-width: 0; }
+.trailer-miles { font-weight: 700; font-size: 14px; }
+.trailer-miles:empty { display: none; }
+.trailer-where, .trailer-last { font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trailer-go { font-size: 28px; font-weight: 800; color: var(--accent); }
+
+body.shop-mode .shop-side { border: 3px solid #111; border-radius: 0; margin-top: 12px; }
+body.shop-mode .shop-side button {
+  background: var(--floor-paper); color: var(--floor-ink); font: 800 22px var(--cond); letter-spacing: .08em; text-transform: uppercase; min-height: 58px;
+}
+body.shop-mode .shop-side button + button { border-left: 3px solid #111; }
+body.shop-mode .shop-side button.active { background: #111; color: var(--floor-yellow); }
+body.shop-mode .side-count { font: 700 15px var(--mono); border-radius: 0; background: var(--floor-track); color: var(--floor-ink); letter-spacing: 0; }
+body.shop-mode .shop-side button.active .side-count { background: var(--floor-yellow); color: #111; }
+body.shop-mode .shop-search { border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); font-family: 'Barlow', sans-serif; margin-top: 10px; }
+body.shop-mode #shop-tr-cards { gap: 8px; }
+body.shop-mode .trailer-row { border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); padding: 0 0 0 12px; min-height: 64px; font-family: 'Barlow', sans-serif; }
+body.shop-mode .trailer-row:active { transform: translateY(1px); }
+body.shop-mode .trailer-name { font: 800 32px/1 var(--cond); }
+body.shop-mode .trailer-miles { font: 700 14px var(--mono); }
+body.shop-mode .trailer-last, body.shop-mode .trailer-where { color: var(--floor-muted); font-size: 14px; }
+body.shop-mode .trailer-go { align-self: stretch; display: flex; align-items: center; padding: 0 16px; background: #111; color: var(--floor-yellow); font: 800 32px var(--cond); }
+body.shop-mode .group-tr-quiet::before { background: var(--floor-track); }

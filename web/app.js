@@ -1100,6 +1100,20 @@ function dueLine(r) {
   return line;
 }
 
+// The shop view has two sides, Trucks and Trailers; each phone remembers the last one.
+const SIDE_KEY = 'aslog.shopSide';
+let shopSide = (() => {
+  try { return localStorage.getItem(SIDE_KEY) === 'trailers' ? 'trailers' : 'trucks'; } catch { return 'trucks'; }
+})();
+function setShopSide(side) {
+  shopSide = side === 'trailers' ? 'trailers' : 'trucks';
+  try { localStorage.setItem(SIDE_KEY, shopSide); } catch { /* not remembered */ }
+  renderShop();
+  window.scrollTo(0, 0);
+}
+
+const trailerInYard = (c) => atShop({ lat: c.latitude, lon: c.longitude, speedMph: c.speedMph });
+
 function renderShop() {
   if (currentTab() !== 'shop') return;
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
@@ -1116,8 +1130,24 @@ function renderShop() {
       || flag(b.due.some((r) => r.status === 'overdue')) - flag(a.due.some((r) => r.status === 'overdue'))
       || (a.due[0]?.urgency ?? 0) - (b.due[0]?.urgency ?? 0));
 
-  $('shop-title').textContent = vehicles.length ? (trucks.length ? t('shopCount', trucks.length) : t('shopEmpty')) : t('shopTitle');
+  const yardTrailers = trailers.filter(trailerInYard).length;
+  for (const b of document.querySelectorAll('#shop-side button')) {
+    const on = b.dataset.side === shopSide;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+    b.querySelector('.side-name').textContent = t(b.dataset.side === 'trucks' ? 'sideTrucks' : 'sideTrailers');
+    b.querySelector('.side-count').textContent = b.dataset.side === 'trucks' ? (vehicles.length ? trucks.length : '') : (trailers.length || '');
+  }
+  $('shop-trucks').hidden = shopSide !== 'trucks';
+  $('shop-trailers').hidden = shopSide !== 'trailers';
   $('shop-count').textContent = lastSyncIso ? t('updated', agoText(lastSyncIso)) : '';
+  if (shopSide === 'trailers') {
+    $('shop-title').textContent = trailers.length ? t('trailersCount', trailers.length, yardTrailers) : t('trailersTitle');
+    renderShopTrailers();
+    return;
+  }
+
+  $('shop-title').textContent = vehicles.length ? (trucks.length ? t('shopCount', trucks.length) : t('shopEmpty')) : t('shopTitle');
   // Section headings: STOP lamp / In yard / Out of service / Overdue / Due soon.
   const groupOf = ({ v, due }) => (v.faults?.stop ? 'stop' : v.here ? 'here' : v.shop ? 'out'
     : due.some((r) => r.status === 'overdue') ? 'overdue' : 'soon');
@@ -1129,7 +1159,48 @@ function renderShop() {
     return [...heading, shopCard(entry)];
   }));
   $('shop-other').textContent = t('anotherTruck');
-  $('shop-trailer').textContent = t('recordTrailer');
+}
+
+// Trailers side: every trailer, in the yard first, then on the road, then the
+// ones Samsara hasn't heard from. Trailers have nothing "due", so each card
+// shows where it is, its GPS miles and the last work recorded.
+function renderShopTrailers() {
+  const search = $('shop-tr-search');
+  search.placeholder = t('searchTrailer');
+  const q = search.value.trim().toLowerCase();
+  const groupOf = (c) => (trailerInYard(c) ? 'here' : isQuiet(c) ? 'quiet' : 'road');
+  const ORDER = { here: 0, road: 1, quiet: 2 };
+  const list = trailers
+    .filter((c) => !q || String(c.name).toLowerCase().includes(q))
+    .map((c) => ({ c, group: groupOf(c) }))
+    .sort((a, b) => ORDER[a.group] - ORDER[b.group] || String(a.c.name).localeCompare(String(b.c.name), undefined, { numeric: true }));
+  let lastGroup = null;
+  const cards = list.flatMap(({ c, group }) => {
+    const heading = group !== lastGroup ? [el('h3', `shop-group group-tr-${group}`, t('trailerGroups')[group])] : [];
+    lastGroup = group;
+    return [...heading, trailerCard(c, group)];
+  });
+  if (!cards.length) cards.push(el('p', 'muted', trailers.length ? t('noTrailerMatch') : t('noHistory')));
+  $('shop-tr-cards').replaceChildren(...cards);
+}
+
+// A compact row: the section heading already says where it is.
+function trailerCard(c, group) {
+  const card = el('button', 'trailer-row');
+  card.type = 'button';
+  const m = trailerMilesById[c.id];
+  const last = trailerEntries(c.id).sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.loggedAtMs ?? 0) - (a.loggedAtMs ?? 0))[0];
+  const info = el('span', 'trailer-info');
+  info.append(
+    el('span', 'trailer-miles', m ? `${fmt.format(Math.round(m.miles))} mi` : ''),
+    el('span', 'trailer-last', last ? t('lastWork', last.itemName, dateText(last.date)) : t('noHistory')),
+  );
+  if (group === 'road' && c.location) info.append(el('span', 'trailer-where', c.location));
+  if (group === 'quiet') info.append(el('span', 'trailer-where', t('noSignal', quietDays(c.lastReportedAt) ?? 7)));
+  card.append(el('span', 'trailer-name', c.name), info, el('span', 'trailer-go', '›'));
+  card.setAttribute('aria-label', `${t('trailerWork')}: ${c.name}`);
+  card.addEventListener('click', () => openTrailerWork(c.id));
+  return card;
 }
 
 // One truck in the shop view: its number, flags, the code that matters, what's due.
@@ -1782,11 +1853,13 @@ function watchFleet() {
     onSnapshot(collection(db, 'trailers'), (snap) => {
       trailers = snap.docs.map((d) => d.data());
       renderTrailers();
+      renderShop();
       if (openTrailerId) renderTrailer();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'trailerMiles'), (snap) => {
       trailerMilesById = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
       renderTrailers();
+      renderShop();
       if (openTrailerId) renderTrailer();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'serviceLog'), (snap) => {
@@ -1898,7 +1971,8 @@ $('s-close').addEventListener('click', () => $('schedule').close());
 $('schedule').addEventListener('close', () => { openGroupKey = null; });
 $('schedule').addEventListener('click', (e) => { if (e.target === $('schedule')) $('schedule').close(); });
 $('truck').addEventListener('close', () => { openTruckId = null; openTrailerId = null; });
-$('shop-trailer').addEventListener('click', () => openTrailerWork(null));
+for (const b of document.querySelectorAll('#shop-side button')) b.addEventListener('click', () => setShopSide(b.dataset.side));
+$('shop-tr-search').addEventListener('input', () => renderShopTrailers());
 $('w-close').addEventListener('click', () => $('work').close());
 $('work').addEventListener('close', () => { work = null; });
 $('log-add').addEventListener('click', () => openWork(null));
