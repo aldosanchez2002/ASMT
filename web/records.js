@@ -32,7 +32,7 @@ function niceDate(value) {
 }
 const entryDate = (e) => (e.date ? niceDate(e.date) : 'Not written');
 const workText = (e) => `${e.type === 'repair' ? 'Repair: ' : ''}${e.itemName || e.itemId}`;
-const notesText = (e) => [e.note, e.cost != null && `Cost $${fmt.format(e.cost)}`, e.loggedBy && `Logged by ${e.loggedBy}`]
+const notesText = (e) => [e.note, e.loggedBy && `Logged by ${e.loggedBy}`]
   .filter(Boolean).join(' · ');
 const fileSafe = (s) => String(s).replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-|-$/g, '');
 

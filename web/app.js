@@ -448,7 +448,7 @@ function renderLog() {
     if (e.type === 'repair') service.prepend(el('span', 'badge badge-repair', 'Repair'), ' ');
     const done = visitServices(e).map(itemNameFor).filter(Boolean);
     if (done.length) service.append(el('div', 'item-meta', `Marked done: ${done.join(', ')}`));
-    const extra = [e.cost != null && `Cost $${fmt.format(e.cost)}`, e.loggedBy && `Logged by ${e.loggedBy}`].filter(Boolean);
+    const extra = [e.loggedBy && `Logged by ${e.loggedBy}`].filter(Boolean);
     if (extra.length) service.append(el('div', 'item-meta', extra.join(' · ')));
     if (e.note) service.append(el('div', 'item-meta show-sm', `"${e.note}"`));
     tr.append(
@@ -1331,8 +1331,7 @@ function buildWork() {
   }
   const repairBox = el('div', 'repair-box');
   const repairText = Object.assign(el('textarea'), { rows: 2, placeholder: t('repairPlaceholder') });
-  const cost = Object.assign(el('input'), { type: 'number', min: 0, step: '0.01', inputMode: 'decimal', placeholder: t('optional') });
-  repairBox.append(field(t('repair'), repairText), field(t('cost'), cost));
+  repairBox.append(field(t('repair'), repairText));
   // Which of the truck's fault codes the repair fixed (saved with the repair).
   const fixedCodes = new Set();
   if (v.faults?.major.length) {
@@ -1484,7 +1483,7 @@ function buildWork() {
     if (work.repair) {
       const ref = doc(collection(db, 'serviceLog'));
       batch.set(ref, {
-        ...common, type: 'repair', services: [], itemName: repair, cost: cost.value === '' ? null : Number(cost.value), faultsFixed: [...fixedCodes],
+        ...common, type: 'repair', services: [], itemName: repair, faultsFixed: [...fixedCodes],
       });
       refs.push(ref);
     }
@@ -1588,7 +1587,7 @@ function renderTrailer() {
     if (e.type === 'repair') name.append(el('span', 'badge badge-repair', 'Repair'), ' ');
     name.append(el('span', null, e.itemName));
     item.append(name, el('div', 'item-meta', [dateText(e.date), e.miles != null && `${fmt.format(Math.round(e.miles))} mi`,
-      e.cost != null && `$${fmt.format(e.cost)}`, e.loggedBy, e.note].filter(Boolean).join(' · ')));
+      e.loggedBy, e.note].filter(Boolean).join(' · ')));
     body.append(item);
   }
 }
@@ -1639,8 +1638,7 @@ function buildTrailerWork() {
   const jobs = el('fieldset', 'work-jobs');
   const repairBox = el('div', 'repair-box');
   const repairText = Object.assign(el('textarea'), { rows: 2, placeholder: t('repairPlaceholder') });
-  const cost = Object.assign(el('input'), { type: 'number', min: 0, step: '0.01', inputMode: 'decimal', placeholder: t('optional') });
-  repairBox.append(field(t('repair'), repairText), field(t('cost'), cost));
+  repairBox.append(field(t('repair'), repairText));
   repairBox.hidden = true;
   jobs.append(checkRow(t('repairOther'), false, (on) => {
     work.repair = on;
@@ -1706,7 +1704,7 @@ function buildTrailerWork() {
     }
     if (work.repair) {
       const ref = doc(collection(db, 'serviceLog'));
-      batch.set(ref, { ...common, type: 'repair', itemName: repair, cost: cost.value === '' ? null : Number(cost.value) });
+      batch.set(ref, { ...common, type: 'repair', itemName: repair });
       refs.push(ref);
     }
     // Worked out before closing the form (closing clears `work`).
