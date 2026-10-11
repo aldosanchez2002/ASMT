@@ -420,9 +420,11 @@ function renderLog() {
 
   const services = rows.filter((e) => e.type !== 'duty');
   const dutyChanges = rows.length - services.length;
-  const trucks = new Set(services.map((e) => e.vehicleId)).size;
+  const trucks = new Set(services.filter((e) => e.assetType !== 'trailer').map((e) => e.vehicleId)).size;
+  const trailerCount = new Set(services.filter((e) => e.assetType === 'trailer').map((e) => e.vehicleId)).size;
+  const units = [trucks && plural(trucks, 'truck'), trailerCount && plural(trailerCount, 'trailer')].filter(Boolean).join(' and ');
   $('log-summary').textContent = [
-    services.length && `${plural(services.length, 'service')} on ${plural(trucks, 'truck')}`,
+    services.length && `${plural(services.length, 'service')} on ${units}`,
     dutyChanges && plural(dutyChanges, 'duty cycle change'),
   ].filter(Boolean).join(' · ');
   $('log-empty').hidden = rows.length > 0;
@@ -1602,7 +1604,7 @@ function buildTrailerWork() {
   $('w-close').textContent = t('close');
   $('w-title').textContent = c ? c.name : t('trailerWork');
   const m = c && trailerMilesById[c.id];
-  $('w-sub').textContent = c ? [t('trailerWork'), m && `${fmt.format(Math.round(m.miles))} mi`].filter(Boolean).join(' · ') : t('pickTruck');
+  $('w-sub').textContent = c ? [t('trailerWork'), m && `${fmt.format(Math.round(m.miles))} mi`].filter(Boolean).join(' · ') : t('pickTrailer');
   const body = $('w-body');
   body.replaceChildren();
 
