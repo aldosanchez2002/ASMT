@@ -47,7 +47,7 @@ export function tireStatus(entries = [], milesDoc = null) {
 
 // A trailer needs work when a tire position has run this many miles since it
 // was changed (or since tracking began, when no change is on record).
-export const TIRE_MILES_LIMIT = 75000;
+export const TIRE_MILES_LIMIT = 80000;
 
 // Positions at or over the limit, most miles first.
 export function tiresOverLimit(status, limit = TIRE_MILES_LIMIT) {

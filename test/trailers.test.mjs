@@ -34,6 +34,6 @@ test('tires over the miles limit, most miles first', () => {
   assert.deepEqual(tiresOverLimit(status, 100000).slice(0, 2), ['1LI', '1RI']);
   assert.ok(!tiresOverLimit(status, 100000).includes('1LO'));
   assert.ok(tiresOverLimit(status, 100000).includes('2RI'));
-  assert.ok(tiresOverLimit(status).includes('1LO')); // 80,000 mi is over the default limit
+  assert.ok(tiresOverLimit(status).includes('1LO')); // 80,000 mi reaches the default limit
   assert.deepEqual(tiresOverLimit(status, 200000), []);
 });
