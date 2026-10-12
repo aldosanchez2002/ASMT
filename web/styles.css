@@ -551,7 +551,6 @@ details.duty { padding: 0 12px 6px; }
 
 /* ---- PDF export ---- */
 .btn-pdf { display: block; width: 100%; margin: 4px 0 10px; min-height: 44px; font-weight: 600; }
-#t-body > .btn-pdf { margin-top: 12px; }
 .company { display: grid; gap: 8px; }
 .company .field input {
   font: inherit;
@@ -1071,3 +1070,8 @@ dialog#admin-lock::backdrop { background: rgba(0, 0, 0, .55); }
 .lock-actions .btn { min-height: 50px; border-radius: 0; font: 800 18px var(--cond); letter-spacing: .08em; text-transform: uppercase; }
 .lock-actions .btn:not(.btn-ghost) { background: #111; border: 2px solid #111; color: var(--floor-yellow); }
 .lock-actions .btn-ghost { background: transparent; border: 2px solid var(--floor-line); color: var(--floor-ink); }
+
+/* Truck popup: VIN with a copy button */
+.vin-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 10px; }
+.vin-text { font: 700 14px var(--mono, monospace); letter-spacing: .02em; overflow-wrap: anywhere; }
+.vin-copy { flex: none; min-height: 40px; padding: 0 14px; }

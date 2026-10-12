@@ -942,10 +942,8 @@ function renderTruck(v) {
   const logBtn = el('button', 'btn btn-log', 'Record work');
   logBtn.type = 'button';
   logBtn.addEventListener('click', () => openWork(v.id));
-  const pdfBtn = el('button', 'btn btn-ghost btn-pdf', 'Download maintenance record (PDF)');
-  pdfBtn.type = 'button';
-  pdfBtn.addEventListener('click', () => exportTruck(v, pdfBtn));
-  body.append(logBtn, pdfBtn);
+  body.append(logBtn);
+  if (v.vin) body.append(vinRow(v.vin));
   if (v.shop) body.append(shopBanner(v));
   const where = [v.here ? t('atShop') : v.location?.address, v.quiet != null && v.quiet >= QUIET_DAYS ? t('noSignal', v.quiet) : null].filter(Boolean);
   if (where.length) body.append(el('p', 'muted truck-where', `📍 ${where.join(' · ')}`));
@@ -999,7 +997,31 @@ function renderTruck(v) {
   const models = truckDutyModels(v);
   if (models.length) body.append(dutySection(v, models));
   if (!v.shop) body.append(shopButton(v));
-  if (v.vin) body.append(el('p', 'muted footnote', `VIN ${v.vin}`));
+}
+
+// "VIN 1FUJ… [Copy VIN]": copies the VIN for parts orders, insurance, etc.
+function vinRow(vin) {
+  const row = el('div', 'vin-row');
+  const btn = el('button', 'btn btn-ghost vin-copy', 'Copy VIN');
+  btn.type = 'button';
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(vin);
+    } catch {
+      // Older browsers / no permission: copy through a hidden text box.
+      const box = Object.assign(document.createElement('textarea'), { value: vin });
+      box.style.position = 'fixed';
+      box.style.opacity = '0';
+      document.body.append(box);
+      box.select();
+      document.execCommand('copy');
+      box.remove();
+    }
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => { btn.textContent = 'Copy VIN'; }, 2000);
+  });
+  row.append(el('span', 'vin-text', `VIN ${vin}`), btn);
+  return row;
 }
 
 // ---- Out of service ----------------------------------------------------------
