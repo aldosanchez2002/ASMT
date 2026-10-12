@@ -1219,10 +1219,20 @@ function trailerCard(c, group) {
 
 // One truck in the shop view: its number, flags, the code that matters, what's due.
 function shopCard({ v, due }) {
-  const card = el('button', `shop-card${due.some((r) => r.status === 'overdue') || v.faults?.stop ? ' has-overdue' : ''}`);
-  card.type = 'button';
+  // A div, not a button, so it can hold the small Record work button.
+  const card = el('div', `shop-card${due.some((r) => r.status === 'overdue') || v.faults?.stop ? ' has-overdue' : ''}`);
+  card.setAttribute('role', 'button');
+  card.tabIndex = 0;
+  card.addEventListener('keydown', (e) => {
+    if (e.target === card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openTruck(v.id); }
+  });
   const head = el('div', 'shop-card-head');
-  head.append(el('span', 'shop-truck', v.name), el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
+  const record = el('button', 'shop-record', t('logWork'));
+  record.type = 'button';
+  record.addEventListener('click', (e) => { e.stopPropagation(); openWork(v.id); });
+  const name = el('span', 'shop-name');
+  name.append(el('span', 'shop-truck', v.name), record);
+  head.append(name, el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
   card.append(head);
   const badges = signalBadges(v);
   if (badges.length) {

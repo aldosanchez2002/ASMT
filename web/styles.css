@@ -1032,3 +1032,7 @@ body.shop-mode #truck .shop-oos, body.shop-mode #truck .fault-line, body.shop-mo
 body.shop-mode #truck .due-none, body.shop-mode #truck .due-more { padding-left: 0; padding-right: 0; }
 body.shop-mode #truck .section-title { margin: 18px 0 2px; text-transform: uppercase; }
 body.shop-mode #truck .item { margin-top: 8px; padding: 8px 10px; background: var(--floor-paper); }
+.shop-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.shop-record { font: inherit; font-size: 13px; font-weight: 700; padding: 6px 10px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface); color: var(--accent); cursor: pointer; white-space: nowrap; }
+body.shop-mode .shop-record { font: 800 14px var(--cond); letter-spacing: .06em; text-transform: uppercase; padding: 7px 10px; border: none; border-radius: 0; background: #111; color: var(--floor-yellow); }
+body.shop-mode .shop-record:active { transform: translateY(1px); }
