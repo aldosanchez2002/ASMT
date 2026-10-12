@@ -769,10 +769,10 @@ dialog#work::backdrop { background: rgba(0, 0, 0, .45); }
 /* Header wordmark: "aslog.dev" on admin, "ASLOG" in the shop view */
 .brand span { font: inherit; }
 body.shop-mode { background: var(--floor-bg); color: var(--floor-ink); font-family: 'Barlow', system-ui, sans-serif; }
-body.shop-mode .top { background: #111; color: #fff; border-bottom: none; padding-top: 10px; padding-bottom: 10px; }
-body.shop-mode .brand { font: 800 26px/1 var(--cond); letter-spacing: .06em; text-transform: uppercase; }
-body.shop-mode .brand-log { color: var(--floor-yellow); }
-body.shop-mode .brand-dev { display: none; }
+header.top { background: #111; color: #fff; border-bottom: none; padding-top: 10px; padding-bottom: 10px; }
+.top .brand { font: 800 26px/1 var(--cond); letter-spacing: .06em; text-transform: uppercase; }
+.brand-log { color: var(--floor-yellow); }
+.brand-dev { display: none; }
 body.shop-mode .lang { border: 2px solid #fff; border-radius: 0; }
 body.shop-mode .lang button { font: 800 15px var(--cond); letter-spacing: .05em; background: transparent; color: #fff; min-height: 38px; min-width: 46px; }
 body.shop-mode .lang button.active { background: var(--floor-yellow); color: #111; }
@@ -879,10 +879,6 @@ dialog#work { background: var(--floor-bg); color: var(--floor-ink); font-family:
    what's selected.
    ===================================================================== */
 body:not(.shop-mode) { font-family: 'Barlow', system-ui, sans-serif; }
-body:not(.shop-mode) .top { border-bottom: 3px solid var(--floor-line); }
-body:not(.shop-mode) .brand { font: 800 24px/1 var(--cond); letter-spacing: .05em; text-transform: uppercase; }
-body:not(.shop-mode) .brand-log { box-shadow: inset 0 -6px 0 var(--floor-yellow); }
-body:not(.shop-mode) .brand-dev { color: var(--muted); font-weight: 600; text-transform: lowercase; letter-spacing: 0; }
 
 /* Tabs */
 body:not(.shop-mode) .tabs a { font: 800 17px var(--cond); text-transform: uppercase; letter-spacing: .06em; }
