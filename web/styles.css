@@ -1018,3 +1018,5 @@ body.shop-mode .trailer-miles { font: 700 14px var(--mono); }
 body.shop-mode .trailer-last, body.shop-mode .trailer-where { color: var(--floor-muted); font-size: 14px; }
 body.shop-mode .trailer-go { align-self: stretch; display: flex; align-items: center; padding: 0 16px; background: #111; color: var(--floor-yellow); font: 800 32px var(--cond); }
 body.shop-mode .group-tr-quiet::before { background: var(--floor-track); }
+.due-none { font-size: 14px; color: var(--muted); }
+body.shop-mode .due-none { padding: 10px 12px 0; font: 600 15px var(--cond); letter-spacing: .04em; text-transform: uppercase; color: var(--floor-muted); }

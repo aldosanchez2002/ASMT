@@ -1123,12 +1123,18 @@ function renderShop() {
   const flag = (x) => Number(Boolean(x));
   const trucks = vehicles.map(withMaintenance)
     .map((v) => ({ v, due: v.rows.filter(DUE) }))
-    .filter(({ v, due }) => v.shop || due.length || v.faults?.stop)
+    .filter(({ v, due }) => v.here || v.shop || due.length || v.faults?.stop)
     .sort((a, b) => flag(b.v.faults?.stop) - flag(a.v.faults?.stop)
       || flag(b.v.here) - flag(a.v.here)
       || flag(b.v.shop) - flag(a.v.shop)
       || flag(b.due.some((r) => r.status === 'overdue')) - flag(a.due.some((r) => r.status === 'overdue'))
-      || (a.due[0]?.urgency ?? 0) - (b.due[0]?.urgency ?? 0));
+      || flag(b.due.length || b.v.faults?.major?.length) - flag(a.due.length || a.v.faults?.major?.length)
+      || flag(a.v.quiet >= QUIET_DAYS) - flag(b.v.quiet >= QUIET_DAYS)
+      || (a.due[0]?.urgency ?? 0) - (b.due[0]?.urgency ?? 0)
+      || String(a.v.name).localeCompare(String(b.v.name), undefined, { numeric: true }));
+  // Every truck in the yard is listed; the count is the ones that need work.
+  const needWork = trucks.filter(({ v, due }) => v.shop || due.length || v.faults?.stop).length;
+  const inYard = trucks.filter(({ v }) => v.here).length;
 
   const yardTrailers = trailers.filter(trailerInYard).length;
   for (const b of document.querySelectorAll('#shop-side button')) {
@@ -1136,18 +1142,20 @@ function renderShop() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
     b.querySelector('.side-name').textContent = t(b.dataset.side === 'trucks' ? 'sideTrucks' : 'sideTrailers');
-    b.querySelector('.side-count').textContent = b.dataset.side === 'trucks' ? (vehicles.length ? trucks.length : '') : (trailers.length || '');
+    b.querySelector('.side-count').textContent = b.dataset.side === 'trucks' ? (vehicles.length ? needWork : '') : (trailers.length || '');
   }
   $('shop-trucks').hidden = shopSide !== 'trucks';
   $('shop-trailers').hidden = shopSide !== 'trailers';
-  $('shop-count').textContent = lastSyncIso ? t('updated', agoText(lastSyncIso)) : '';
+  const updated = lastSyncIso ? t('updated', agoText(lastSyncIso)) : '';
+  $('shop-count').textContent = updated;
   if (shopSide === 'trailers') {
     $('shop-title').textContent = trailers.length ? t('trailersCount', trailers.length, yardTrailers) : t('trailersTitle');
     renderShopTrailers();
     return;
   }
 
-  $('shop-title').textContent = vehicles.length ? (trucks.length ? t('shopCount', trucks.length) : t('shopEmpty')) : t('shopTitle');
+  $('shop-title').textContent = vehicles.length ? (needWork ? t('shopCount', needWork) : t('shopEmpty')) : t('shopTitle');
+  $('shop-count').textContent = [inYard ? t('inYardCount', inYard) : null, updated].filter(Boolean).join(' · ');
   // Section headings: STOP lamp / In yard / Out of service / Overdue / Due soon.
   const groupOf = ({ v, due }) => (v.faults?.stop ? 'stop' : v.here ? 'here' : v.shop ? 'out'
     : due.some((r) => r.status === 'overdue') ? 'overdue' : 'soon');
@@ -1228,6 +1236,7 @@ function shopCard({ v, due }) {
   const codes = v.faults?.major ?? [];
   codes.slice(0, 1).forEach((c) => card.append(el('div', 'fault-line', codeText(c))));
   due.slice(0, 2).forEach((r) => card.append(dueLine(r)));
+  if (!due.length && !codes.length && !v.shop) card.append(el('div', 'due-none', t('nothingDue')));
   const hidden = Math.max(0, codes.length - 1) + Math.max(0, due.length - 2);
   if (hidden) card.append(el('div', 'due-more', t('more', hidden)));
   card.append(el('div', 'shop-cta', t('logWork')));
