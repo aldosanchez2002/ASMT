@@ -831,8 +831,8 @@ function row(v) {
   if (v.odometerSource === 'gps') milesCell.title = 'GPS odometer (no ECU reading)';
   tr.append(
     nameCell(v),
-    milesCell,
     nextCell(v),
+    milesCell,
     cell(v.year || '—'),
     cell(titleCase(v.make || '—'), 'nowrap'),
     cell(titleCase(v.model || '—'), 'nowrap'),
