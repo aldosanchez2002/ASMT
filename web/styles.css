@@ -655,7 +655,6 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
 }
 .lang button.active { background: var(--accent); color: var(--accent-text); }
 .admin-link { font-size: 14px; color: var(--muted); }
-.tab-shop { color: var(--muted); }
 .shop-title { margin: 8px 0 2px; font-size: 20px; text-transform: none; letter-spacing: 0; }
 #shop-count { margin: 0 0 12px; }
 .shop-cards { display: grid; gap: 10px; }
@@ -769,14 +768,14 @@ dialog#work::backdrop { background: rgba(0, 0, 0, .45); }
 /* Header wordmark: "aslog.dev" on admin, "ASLOG" in the shop view */
 .brand span { font: inherit; }
 body.shop-mode { background: var(--floor-bg); color: var(--floor-ink); font-family: 'Barlow', system-ui, sans-serif; }
-header.top { background: #111; color: #fff; border-bottom: none; padding-top: 10px; padding-bottom: 10px; }
+header.top { background: #111; color: #fff; border-bottom: none; padding-top: 10px; padding-bottom: 10px; box-sizing: border-box; min-height: 62px; }
 .top .brand { font: 800 26px/1 var(--cond); letter-spacing: .06em; text-transform: uppercase; }
 .brand-log { color: var(--floor-yellow); }
 .brand-dev { display: none; }
 body.shop-mode .lang { border: 2px solid #fff; border-radius: 0; }
 body.shop-mode .lang button { font: 800 15px var(--cond); letter-spacing: .05em; background: transparent; color: #fff; min-height: 38px; min-width: 46px; }
 body.shop-mode .lang button.active { background: var(--floor-yellow); color: #111; }
-body.shop-mode .admin-link { color: #bbb; font: 600 15px var(--cond); letter-spacing: .04em; text-transform: uppercase; }
+.top .admin-link { color: #bbb; font: 600 15px var(--cond); letter-spacing: .04em; text-transform: uppercase; }
 
 body.shop-mode .shop-title {
   font: 800 34px/1 var(--cond); text-transform: uppercase; letter-spacing: .01em; margin: 14px 0 4px;

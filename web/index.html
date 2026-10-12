@@ -21,12 +21,13 @@
 <body>
   <header class="top">
     <h1 class="brand"><span class="brand-as">as</span><span class="brand-log">log</span><span class="brand-dev">.dev</span></h1>
-    <div id="shop-top" class="shop-top" hidden>
+    <div id="shop-top" class="shop-top">
       <div id="lang" class="lang" role="group" aria-label="Language">
         <button type="button" data-lang="en">EN</button>
         <button type="button" data-lang="es">ES</button>
       </div>
       <a id="admin-link" class="admin-link" href="#trucks">Admin</a>
+      <a id="shop-link" class="admin-link" href="#" hidden>← Shop</a>
     </div>
     <div id="user-box" class="user-box" hidden>
       <span id="user-email"></span>
@@ -73,7 +74,6 @@
       </div>
 
       <nav id="admin-nav" class="tabs" aria-label="Views" hidden>
-        <a href="#" class="tab-shop">← Shop</a>
         <a href="#trucks" data-tab="trucks">Trucks</a>
         <a href="#trailers" data-tab="trailers">Trailers</a>
         <a href="#log" data-tab="log"><span class="hide-sm">Service log</span><span class="show-sm-inline">Log</span></a>

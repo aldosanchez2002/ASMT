@@ -505,7 +505,10 @@ function showTab() {
   useEnglish(!shop);
   document.body.classList.toggle('shop-mode', shop);
   $('admin-nav').hidden = shop;
-  $('shop-top').hidden = !shop;
+  // Top right: EN/ES and "Admin" in the shop view; "← Shop" in admin.
+  $('lang').hidden = !shop;
+  $('admin-link').hidden = !shop;
+  $('shop-link').hidden = shop;
   for (const a of document.querySelectorAll('.tabs a')) {
     a.classList.toggle('active', a.dataset.tab === tab);
     a.setAttribute('aria-current', a.dataset.tab === tab ? 'page' : 'false');
