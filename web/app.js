@@ -232,7 +232,7 @@ function render() {
     th.dataset.dir = sortDir === 1 ? 'asc' : 'desc';
   }
 
-  if (openTruckId) renderTruck(all.find((v) => v.id === openTruckId));
+  if (openTruckId) (currentTab() === 'shop' ? renderShopTruck : renderTruck)(all.find((v) => v.id === openTruckId));
   if (openTrailerId) renderTrailer();
   renderSchedules();
   renderLog();
@@ -915,6 +915,7 @@ function renderTruck(v) {
     [v.year, titleCase(v.make || ''), titleCase(v.model || '')].filter(Boolean).join(' '),
     v.odometerMiles != null && `${fmt.format(v.odometerMiles)} mi`,
   ].filter(Boolean).join(' · ');
+  $('t-close').textContent = 'Close';
 
   const body = $('t-body');
   body.replaceChildren();
@@ -1241,9 +1242,59 @@ function shopCard({ v, due }) {
   if (!due.length && !codes.length && !v.shop) card.append(el('div', 'due-none', t('nothingDue')));
   const hidden = Math.max(0, codes.length - 1) + Math.max(0, due.length - 2);
   if (hidden) card.append(el('div', 'due-more', t('more', hidden)));
-  card.append(el('div', 'shop-cta', t('logWork')));
-  card.addEventListener('click', () => openWork(v.id));
+  card.addEventListener('click', () => openTruck(v.id));
   return card;
+}
+
+// The truck's page from the shop view: what's wrong, what's due, recent work,
+// and the one Record work button. (Admin has its own, fuller page.)
+function renderShopTruck(v) {
+  if (!v) { $('truck').close(); return; }
+  $('t-title').textContent = v.name;
+  $('t-sub').textContent = [
+    [v.year, titleCase(v.make || ''), titleCase(v.model || '')].filter(Boolean).join(' '),
+    v.odometerMiles != null && `${fmt.format(v.odometerMiles)} mi`,
+  ].filter(Boolean).join(' · ');
+  $('t-close').textContent = t('close');
+  const body = $('t-body');
+  body.replaceChildren();
+  const badges = signalBadges(v);
+  if (badges.length) {
+    const row = el('div', 'shop-signals');
+    row.append(...badges);
+    body.append(row);
+  }
+  if (v.shop) body.append(el('div', 'shop-oos', [t('outOfService'), v.shop.reason].filter(Boolean).join(' · ')));
+  if (!v.here && v.location?.address) body.append(el('p', 'muted truck-where', `📍 ${v.location.address}`));
+  const logBtn = el('button', 'btn btn-log', t('logWork'));
+  logBtn.type = 'button';
+  logBtn.addEventListener('click', () => openWork(v.id));
+  body.append(logBtn);
+
+  const codes = v.faults?.major ?? [];
+  if (codes.length) {
+    body.append(el('h3', 'section-title', t('activeFaults')));
+    codes.forEach((c) => body.append(el('div', 'fault-line', codeText(c))));
+    const minor = v.faults?.minor?.length ?? 0;
+    if (minor) body.append(el('div', 'due-more', t('minorCodes', minor)));
+  }
+  const due = v.rows.filter(DUE);
+  body.append(el('h3', 'section-title', t('dueHere')));
+  if (due.length) due.forEach((r) => body.append(dueLine(r)));
+  else body.append(el('div', 'due-none', t('nothingDue')));
+
+  body.append(el('h3', 'section-title', t('recentWork')));
+  const visits = [...(visitsByTruck.get(v.id) ?? [])].filter((e) => e.type !== 'duty')
+    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.miles ?? 0) - (a.miles ?? 0)).slice(0, 5);
+  if (!visits.length) body.append(el('p', 'muted', t('noHistory')));
+  for (const e of visits) {
+    const item = el('div', 'item');
+    const name = el('div', 'item-name');
+    if (e.type === 'repair') name.append(el('span', 'badge badge-repair', t('repair')), ' ');
+    name.append(el('span', null, e.itemName ?? ''));
+    item.append(name, el('div', 'item-meta', [e.date ? dateText(e.date) : null, e.miles != null && `${fmt.format(Math.round(e.miles))} mi`].filter(Boolean).join(' · ')));
+    body.append(item);
+  }
 }
 
 // ---- Record work ----------------------------------------------------------------
@@ -1649,6 +1700,7 @@ function renderTrailer() {
   if (!c) { $('truck').close(); return; }
   const m = trailerMilesById[c.id];
   $('t-title').textContent = c.name;
+  $('t-close').textContent = t('close');
   $('t-sub').textContent = [t('trailer'), m ? t('trailerMiles', fmt.format(Math.round(m.miles)), dateText(m.startedAt)) : null].filter(Boolean).join(' · ');
   const body = $('t-body');
   body.replaceChildren();

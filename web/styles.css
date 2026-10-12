@@ -1023,3 +1023,12 @@ body.shop-mode .due-none { padding: 10px 12px 0; font: 600 15px var(--cond); let
 body.shop-mode .group-yardWork::before { background: var(--floor-red); }
 body.shop-mode .group-quiet::before { background: var(--floor-track); }
 body.shop-mode .group-away::before { background: var(--floor-yellow); }
+
+/* Shop cards open the truck's page (Record work is there) */
+body.shop-mode .shop-card { padding-bottom: 12px; }
+body.shop-mode #truck .btn-log { margin: 14px 0 4px; min-height: 58px; font: 800 22px var(--cond); letter-spacing: .1em; text-transform: uppercase; }
+body.shop-mode #truck .shop-signals { display: flex; flex-wrap: wrap; padding: 4px 0 0; }
+body.shop-mode #truck .shop-oos, body.shop-mode #truck .fault-line, body.shop-mode #truck .due-line,
+body.shop-mode #truck .due-none, body.shop-mode #truck .due-more { padding-left: 0; padding-right: 0; }
+body.shop-mode #truck .section-title { margin: 18px 0 2px; text-transform: uppercase; }
+body.shop-mode #truck .item { margin-top: 8px; padding: 8px 10px; background: var(--floor-paper); }
