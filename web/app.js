@@ -1230,7 +1230,8 @@ function shopCard({ v, due }) {
   const record = el('button', 'shop-record', t('logWork'));
   record.type = 'button';
   record.addEventListener('click', (e) => { e.stopPropagation(); openWork(v.id); });
-  head.append(el('span', 'shop-truck', v.name), el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
+  head.classList.add('with-record');
+  head.append(el('span', 'shop-truck', v.name), record, el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
   card.append(head);
   const badges = signalBadges(v);
   if (badges.length) {
@@ -1250,9 +1251,6 @@ function shopCard({ v, due }) {
   if (!due.length && !codes.length && !v.shop) card.append(el('div', 'due-none', t('nothingDue')));
   const hidden = Math.max(0, codes.length - 1) + Math.max(0, due.length - 2);
   if (hidden) card.append(el('div', 'due-more', t('more', hidden)));
-  const foot = el('div', 'shop-card-foot');
-  foot.append(record);
-  card.append(foot);
   card.addEventListener('click', () => openTruck(v.id));
   return card;
 }
