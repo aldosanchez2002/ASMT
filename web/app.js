@@ -1155,8 +1155,7 @@ function renderShop() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
     b.querySelector('.side-name').textContent = t(b.dataset.side === 'trucks' ? 'sideTrucks' : 'sideTrailers');
-    // The count is how many need work; none shows no number (a "0" read as "no trailers").
-    b.querySelector('.side-count').textContent = (b.dataset.side === 'trucks' ? needWork : trailersNeedWork) || '';
+    b.querySelector('.side-count').textContent = b.dataset.side === 'trucks' ? (vehicles.length ? needWork : '') : (trailers.length ? trailersNeedWork : '');
   }
   $('shop-trucks').hidden = shopSide !== 'trucks';
   $('shop-trailers').hidden = shopSide !== 'trailers';
@@ -1224,7 +1223,7 @@ function trailerCard({ c, status, worn, group }) {
   const m = trailerMilesById[c.id];
   const last = trailerEntries(c.id).sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.loggedAtMs ?? 0) - (a.loggedAtMs ?? 0))[0];
   const info = el('span', 'trailer-info');
-  info.append(el('span', 'trailer-miles', m && Math.round(m.miles) > 0 ? `${fmt.format(Math.round(m.miles))} mi` : ''));
+  info.append(el('span', 'trailer-miles', m ? `${fmt.format(Math.round(m.miles))} mi` : ''));
   if (worn.length) info.append(el('span', 'trailer-worn', t('tiresWorn', worn.length, worn[0], fmt.format(status[worn[0]].miles))));
   info.append(el('span', 'trailer-last', last ? t('lastWork', last.itemName, dateText(last.date)) : t('noHistory')));
   if ((group === 'away' || group === 'road') && c.location) info.append(el('span', 'trailer-where', c.location));
