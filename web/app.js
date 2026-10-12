@@ -1118,23 +1118,31 @@ function renderShop() {
   if (currentTab() !== 'shop') return;
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
   $('admin-link').textContent = t('admin');
-  // Listed: anything due, out of service, or a STOP lamp. Order: STOP lamp,
-  // then parked in the yard, out of service, overdue, most urgent.
+  // Sections, in the shop's order:
+  //   1. in the yard and needs service   2. no GPS signal lately
+  //   3. in the yard, nothing needed     4. needs service, not in the yard
+  // "Needs service": something due, a STOP lamp or engine code, or out of service.
   const flag = (x) => Number(Boolean(x));
+  const needsService = ({ v, due }) => Boolean(due.length || v.shop || v.faults?.stop || v.faults?.major?.length);
+  const groupOf = (entry) => {
+    const { v } = entry;
+    if (v.quiet != null && v.quiet >= QUIET_DAYS) return 'quiet';
+    if (v.here) return needsService(entry) ? 'yardWork' : 'yardIdle';
+    return needsService(entry) ? 'away' : null;
+  };
+  const ORDER = { yardWork: 0, quiet: 1, yardIdle: 2, away: 3 };
   const trucks = vehicles.map(withMaintenance)
     .map((v) => ({ v, due: v.rows.filter(DUE) }))
-    .filter(({ v, due }) => v.here || v.shop || due.length || v.faults?.stop)
-    .sort((a, b) => flag(b.v.faults?.stop) - flag(a.v.faults?.stop)
-      || flag(b.v.here) - flag(a.v.here)
-      || flag(b.v.shop) - flag(a.v.shop)
+    .map((entry) => ({ ...entry, group: groupOf(entry) }))
+    .filter((entry) => entry.group)
+    .sort((a, b) => ORDER[a.group] - ORDER[b.group]
+      || flag(b.v.faults?.stop) - flag(a.v.faults?.stop)
       || flag(b.due.some((r) => r.status === 'overdue')) - flag(a.due.some((r) => r.status === 'overdue'))
-      || flag(b.due.length || b.v.faults?.major?.length) - flag(a.due.length || a.v.faults?.major?.length)
-      || flag(a.v.quiet >= QUIET_DAYS) - flag(b.v.quiet >= QUIET_DAYS)
+      || flag(b.due.length) - flag(a.due.length)
       || (a.due[0]?.urgency ?? 0) - (b.due[0]?.urgency ?? 0)
       || String(a.v.name).localeCompare(String(b.v.name), undefined, { numeric: true }));
-  // Every truck in the yard is listed; the count is the ones that need work.
-  const needWork = trucks.filter(({ v, due }) => v.shop || due.length || v.faults?.stop).length;
-  const inYard = trucks.filter(({ v }) => v.here).length;
+  const needWork = trucks.filter(needsService).length;
+  const inYard = trucks.filter((e) => e.group === 'yardWork' || e.group === 'yardIdle').length;
 
   const yardTrailers = trailers.filter(trailerInYard).length;
   for (const b of document.querySelectorAll('#shop-side button')) {
@@ -1156,12 +1164,9 @@ function renderShop() {
 
   $('shop-title').textContent = vehicles.length ? (needWork ? t('shopCount', needWork) : t('shopEmpty')) : t('shopTitle');
   $('shop-count').textContent = [inYard ? t('inYardCount', inYard) : null, updated].filter(Boolean).join(' · ');
-  // Section headings: STOP lamp / In yard / Out of service / Overdue / Due soon.
-  const groupOf = ({ v, due }) => (v.faults?.stop ? 'stop' : v.here ? 'here' : v.shop ? 'out'
-    : due.some((r) => r.status === 'overdue') ? 'overdue' : 'soon');
   let lastGroup = null;
   $('shop-cards').replaceChildren(...trucks.flatMap((entry) => {
-    const group = groupOf(entry);
+    const { group } = entry;
     const heading = group !== lastGroup ? [el('h3', `shop-group group-${group}`, t('groups')[group])] : [];
     lastGroup = group;
     return [...heading, shopCard(entry)];
@@ -1224,11 +1229,8 @@ function shopCard({ v, due }) {
     row.append(...badges);
     card.append(row);
   }
-  // Under the "Out of service" heading the card only needs the reason; in the
-  // STOP lamp or In yard sections it says it's out of service too.
-  const inOutGroup = !v.faults?.stop && !v.here;
   if (v.shop) {
-    const label = inOutGroup ? v.shop.reason : [t('outOfService'), v.shop.reason].filter(Boolean).join(' · ');
+    const label = [t('outOfService'), v.shop.reason].filter(Boolean).join(' · ');
     if (label) card.append(el('div', 'shop-oos', label));
   }
   // The codes that matter (a STOP lamp's code first), then what's due.
