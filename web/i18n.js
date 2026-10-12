@@ -179,7 +179,7 @@ const TEXT = {
     couldNotSave: (m) => `No se pudo guardar: ${m}`,
     undo: 'Deshacer',
     undone: 'Deshecho.',
-    lamp: { stop: 'Luz STOP', warning: 'Revisar motor', emissions: 'Luz de emisiones', protect: 'Luz de protección' },
+    lamp: { stop: 'Luz STOP', warning: 'Luz de motor', emissions: 'Luz de emisiones', protect: 'Luz de protección' },
     atShop: 'En la yarda',
     noSignal: (n) => `Sin señal de Samsara por ${n} días`,
     activeFaults: 'Fallas activas del motor',
