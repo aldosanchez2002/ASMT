@@ -629,8 +629,8 @@ function scheduleGroups() {
       .filter((v) => matchesRule(v, a.match))
       .sort((x, y) => String(x.name).localeCompare(String(y.name), undefined, { numeric: true })),
   }));
-  // Groups with trucks first, then the rest.
-  return groups.sort((a, b) => (b.trucks.length > 0) - (a.trucks.length > 0));
+  // Most trucks first; ties keep their order (oldest model first).
+  return groups.sort((a, b) => b.trucks.length - a.trucks.length);
 }
 
 function groupEngine(g) {
