@@ -1072,6 +1072,6 @@ dialog#admin-lock::backdrop { background: rgba(0, 0, 0, .55); }
 .lock-actions .btn-ghost { background: transparent; border: 2px solid var(--floor-line); color: var(--floor-ink); }
 
 /* Truck popup: VIN with a copy button */
-.vin-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 10px; }
+.vin-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 18px 0 4px; padding-top: 12px; border-top: 1px solid var(--border); }
 .vin-text { font: 700 14px var(--mono, monospace); letter-spacing: .02em; overflow-wrap: anywhere; }
 .vin-copy { flex: none; min-height: 40px; padding: 0 14px; }

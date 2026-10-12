@@ -943,7 +943,6 @@ function renderTruck(v) {
   logBtn.type = 'button';
   logBtn.addEventListener('click', () => openWork(v.id));
   body.append(logBtn);
-  if (v.vin) body.append(vinRow(v.vin));
   if (v.shop) body.append(shopBanner(v));
   const where = [v.here ? t('atShop') : v.location?.address, v.quiet != null && v.quiet >= QUIET_DAYS ? t('noSignal', v.quiet) : null].filter(Boolean);
   if (where.length) body.append(el('p', 'muted truck-where', `📍 ${where.join(' · ')}`));
@@ -959,6 +958,7 @@ function renderTruck(v) {
         ? 'No maintenance schedule yet. Add its year, make and model to apply one. Its service history is in the Log tab and the PDF.'
         : 'No maintenance schedule matches this truck.'));
     if (!v.shop) body.append(shopButton(v));
+    if (v.vin) body.append(vinRow(v.vin));
     return;
   }
 
@@ -997,6 +997,7 @@ function renderTruck(v) {
   const models = truckDutyModels(v);
   if (models.length) body.append(dutySection(v, models));
   if (!v.shop) body.append(shopButton(v));
+  if (v.vin) body.append(vinRow(v.vin));
 }
 
 // "VIN 1FUJ… [Copy VIN]": copies the VIN for parts orders, insurance, etc.
