@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TIRE_POSITIONS, milesOn, positionName, tireStatus } from '../web/trailers.js';
+import { TIRE_POSITIONS, milesOn, positionName, tireStatus, tiresOverLimit } from '../web/trailers.js';
 
 const miles = { miles: 5200, startedAt: '2026-10-11T12:00:00Z', days: { '2026-10-11': 0, '2026-10-20': 2100, '2026-11-01': 5200 } };
 
@@ -27,4 +27,13 @@ test('miles on a past date use the reading on or before it', () => {
   assert.equal(milesOn(miles, '2026-10-01', '2026-11-02'), 0);
   assert.equal(milesOn(miles, '2026-11-02', '2026-11-02'), 5200); // today: the live reading
   assert.equal(milesOn(null, '2026-10-25', '2026-11-02'), 0);
+});
+
+test('tires over the miles limit, most miles first', () => {
+  const status = tireStatus([{ tires: ['1LO'], miles: 50000, date: '2026-10-20' }, { tires: ['2RI'], miles: 20000, date: '2026-10-12' }], { miles: 130000 });
+  assert.deepEqual(tiresOverLimit(status, 100000).slice(0, 2), ['1LI', '1RI']);
+  assert.ok(!tiresOverLimit(status, 100000).includes('1LO'));
+  assert.ok(tiresOverLimit(status, 100000).includes('2RI'));
+  assert.ok(tiresOverLimit(status).includes('1LO')); // 80,000 mi is over the default limit
+  assert.deepEqual(tiresOverLimit(status, 200000), []);
 });

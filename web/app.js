@@ -12,7 +12,7 @@ import {
 } from './maintenance.js';
 import { JOBS, itemKeysFor } from './services.js';
 import {
-  TIRE_POSITIONS, milesOn, positionName, tireStatus,
+  TIRE_POSITIONS, milesOn, positionName, tireStatus, tiresOverLimit, TIRE_MILES_LIMIT,
 } from './trailers.js';
 import {
   agoText, dateText, getLang, setLang, t, useEnglish,
@@ -1145,20 +1145,23 @@ function renderShop() {
   const needWork = trucks.filter(needsService).length;
   const inYard = trucks.filter((e) => e.group === 'yardWork' || e.group === 'yardIdle').length;
 
-  const yardTrailers = trailers.filter(trailerInYard).length;
+  const trailerRows = trailerList();
+  const trailersNeedWork = trailerRows.filter((x) => x.worn.length).length;
+  const yardTrailers = trailerRows.filter((x) => x.group === 'yardWork' || x.group === 'yardIdle').length;
   for (const b of document.querySelectorAll('#shop-side button')) {
     const on = b.dataset.side === shopSide;
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
     b.querySelector('.side-name').textContent = t(b.dataset.side === 'trucks' ? 'sideTrucks' : 'sideTrailers');
-    b.querySelector('.side-count').textContent = b.dataset.side === 'trucks' ? (vehicles.length ? needWork : '') : (trailers.length || '');
+    b.querySelector('.side-count').textContent = b.dataset.side === 'trucks' ? (vehicles.length ? needWork : '') : (trailers.length ? trailersNeedWork : '');
   }
   $('shop-trucks').hidden = shopSide !== 'trucks';
   $('shop-trailers').hidden = shopSide !== 'trailers';
   const updated = lastSyncIso ? t('updated', agoText(lastSyncIso)) : '';
   $('shop-count').textContent = updated;
   if (shopSide === 'trailers') {
-    $('shop-title').textContent = trailers.length ? t('trailersCount', trailers.length, yardTrailers) : t('trailersTitle');
+    $('shop-title').textContent = trailers.length ? t('trailersNeed', trailersNeedWork) : t('trailersTitle');
+    $('shop-count').textContent = [yardTrailers ? t('inYardCount', yardTrailers) : null, updated].filter(Boolean).join(' · ');
     renderShopTrailers();
     return;
   }
@@ -1182,34 +1185,46 @@ function renderShopTrailers() {
   const search = $('shop-tr-search');
   search.placeholder = t('searchTrailer');
   const q = search.value.trim().toLowerCase();
-  const groupOf = (c) => (trailerInYard(c) ? 'here' : isQuiet(c) ? 'quiet' : 'road');
-  const ORDER = { here: 0, road: 1, quiet: 2 };
-  const list = trailers
-    .filter((c) => !q || String(c.name).toLowerCase().includes(q))
-    .map((c) => ({ c, group: groupOf(c) }))
-    .sort((a, b) => ORDER[a.group] - ORDER[b.group] || String(a.c.name).localeCompare(String(b.c.name), undefined, { numeric: true }));
+  // Same order as the trucks. Trailers on the road with nothing needed are
+  // left out, but a search finds every trailer.
+  const ORDER = { yardWork: 0, quiet: 1, yardIdle: 2, away: 3, road: 4 };
+  const list = trailerList()
+    .filter((x) => (q ? String(x.c.name).toLowerCase().includes(q) : x.group !== 'road'))
+    .sort((a, b) => ORDER[a.group] - ORDER[b.group]
+      || (b.worn[0] ? b.status[b.worn[0]].miles : 0) - (a.worn[0] ? a.status[a.worn[0]].miles : 0)
+      || String(a.c.name).localeCompare(String(b.c.name), undefined, { numeric: true }));
   let lastGroup = null;
-  const cards = list.flatMap(({ c, group }) => {
-    const heading = group !== lastGroup ? [el('h3', `shop-group group-tr-${group}`, t('trailerGroups')[group])] : [];
-    lastGroup = group;
-    return [...heading, trailerCard(c, group)];
+  const cards = list.flatMap((x) => {
+    const heading = x.group !== lastGroup ? [el('h3', `shop-group group-${x.group}`, t('trailerGroups')[x.group])] : [];
+    lastGroup = x.group;
+    return [...heading, trailerCard(x)];
   });
-  if (!cards.length) cards.push(el('p', 'muted', trailers.length ? t('noTrailerMatch') : t('noHistory')));
+  if (!cards.length) cards.push(el('p', 'muted', q ? t('noTrailerMatch') : t('shopEmpty')));
   $('shop-tr-cards').replaceChildren(...cards);
 }
 
+// Every trailer with its tires and its section. Needs work = a tire over the miles limit.
+function trailerList() {
+  return trailers.map((c) => {
+    const status = tireStatus(trailerEntries(c.id), trailerMilesById[c.id]);
+    const worn = tiresOverLimit(status);
+    const here = trailerInYard(c);
+    const group = isQuiet(c) ? 'quiet' : here ? (worn.length ? 'yardWork' : 'yardIdle') : worn.length ? 'away' : 'road';
+    return { c, status, worn, here, group };
+  });
+}
+
 // A compact row: the section heading already says where it is.
-function trailerCard(c, group) {
-  const card = el('button', 'trailer-row');
+function trailerCard({ c, status, worn, group }) {
+  const card = el('button', `trailer-row${worn.length ? ' needs-work' : ''}`);
   card.type = 'button';
   const m = trailerMilesById[c.id];
   const last = trailerEntries(c.id).sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.loggedAtMs ?? 0) - (a.loggedAtMs ?? 0))[0];
   const info = el('span', 'trailer-info');
-  info.append(
-    el('span', 'trailer-miles', m ? `${fmt.format(Math.round(m.miles))} mi` : ''),
-    el('span', 'trailer-last', last ? t('lastWork', last.itemName, dateText(last.date)) : t('noHistory')),
-  );
-  if (group === 'road' && c.location) info.append(el('span', 'trailer-where', c.location));
+  info.append(el('span', 'trailer-miles', m ? `${fmt.format(Math.round(m.miles))} mi` : ''));
+  if (worn.length) info.append(el('span', 'trailer-worn', t('tiresWorn', worn.length, worn[0], fmt.format(status[worn[0]].miles))));
+  info.append(el('span', 'trailer-last', last ? t('lastWork', last.itemName, dateText(last.date)) : t('noHistory')));
+  if ((group === 'away' || group === 'road') && c.location) info.append(el('span', 'trailer-where', c.location));
   if (group === 'quiet') info.append(el('span', 'trailer-where', t('noSignal', quietDays(c.lastReportedAt) ?? 7)));
   card.append(el('span', 'trailer-name', c.name), info, el('span', 'trailer-go', '›'));
   card.setAttribute('aria-label', `${t('trailerWork')}: ${c.name}`);
@@ -1674,7 +1689,7 @@ function tireDiagram(status, { selected = null, onToggle = null } = {}) {
       const g = el('div', 'tire-pair');
       for (const pos of positions) {
         const st = status[pos];
-        const tile = el(onToggle ? 'button' : 'div', `tire${selected?.has(pos) ? ' on' : ''}${st?.recorded ? '' : ' unrecorded'}`);
+        const tile = el(onToggle ? 'button' : 'div', `tire${selected?.has(pos) ? ' on' : ''}${st?.recorded ? '' : ' unrecorded'}${st && st.miles >= TIRE_MILES_LIMIT ? ' worn' : ''}`);
         if (onToggle) {
           tile.type = 'button';
           tile.setAttribute('aria-pressed', String(Boolean(selected?.has(pos))));

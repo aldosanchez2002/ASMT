@@ -1039,3 +1039,10 @@ body.shop-mode .shop-record:active { transform: translateY(1px); }
 /* Truck number left, Record work centered, miles right */
 .shop-card-head.with-record { display: grid; grid-template-columns: 1fr auto 1fr; }
 .shop-card-head.with-record .shop-miles { justify-self: end; }
+
+/* Trailers: a tire over the miles limit */
+.trailer-worn { font-size: 14px; font-weight: 700; color: var(--red); }
+.trailer-row.needs-work { border-left: 6px solid var(--red); }
+body.shop-mode .trailer-worn { color: var(--floor-red); font-size: 15px; }
+body.shop-mode .trailer-row.needs-work { border-left: 10px solid var(--floor-red); }
+.tire.worn { outline: 3px solid var(--floor-red, #c00); outline-offset: -3px; }
