@@ -207,6 +207,18 @@
     </section>
   </main>
 
+  <dialog id="admin-lock" aria-labelledby="admin-lock-title">
+    <form class="lock-form">
+      <h2 id="admin-lock-title">Admin</h2>
+      <input id="admin-pass" type="password" autocomplete="off" autocapitalize="off" required>
+      <p id="admin-pass-error" class="lock-error" hidden></p>
+      <div class="lock-actions">
+        <button id="admin-pass-ok" class="btn" type="submit">Open</button>
+        <button id="admin-pass-cancel" class="btn btn-ghost" type="button">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="truck" aria-labelledby="t-title">
     <div class="dlg-head">
       <div>

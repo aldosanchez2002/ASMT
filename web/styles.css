@@ -1059,3 +1059,15 @@ body.shop-mode .trailer-row.needs-work { border-left: 10px solid var(--floor-red
 }
 .sf-work.has .sf-n { color: var(--red); }
 body:not(.shop-mode) .sf-work.has .sf-n { color: var(--floor-red); }
+
+/* Admin password prompt */
+dialog#admin-lock { width: min(360px, calc(100vw - 32px)); padding: 0; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-bg); color: var(--floor-ink); font-family: 'Barlow', system-ui, sans-serif; }
+dialog#admin-lock::backdrop { background: rgba(0, 0, 0, .55); }
+.lock-form { display: grid; gap: 12px; padding: 18px; }
+.lock-form h2 { margin: 0; font: 800 26px/1 var(--cond); text-transform: uppercase; letter-spacing: .03em; }
+.lock-form input { min-height: 50px; font: inherit; font-size: 18px; padding: 0 12px; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); }
+.lock-error { margin: 0; color: var(--floor-red); font-weight: 700; }
+.lock-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lock-actions .btn { min-height: 50px; border-radius: 0; font: 800 18px var(--cond); letter-spacing: .08em; text-transform: uppercase; }
+.lock-actions .btn:not(.btn-ghost) { background: #111; border: 2px solid #111; color: var(--floor-yellow); }
+.lock-actions .btn-ghost { background: transparent; border: 2px solid var(--floor-line); color: var(--floor-ink); }

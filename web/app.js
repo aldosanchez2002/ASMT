@@ -471,9 +471,31 @@ function renderLog() {
 // The shop view is the main page; the rest is the admin side.
 const TABS = ['shop', 'trucks', 'trailers', 'schedules', 'log', 'settings'];
 
+// ---- Admin password ----------------------------------------------------------
+// Not real security (anyone can read it here): it only keeps the shop view
+// from wandering into the admin pages. Each device remembers once it's typed.
+const ADMIN_PASSWORD = 'Covington';
+const ADMIN_KEY = 'aslog.admin';
+function adminUnlocked() {
+  try { return localStorage.getItem(ADMIN_KEY) === 'yes'; } catch { return false; }
+}
+function askAdminPassword() {
+  const dlg = $('admin-lock');
+  $('admin-lock-title').textContent = t('adminLockTitle');
+  $('admin-pass').placeholder = t('adminPassword');
+  $('admin-pass-error').hidden = true;
+  $('admin-pass-error').textContent = t('adminWrong');
+  $('admin-pass-ok').textContent = t('adminOpen');
+  $('admin-pass-cancel').textContent = t('cancel');
+  $('admin-pass').value = '';
+  if (!dlg.open) dlg.showModal();
+  $('admin-pass').focus();
+}
+
 function currentTab() {
   const tab = location.hash.slice(1);
-  return TABS.includes(tab) ? tab : 'shop';
+  if (!TABS.includes(tab)) return 'shop';
+  return tab === 'shop' || adminUnlocked() ? tab : 'shop';
 }
 
 function showTab() {
@@ -2012,7 +2034,31 @@ $('sign-in').addEventListener('click', async () => {
 });
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
-addEventListener('hashchange', () => { showTab(); render(); });
+addEventListener('hashchange', () => {
+  const tab = location.hash.slice(1);
+  if (TABS.includes(tab) && tab !== 'shop' && !adminUnlocked()) askAdminPassword();
+  showTab();
+  render();
+});
+$('admin-lock').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if ($('admin-pass').value.trim().toLowerCase() !== ADMIN_PASSWORD.toLowerCase()) {
+    $('admin-pass-error').hidden = false;
+    $('admin-pass').select();
+    return;
+  }
+  try { localStorage.setItem(ADMIN_KEY, 'yes'); } catch { /* asked again next time */ }
+  $('admin-lock').close('ok');
+  showTab();
+  render();
+});
+$('admin-pass-cancel').addEventListener('click', () => $('admin-lock').close());
+// Closed without the password (Cancel or Esc): back to the shop view.
+$('admin-lock').addEventListener('close', () => {
+  if (!adminUnlocked()) history.replaceState(null, '', location.pathname + location.search);
+  showTab();
+  render();
+});
 for (const b of document.querySelectorAll('#lang button')) {
   b.addEventListener('click', () => { setLang(b.dataset.lang); render(); });
 }
@@ -2065,6 +2111,7 @@ $('tires-form').addEventListener('submit', async (e) => {
   }
 });
 applyLogPeriod();
+if (TABS.includes(location.hash.slice(1)) && location.hash.slice(1) !== 'shop' && !adminUnlocked()) askAdminPassword();
 showTab();
 $('t-close').addEventListener('click', () => $('truck').close());
 $('s-close').addEventListener('click', () => $('schedule').close());
