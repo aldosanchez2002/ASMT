@@ -194,19 +194,20 @@ const TRUCK_FILTERS = [
   { id: 'quiet', label: 'No signal 3+ days', test: (v) => !v.shop && v.quiet != null && v.quiet >= QUIET_DAYS },
 ];
 
-function statusFilter(counts) {
-  // "Out of service" and "No signal" only show when they apply (or are selected).
-  const shown = TRUCK_FILTERS.filter((f) => !['out', 'quiet'].includes(f.id) || counts[f.id] || truckFilter === f.id);
+// A row of count buttons under the search box (Trucks and Trailers tabs).
+// `optional` filters only show when they have something (or are selected).
+function statusFilter(filters, counts, current, onPick, label, optional = []) {
+  const shown = filters.filter((f) => !optional.includes(f.id) || counts[f.id] || current === f.id);
   const bar = el('div', 'status-filter');
   bar.style.setProperty('--n', shown.length);
   bar.setAttribute('role', 'group');
-  bar.setAttribute('aria-label', 'Show trucks');
+  bar.setAttribute('aria-label', label);
   for (const f of shown) {
-    const b = el('button', `sf-${f.id}${counts[f.id] ? ' has' : ''}${truckFilter === f.id ? ' active' : ''}`);
+    const b = el('button', `sf-${f.id}${counts[f.id] ? ' has' : ''}${current === f.id ? ' active' : ''}`);
     b.type = 'button';
-    b.setAttribute('aria-pressed', String(truckFilter === f.id));
+    b.setAttribute('aria-pressed', String(current === f.id));
     b.append(el('span', 'sf-n', fmt.format(counts[f.id])), el('span', 'sf-label', f.label));
-    b.addEventListener('click', () => { truckFilter = f.id; render(); });
+    b.addEventListener('click', () => onPick(f.id));
     bar.append(b);
   }
   return bar;
@@ -219,7 +220,7 @@ function render() {
   const counts = Object.fromEntries(TRUCK_FILTERS.map((f) => [f.id, searched.filter(f.test).length]));
   const active = TRUCK_FILTERS.find((f) => f.id === truckFilter) ?? TRUCK_FILTERS[0];
   const visible = searched.filter(active.test).sort(compare);
-  $('summary').replaceChildren(statusFilter(counts));
+  $('summary').replaceChildren(statusFilter(TRUCK_FILTERS, counts, truckFilter, (id) => { truckFilter = id; render(); }, 'Show trucks', ['out', 'quiet']));
 
   $('rows').replaceChildren(...visible.map(row));
   $('empty').hidden = visible.length > 0;
@@ -247,19 +248,26 @@ function render() {
 
 const isMoving = (c) => (c.speedMph ?? 0) >= 3;
 
+let trailerFilter = 'all'; // Trailers tab count buttons
+const TRAILER_FILTERS = [
+  { id: 'all', label: 'All', test: () => true },
+  { id: 'work', label: 'Needs work', test: (c) => c.needsWork },
+  { id: 'yard', label: 'In yard', test: (c) => !isQuiet(c) && trailerInYard(c) },
+  { id: 'moving', label: 'Moving', test: (c) => !isQuiet(c) && isMoving(c) },
+  { id: 'quiet', label: 'No signal 7+ days', test: (c) => isQuiet(c) },
+];
+
 function renderTrailers() {
   if (currentTab() !== 'trailers') return;
   const q = $('tr-search').value.trim().toLowerCase();
-  const filter = $('tr-filter').value;
-  const matchesFilter = (c) => filter === 'all'
-    || (filter === 'moving' && isMoving(c))
-    || (filter === 'parked' && !isMoving(c) && !isQuiet(c))
-    || (filter === 'quiet' && isQuiet(c));
-
-  const visible = trailers
-    .map((c) => ({ ...c, miles: trailerMilesById[c.id]?.miles ?? null }))
-    .filter((c) => !q || [c.name, c.location, c.trackerModel, c.trackerSerial].join(' ').toLowerCase().includes(q))
-    .filter(matchesFilter)
+  const worn = new Set(trailerList().filter((x) => x.worn.length).map((x) => x.c.id));
+  const searched = trailers
+    .map((c) => ({ ...c, miles: trailerMilesById[c.id]?.miles ?? null, needsWork: worn.has(c.id) }))
+    .filter((c) => !q || [c.name, c.location, c.trackerModel, c.trackerSerial].join(' ').toLowerCase().includes(q));
+  const counts = Object.fromEntries(TRAILER_FILTERS.map((f) => [f.id, searched.filter(f.test).length]));
+  const active = TRAILER_FILTERS.find((f) => f.id === trailerFilter) ?? TRAILER_FILTERS[0];
+  const visible = searched
+    .filter(active.test)
     .sort((a, b) => {
       const x = a[trSortKey];
       const y = b[trSortKey];
@@ -268,15 +276,7 @@ function renderTrailers() {
       if (typeof x === 'number' && typeof y === 'number') return (x - y) * trSortDir;
       return String(x).localeCompare(String(y), undefined, { numeric: true }) * trSortDir;
     });
-
-  const moving = trailers.filter(isMoving).length;
-  const quiet = trailers.filter(isQuiet).length;
-  $('tr-summary').replaceChildren(
-    chip(`${visible.length} trailers`, true),
-    chip(`${moving} moving`),
-    chip(`${trailers.length - moving - quiet} parked`),
-    chip(`${quiet} quiet 7+ days`, false, quiet ? 'chip-soon' : ''),
-  );
+  $('tr-summary').replaceChildren(statusFilter(TRAILER_FILTERS, counts, trailerFilter, (id) => { trailerFilter = id; renderTrailers(); }, 'Show trailers', ['quiet']));
 
   $('tr-rows').replaceChildren(...visible.map((c) => {
     const tr = el('tr');
@@ -318,7 +318,7 @@ function renderTrailers() {
   $('tr-empty').hidden = visible.length > 0;
   $('tr-rows').closest('.table-wrap').hidden = visible.length === 0;
   $('tr-empty').textContent = trailers.length
-    ? 'No trailers match.'
+    ? (q ? 'No trailers match.' : `No trailers: ${active.label.toLowerCase()}.`)
     : 'No trailers in the database yet. They are added by the next sync.';
 
   for (const th of document.querySelectorAll('th[data-trsort]')) {
@@ -713,10 +713,6 @@ function renderGroup(g) {
     body.append(table);
   }
   body.append(el('p', 'muted footnote', `Duty cycle: ${assignments.dutyCycle}. ${assignments.notes}`));
-}
-
-function chip(text, strong = false, extraClass = '') {
-  return el('span', ['chip', strong && 'chip-strong', extraClass].filter(Boolean).join(' '), text);
 }
 
 function titleCase(s) {
@@ -2021,7 +2017,6 @@ for (const b of document.querySelectorAll('#lang button')) {
   b.addEventListener('click', () => { setLang(b.dataset.lang); render(); });
 }
 $('tr-search').addEventListener('input', renderTrailers);
-$('tr-filter').addEventListener('change', renderTrailers);
 for (const th of document.querySelectorAll('th[data-trsort]')) {
   th.addEventListener('click', () => {
     trSortDir = trSortKey === th.dataset.trsort ? -trSortDir : 1;
