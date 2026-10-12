@@ -39,6 +39,8 @@ let statusDocs = {}; // vehicleId -> vehicleStatus doc ({ outOfService, reason, 
 const dutyModels = () => assignments?.dutyModels ?? {};
 const settings = () => effectiveSettings(assignments?.settings, savedSettings);
 const company = () => ({ name: savedSettings.companyName ?? '', usdot: savedSettings.usdot ?? '' });
+// Trailer tire miles limit: set in Fleet setup, or the default.
+const tireLimit = () => Number(savedSettings.tireMilesLimit) || TIRE_MILES_LIMIT;
 let serviceLog = []; // serviceLog docs: visits (services and repairs) and duty changes
 let visitsByTruck = new Map(); // vehicleId -> that truck's serviceLog entries
 let trailers = []; // trailers docs
@@ -544,6 +546,7 @@ function renderSetup() {
   for (const [id, key] of [['company-name', 'companyName'], ['company-usdot', 'usdot']]) {
     if (document.activeElement !== $(id)) $(id).value = savedSettings[key] ?? '';
   }
+  if (document.activeElement !== $('tire-limit')) $('tire-limit').value = tireLimit();
   const defs = assignments?.settings ?? [];
   $('fleet-setup').hidden = defs.length === 0;
   const current = settings();
@@ -1207,7 +1210,7 @@ function renderShopTrailers() {
 function trailerList() {
   return trailers.map((c) => {
     const status = tireStatus(trailerEntries(c.id), trailerMilesById[c.id]);
-    const worn = tiresOverLimit(status);
+    const worn = tiresOverLimit(status, tireLimit());
     const here = trailerInYard(c);
     const group = isQuiet(c) ? 'quiet' : here ? (worn.length ? 'yardWork' : 'yardIdle') : worn.length ? 'away' : 'road';
     return { c, status, worn, here, group };
@@ -1689,7 +1692,7 @@ function tireDiagram(status, { selected = null, onToggle = null } = {}) {
       const g = el('div', 'tire-pair');
       for (const pos of positions) {
         const st = status[pos];
-        const tile = el(onToggle ? 'button' : 'div', `tire${selected?.has(pos) ? ' on' : ''}${st?.recorded ? '' : ' unrecorded'}${st && st.miles >= TIRE_MILES_LIMIT ? ' worn' : ''}`);
+        const tile = el(onToggle ? 'button' : 'div', `tire${selected?.has(pos) ? ' on' : ''}${st?.recorded ? '' : ' unrecorded'}${st && st.miles >= tireLimit() ? ' worn' : ''}`);
         if (onToggle) {
           tile.type = 'button';
           tile.setAttribute('aria-pressed', String(Boolean(selected?.has(pos))));
@@ -2045,6 +2048,22 @@ $('company-form').addEventListener('submit', async (e) => {
     }, { merge: true });
     btn.textContent = 'Saved';
     setTimeout(() => { btn.textContent = 'Save company info'; }, 2000);
+  } catch (err) {
+    showAppError(`Could not save: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+$('tires-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.submitter ?? $('tires-form').querySelector('button');
+  const miles = Math.round(Number($('tire-limit').value));
+  if (!(miles >= 10000 && miles <= 300000)) { $('tire-limit').reportValidity(); return; }
+  btn.disabled = true;
+  try {
+    await setDoc(doc(db, 'meta', 'settings'), { tireMilesLimit: miles, updatedAt: serverTimestamp() }, { merge: true });
+    btn.textContent = 'Saved';
+    setTimeout(() => { btn.textContent = 'Save tire limit'; }, 2000);
   } catch (err) {
     showAppError(`Could not save: ${err.message}`);
   } finally {

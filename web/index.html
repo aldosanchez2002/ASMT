@@ -183,7 +183,7 @@
       <div id="schedules-view" hidden>
         <details id="fleet-setup" class="setup" hidden>
           <summary>
-            <span class="setup-title">Fleet setup: oil, filters &amp; coolant</span>
+            <span class="setup-title">Fleet setup: oil, filters, coolant &amp; trailer tires</span>
             <span id="setup-summary" class="muted"></span>
           </summary>
           <p class="muted">Applies to every truck, for everyone using the app.</p>
@@ -192,6 +192,12 @@
             <label class="field"><span>Company name</span><input id="company-name" type="text" autocomplete="organization"></label>
             <label class="field"><span>USDOT number</span><input id="company-usdot" type="text" inputmode="numeric"></label>
             <button class="btn" type="submit">Save company info</button>
+          </form>
+          <form id="tires-form" class="setting company">
+            <div class="setting-title">Trailer tires</div>
+            <p class="muted">A trailer shows as needing work in the shop view when a tire position has run this many miles since it was changed.</p>
+            <label class="field"><span>Miles limit per tire</span><input id="tire-limit" type="number" inputmode="numeric" min="10000" max="300000" step="1000" required></label>
+            <button class="btn" type="submit">Save tire limit</button>
           </form>
           <div id="setup-toggles"></div>
         </details>
