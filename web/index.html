@@ -78,6 +78,7 @@
         <a href="#trailers" data-tab="trailers">Trailers</a>
         <a href="#schedules" data-tab="schedules">Schedules</a>
         <a href="#log" data-tab="log"><span class="hide-sm">Service log</span><span class="show-sm-inline">Log</span></a>
+        <a href="#settings" data-tab="settings">Settings</a>
       </nav>
 
       <div id="trucks-view">
@@ -181,28 +182,33 @@
       </div>
 
       <div id="schedules-view" hidden>
-        <details id="fleet-setup" class="setup" hidden>
-          <summary>
-            <span class="setup-title">Fleet setup: oil, filters, coolant &amp; trailer tires</span>
-            <span id="setup-summary" class="muted"></span>
-          </summary>
-          <p class="muted">Applies to every truck, for everyone using the app.</p>
+        <p id="sched-intro" class="muted"></p>
+        <div id="sched-groups"></div>
+      </div>
+      <div id="settings-view" hidden>
+        <h2 class="settings-title">Settings</h2>
+        <p class="muted">Applies to every truck and trailer, for everyone using the app.</p>
+        <section class="setup">
           <form id="company-form" class="setting company">
             <div class="setting-title">Company info for maintenance record PDFs</div>
             <label class="field"><span>Company name</span><input id="company-name" type="text" autocomplete="organization"></label>
             <label class="field"><span>USDOT number</span><input id="company-usdot" type="text" inputmode="numeric"></label>
             <button class="btn" type="submit">Save company info</button>
           </form>
+        </section>
+        <section class="setup">
           <form id="tires-form" class="setting company">
             <div class="setting-title">Trailer tires</div>
             <p class="muted">A trailer shows as needing work in the shop view when a tire position has run this many miles since it was changed.</p>
             <label class="field"><span>Miles limit per tire</span><input id="tire-limit" type="number" inputmode="numeric" min="10000" max="300000" step="1000" required></label>
             <button class="btn" type="submit">Save tire limit</button>
           </form>
+        </section>
+        <section id="fleet-setup" class="setup" hidden>
+          <h3>Fleet setup: oil, filters &amp; coolant</h3>
+          <p class="muted">Changes the maintenance schedules for the matching trucks.</p>
           <div id="setup-toggles"></div>
-        </details>
-        <p id="sched-intro" class="muted"></p>
-        <div id="sched-groups"></div>
+        </section>
       </div>
     </section>
   </main>

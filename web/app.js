@@ -39,7 +39,7 @@ let statusDocs = {}; // vehicleId -> vehicleStatus doc ({ outOfService, reason, 
 const dutyModels = () => assignments?.dutyModels ?? {};
 const settings = () => effectiveSettings(assignments?.settings, savedSettings);
 const company = () => ({ name: savedSettings.companyName ?? '', usdot: savedSettings.usdot ?? '' });
-// Trailer tire miles limit: set in Fleet setup, or the default.
+// Trailer tire miles limit: set in the Settings tab, or the default.
 const tireLimit = () => Number(savedSettings.tireMilesLimit) || TIRE_MILES_LIMIT;
 let serviceLog = []; // serviceLog docs: visits (services and repairs) and duty changes
 let visitsByTruck = new Map(); // vehicleId -> that truck's serviceLog entries
@@ -237,6 +237,7 @@ function render() {
   if (openTruckId) (currentTab() === 'shop' ? renderShopTruck : renderTruck)(all.find((v) => v.id === openTruckId));
   if (openTrailerId) renderTrailer();
   renderSchedules();
+  renderSetup();
   renderLog();
   renderTrailers();
   renderShop();
@@ -468,7 +469,7 @@ function renderLog() {
 // ---- Schedules tab ---------------------------------------------------------
 
 // The shop view is the main page; the rest is the admin side.
-const TABS = ['shop', 'trucks', 'trailers', 'schedules', 'log'];
+const TABS = ['shop', 'trucks', 'trailers', 'schedules', 'log', 'settings'];
 
 function currentTab() {
   const tab = location.hash.slice(1);
@@ -487,6 +488,8 @@ function showTab() {
     a.classList.toggle('active', a.dataset.tab === tab);
     a.setAttribute('aria-current', a.dataset.tab === tab ? 'page' : 'false');
   }
+  // On a phone the tab row scrolls; keep the open tab in view.
+  document.querySelector('.tabs a.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 const yearRange = (min, max) => (min === max ? `${min}` : `${min}–${max}`);
@@ -543,6 +546,7 @@ function scheduleTable(schedule, duty = null) {
 }
 
 function renderSetup() {
+  if (currentTab() !== 'settings') return;
   for (const [id, key] of [['company-name', 'companyName'], ['company-usdot', 'usdot']]) {
     if (document.activeElement !== $(id)) $(id).value = savedSettings[key] ?? '';
   }
@@ -550,10 +554,6 @@ function renderSetup() {
   const defs = assignments?.settings ?? [];
   $('fleet-setup').hidden = defs.length === 0;
   const current = settings();
-  // Collapsed, the box lists the current answers so it's clear what's set here.
-  $('setup-summary').textContent = defs
-    .map((d) => d.short?.[current[d.id] ? 'on' : 'off'] ?? `${d.label}: ${current[d.id] ? 'yes' : 'no'}`)
-    .join(' · ');
 
   const save = async (d, value, buttons) => {
     buttons.forEach((b) => { b.disabled = true; });
@@ -614,7 +614,6 @@ function groupEngine(g) {
 
 function renderSchedules() {
   if (currentTab() !== 'schedules' && !openGroupKey) return;
-  renderSetup();
   const groupsEl = $('sched-groups');
   if (!assignments || !schedules.size) {
     $('sched-intro').textContent = 'Loading schedules…';

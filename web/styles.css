@@ -1046,3 +1046,14 @@ body.shop-mode .shop-record:active { transform: translateY(1px); }
 body.shop-mode .trailer-worn { color: var(--floor-red); font-size: 15px; }
 body.shop-mode .trailer-row.needs-work { border-left: 10px solid var(--floor-red); }
 .tire.worn { outline: 3px solid var(--floor-red, #c00); outline-offset: -3px; }
+.settings-title { margin: 4px 0 2px; font-size: 20px; }
+#settings-view > .muted { margin: 0 0 12px; }
+#settings-view .setup .setting.company { border: none; padding: 0; margin: 0; }
+
+/* Admin tabs: one line; on a phone the row scrolls sideways instead of widening the page */
+.tabs { overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs a { white-space: nowrap; flex: none; }
+@media (max-width: 560px) {
+  body:not(.shop-mode) .tabs a { font-size: 15px; letter-spacing: .04em; padding: 12px 8px; }
+}
