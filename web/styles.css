@@ -800,28 +800,28 @@ body.shop-mode .shop-card:active { transform: translateY(1px); }
 body.shop-mode .shop-card-head { padding: 8px 12px; border-bottom: 2px solid var(--floor-line); align-items: center; }
 body.shop-mode .shop-truck { font: 800 38px/1 var(--cond); }
 body.shop-mode .shop-miles { font: 700 14px var(--mono); color: var(--floor-ink); }
-body.shop-mode .shop-signals { padding: 10px 12px 0; gap: 6px; }
-body.shop-mode .sig { border-radius: 0; font: 800 14px var(--cond); letter-spacing: .05em; text-transform: uppercase; padding: 3px 8px; }
-body.shop-mode .sig-stop { background: var(--floor-red); color: #fff; }
-body.shop-mode .sig-lamp { background: var(--floor-yellow); color: #111; }
-body.shop-mode .sig-here { background: #111; color: #fff; }
-body.shop-mode .sig-quiet { background: var(--floor-track); color: var(--floor-ink); }
-body.shop-mode .shop-oos { padding: 10px 12px 0; font: 800 15px var(--cond); letter-spacing: .05em; }
-body.shop-mode .fault-line { padding: 8px 12px 0; color: var(--floor-red); font-weight: 700; font-size: 15px; display: flex; gap: 8px; }
-body.shop-mode .fault-line::before { content: '!'; flex: none; width: 18px; height: 18px; background: var(--floor-red); color: #fff; font: 800 14px/18px var(--cond); text-align: center; }
+body.shop-mode .shop-signals, #truck .shop-signals { padding: 10px 12px 0; gap: 6px; }
+body.shop-mode .sig, #truck .sig { border-radius: 0; font: 800 14px var(--cond); letter-spacing: .05em; text-transform: uppercase; padding: 3px 8px; }
+body.shop-mode .sig-stop, #truck .sig-stop { background: var(--floor-red); color: #fff; }
+body.shop-mode .sig-lamp, #truck .sig-lamp { background: var(--floor-yellow); color: #111; }
+body.shop-mode .sig-here, #truck .sig-here { background: #111; color: #fff; }
+body.shop-mode .sig-quiet, #truck .sig-quiet { background: var(--floor-track); color: var(--floor-ink); }
+body.shop-mode .shop-oos, #truck .shop-oos { padding: 10px 12px 0; font: 800 15px var(--cond); letter-spacing: .05em; }
+body.shop-mode .fault-line, #truck .fault-line { padding: 8px 12px 0; color: var(--floor-red); font-weight: 700; font-size: 15px; display: flex; gap: 8px; }
+body.shop-mode .fault-line::before, #truck .fault-line::before { content: '!'; flex: none; width: 18px; height: 18px; background: var(--floor-red); color: #fff; font: 800 14px/18px var(--cond); text-align: center; }
 
-body.shop-mode .due-line { display: block; padding: 10px 12px 0; }
-body.shop-mode .due-line .dot { display: none; }
-body.shop-mode .due-text { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline; }
-body.shop-mode .due-name { font-weight: 700; font-size: 16px; grid-column: 1 / -1; }
-body.shop-mode .meter { grid-column: 1 / -1; height: 9px; background: var(--floor-track); position: relative; margin-top: 4px; }
-body.shop-mode .meter i { position: absolute; inset: 0 auto 0 0; background: var(--floor-yellow); }
-body.shop-mode .due-overdue .meter i { background: var(--floor-red); }
-body.shop-mode .due-when { font: 700 13px var(--mono); }
-body.shop-mode .due-overdue .due-when { color: var(--floor-red); }
-body.shop-mode .due-soon .due-when { color: var(--floor-ink); }
-body.shop-mode .due-note { font-size: 13px; color: var(--floor-muted); }
-body.shop-mode .due-more { padding: 8px 12px 0; font: 600 14px var(--cond); letter-spacing: .04em; text-transform: uppercase; color: var(--floor-muted); }
+body.shop-mode .due-line, #truck .due-line { display: block; padding: 10px 12px 0; }
+body.shop-mode .due-line .dot, #truck .due-line .dot { display: none; }
+body.shop-mode .due-text, #truck .due-text { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline; }
+body.shop-mode .due-name, #truck .due-name { font-weight: 700; font-size: 16px; grid-column: 1 / -1; }
+body.shop-mode .meter, #truck .meter { grid-column: 1 / -1; height: 9px; background: var(--floor-track); position: relative; margin-top: 4px; }
+body.shop-mode .meter i, #truck .meter i { position: absolute; inset: 0 auto 0 0; background: var(--floor-yellow); }
+body.shop-mode .due-overdue .meter i, #truck .due-overdue .meter i { background: var(--floor-red); }
+body.shop-mode .due-when, #truck .due-when { font: 700 13px var(--mono); }
+body.shop-mode .due-overdue .due-when, #truck .due-overdue .due-when { color: var(--floor-red); }
+body.shop-mode .due-soon .due-when, #truck .due-soon .due-when { color: var(--floor-ink); }
+body.shop-mode .due-note, #truck .due-note { font-size: 13px; color: var(--floor-muted); }
+body.shop-mode .due-more, #truck .due-more { padding: 8px 12px 0; font: 600 14px var(--cond); letter-spacing: .04em; text-transform: uppercase; color: var(--floor-muted); }
 body.shop-mode .shop-cta {
   margin-top: 12px; padding: 12px; background: #111; color: var(--floor-yellow); text-align: center;
   font: 800 20px var(--cond); letter-spacing: .1em; text-transform: uppercase;
@@ -1013,19 +1013,19 @@ body.shop-mode .trailer-last, body.shop-mode .trailer-where { color: var(--floor
 body.shop-mode .trailer-go { align-self: stretch; display: flex; align-items: center; padding: 0 16px; background: #111; color: var(--floor-yellow); font: 800 32px var(--cond); }
 body.shop-mode .group-tr-quiet::before { background: var(--floor-track); }
 .due-none { font-size: 14px; color: var(--muted); }
-body.shop-mode .due-none { padding: 10px 12px 0; font: 600 15px var(--cond); letter-spacing: .04em; text-transform: uppercase; color: var(--floor-muted); }
+body.shop-mode .due-none, #truck .due-none { padding: 10px 12px 0; font: 600 15px var(--cond); letter-spacing: .04em; text-transform: uppercase; color: var(--floor-muted); }
 body.shop-mode .group-yardWork::before { background: var(--floor-red); }
 body.shop-mode .group-quiet::before { background: var(--floor-track); }
 body.shop-mode .group-away::before { background: var(--floor-yellow); }
 
 /* Shop cards open the truck's page (Record work is there) */
 body.shop-mode .shop-card { padding-bottom: 12px; }
-body.shop-mode #truck .btn-log { margin: 14px 0 4px; min-height: 58px; font: 800 22px var(--cond); letter-spacing: .1em; text-transform: uppercase; }
-body.shop-mode #truck .shop-signals { display: flex; flex-wrap: wrap; padding: 4px 0 0; }
-body.shop-mode #truck .shop-oos, body.shop-mode #truck .fault-line, body.shop-mode #truck .due-line,
-body.shop-mode #truck .due-none, body.shop-mode #truck .due-more { padding-left: 0; padding-right: 0; }
-body.shop-mode #truck .section-title { margin: 18px 0 2px; text-transform: uppercase; }
-body.shop-mode #truck .item { margin-top: 8px; padding: 8px 10px; background: var(--floor-paper); }
+#truck .btn-log { margin: 14px 0 4px; min-height: 58px; font: 800 22px var(--cond); letter-spacing: .1em; text-transform: uppercase; }
+#truck .shop-signals { display: flex; flex-wrap: wrap; padding: 4px 0 0; }
+#truck .shop-oos, #truck .fault-line, #truck .due-line,
+#truck .due-none, #truck .due-more { padding-left: 0; padding-right: 0; }
+#truck .section-title { margin: 18px 0 2px; text-transform: uppercase; }
+#truck .item { margin-top: 8px; padding: 8px 10px; background: var(--floor-paper); }
 .shop-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .shop-record { font: inherit; font-size: 13px; font-weight: 700; padding: 6px 10px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface); color: var(--accent); cursor: pointer; white-space: nowrap; }
 body.shop-mode .shop-record { font: 800 14px var(--cond); letter-spacing: .06em; text-transform: uppercase; padding: 7px 10px; border: none; border-radius: 0; background: #111; color: var(--floor-yellow); }
@@ -1088,9 +1088,9 @@ body.shop-mode .section-count { font: 700 15px var(--mono); border-radius: 0; ba
 body.shop-mode .section-chevron { font-size: 18px; }
 /* Calmer cards: gray for emissions / protect lamps; a code without a STOP lamp isn't red */
 .sig-minor { background: var(--floor-track, #e5e7eb); color: var(--floor-ink, #111); }
-body.shop-mode .sig-minor { background: var(--floor-track); color: var(--floor-ink); }
-body.shop-mode .fault-line.fault-soft { color: var(--floor-ink); font-weight: 600; }
-body.shop-mode .fault-line.fault-soft::before { background: var(--floor-ink); }
+body.shop-mode .sig-minor, #truck .sig-minor { background: var(--floor-track); color: var(--floor-ink); }
+body.shop-mode .fault-line.fault-soft, #truck .fault-line.fault-soft { color: var(--floor-ink); font-weight: 600; }
+body.shop-mode .fault-line.fault-soft::before, #truck .fault-line.fault-soft::before { background: var(--floor-ink); }
 
 /* Record work: "What did you do?" tiles */
 .work-parts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -1106,3 +1106,8 @@ body.shop-mode .fault-line.fault-soft::before { background: var(--floor-ink); }
 .work-service { display: grid; gap: 6px; }
 .work-service .section-title { margin: 10px 0 0; }
 .work-service > p { margin: 0; font-size: 13px; }
+
+/* One truck page: admin's folded extras */
+.truck-more { margin-top: 18px; border-top: 2px solid var(--floor-line, var(--border)); padding-top: 6px; }
+.truck-more > summary { cursor: pointer; padding: 10px 0; }
+#t-body > .btn-log { margin-top: 14px; }

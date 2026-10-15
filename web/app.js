@@ -255,7 +255,7 @@ function render() {
     th.dataset.dir = sortDir === 1 ? 'asc' : 'desc';
   }
 
-  if (openTruckId) (currentTab() === 'shop' ? renderShopTruck : renderTruck)(all.find((v) => v.id === openTruckId));
+  if (openTruckId) renderTruck(all.find((v) => v.id === openTruckId));
   if (openTrailerId) renderTrailer();
   renderSchedules();
   renderSetup();
@@ -985,77 +985,6 @@ function dueText(r) {
     : `Due ${limitingText(r)} (at ${parts.join(' or ')})`;
 }
 
-function renderTruck(v) {
-  if (!v) { $('truck').close(); return; }
-  $('t-title').textContent = v.name;
-  $('t-sub').textContent = [
-    [v.year, titleCase(v.make || ''), titleCase(v.model || '')].filter(Boolean).join(' '),
-    v.odometerMiles != null && `${fmt.format(v.odometerMiles)} mi`,
-  ].filter(Boolean).join(' · ');
-  $('t-close').textContent = 'Close';
-
-  const body = $('t-body');
-  body.replaceChildren();
-  const logBtn = el('button', 'btn btn-log', 'Record work');
-  logBtn.type = 'button';
-  logBtn.addEventListener('click', () => openWork(v.id));
-  body.append(logBtn);
-  if (v.shop) body.append(shopBanner(v));
-  const where = [v.here ? t('atShop') : v.location?.address, v.quiet != null && v.quiet >= QUIET_DAYS ? t('noSignal', v.quiet) : null].filter(Boolean);
-  if (where.length) body.append(el('p', 'muted truck-where', `📍 ${where.join(' · ')}`));
-  const fb = faultsBox(v);
-  if (fb) body.append(fb);
-  if (v.local) {
-    body.append(el('p', 'muted', 'Local truck: not in Samsara, so its miles only change when a service is logged.'));
-  }
-  if (!v.rows.length) {
-    body.append(el('p', 'muted', v.scheduleIds?.length
-      ? 'Loading… If this stays empty, the next sync will set it up.'
-      : v.local
-        ? 'No maintenance schedule yet. Add its year, make and model to apply one. Its service history is in the Log tab and the PDF.'
-        : 'No maintenance schedule matches this truck.'));
-    body.append(truckTiresSection(v));
-    if (!v.shop) body.append(shopButton(v));
-    if (v.vin) body.append(vinRow(v.vin));
-    return;
-  }
-
-  // 1. What needs doing, most urgent first.
-  const attention = v.rows.filter((r) => r.status === 'overdue' || r.status === 'soon');
-  const todo = el('section', 'todo');
-  todo.append(el('h3', 'section-title', attention.length ? `Needs attention (${attention.length})` : 'Nothing due'));
-  attention.forEach((r) => todo.append(itemRow(v, r, true)));
-  body.append(todo, truckTiresSection(v));
-
-  // 2. Everything else, grouped by schedule, behind one tap.
-  const rest = v.rows.filter((r) => !attention.includes(r));
-  const all = el('details', 'all-services');
-  all.append(el('summary', 'section-title', `All other services (${rest.length})`));
-  for (const scheduleId of v.scheduleIds) {
-    const schedule = schedules.get(scheduleId);
-    const items = rest.filter((r) => r.schedule.id === scheduleId);
-    if (!schedule || !items.length) continue;
-    const section = el('section', 'sched');
-    const head = el('div', 'sched-head');
-    const duty = v.rows.find((x) => x.schedule.id === scheduleId)?.duty;
-    const h3 = el('h3');
-    h3.append(categoryTag(schedule), el('span', null, duty ? `${schedule.name} · ${dutyLabel(schedule.dutyModel, duty)}` : schedule.name));
-    head.append(h3);
-    const link = el('a', 'muted', 'Manual');
-    Object.assign(link, { href: schedule.sourceUrl, target: '_blank', rel: 'noopener' });
-    head.append(link);
-    section.append(head);
-    items.forEach((r) => section.append(itemRow(v, r)));
-    all.append(section);
-  }
-  body.append(all);
-
-  // 3. How the truck is used (duty cycle), compact.
-  const models = truckDutyModels(v);
-  if (models.length) body.append(dutySection(v, models));
-  if (!v.shop) body.append(shopButton(v));
-  if (v.vin) body.append(vinRow(v.vin));
-}
 
 // "VIN 1FUJ… [Copy VIN]": copies the VIN for parts orders, insurance, etc.
 function vinRow(vin) {
@@ -1130,7 +1059,7 @@ function shopButton(v) {
   return btn;
 }
 
-function itemRow(v, r, showSchedule = false) {
+function itemRow(v, r, showSchedule = false, { button = true } = {}) {
   const li = el('div', `item item-${r.status}`);
   const top = el('div', 'item-top');
   const name = el('div', 'item-name');
@@ -1151,7 +1080,7 @@ function itemRow(v, r, showSchedule = false) {
     details.append(ul);
     li.append(details);
   }
-  if (r.status !== 'as-needed') {
+  if (button && r.status !== 'as-needed') {
     // Opens "Record work" with this item ticked, so every save goes through one form.
     const btn = el('button', 'btn btn-done', 'Record work');
     btn.type = 'button';
@@ -1301,7 +1230,6 @@ function renderShop() {
   $('shop-title').textContent = vehicles.length ? (needWork ? t('shopCount', needWork) : t('shopEmpty')) : t('shopTitle');
   $('shop-count').textContent = [inYard ? t('inYardCount', inYard) : null, updated].filter(Boolean).join(' · ');
   $('shop-cards').replaceChildren(...sectionList('trucks', trucks, t('groups'), shopCard));
-  $('shop-other').textContent = t('anotherTruck');
 }
 
 // Trailers side: every trailer, in the yard first, then on the road, then the
@@ -1348,8 +1276,8 @@ function trailerCard({ c, status, worn, group }) {
   if ((group === 'away' || group === 'road') && c.location) info.append(el('span', 'trailer-where', c.location));
   if (group === 'quiet') info.append(el('span', 'trailer-where', t('noSignal', quietDays(c.lastReportedAt) ?? 7)));
   card.append(el('span', 'trailer-name', c.name), info, el('span', 'trailer-go', '›'));
-  card.setAttribute('aria-label', `${t('trailerWork')}: ${c.name}`);
-  card.addEventListener('click', () => openTrailerWork(c.id));
+  card.setAttribute('aria-label', `${t('trailer')} ${c.name}`);
+  card.addEventListener('click', () => openTrailer(c.id));
   return card;
 }
 
@@ -1396,10 +1324,12 @@ function shopCard({ v, due }) {
   return card;
 }
 
-// The truck's page from the shop view: what's wrong, what's due, recent work,
-// and the one Record work button. (Admin has its own, fuller page.)
-function renderShopTruck(v) {
+// The truck's page, the same for the shop and admin: what's wrong, what's due,
+// the Record work button, tires, recent work. Admin also gets a folded
+// "More details" with every service, how it's used, out of service and the VIN.
+function renderTruck(v) {
   if (!v) { $('truck').close(); return; }
+  const admin = currentTab() !== 'shop';
   $('t-title').textContent = v.name;
   $('t-sub').textContent = [
     [v.year, titleCase(v.make || ''), titleCase(v.model || '')].filter(Boolean).join(' '),
@@ -1408,32 +1338,41 @@ function renderShopTruck(v) {
   $('t-close').textContent = t('close');
   const body = $('t-body');
   body.replaceChildren();
+
+  // Where it is and its flags.
   const badges = signalBadges(v);
   if (badges.length) {
     const row = el('div', 'shop-signals');
     row.append(...badges);
     body.append(row);
   }
-  if (v.shop) body.append(el('div', 'shop-oos', [t('outOfService'), v.shop.reason].filter(Boolean).join(' · ')));
+  if (v.shop) {
+    body.append(admin ? shopBanner(v) : el('div', 'shop-oos', [t('outOfService'), v.shop.reason].filter(Boolean).join(' · ')));
+  }
   if (!v.here && v.location?.address) body.append(el('p', 'muted truck-where', `📍 ${v.location.address}`));
+
+  // 1. What's wrong.
+  const codes = v.faults?.major ?? [];
+  if (codes.length) {
+    body.append(el('h3', 'section-title', t('activeFaults')));
+    codes.forEach((c) => body.append(el('div', `fault-line${v.faults?.stop ? '' : ' fault-soft'}`, codeText(c))));
+    const minor = v.faults?.minor?.length ?? 0;
+    if (minor) body.append(el('div', 'due-more', t('minorCodes', minor)));
+  }
+  // 2. What's due.
+  body.append(el('h3', 'section-title', t('dueHere')));
+  const due = v.rows.filter(DUE);
+  if (due.length) due.forEach((r) => body.append(dueLine(r)));
+  else body.append(el('div', 'due-none', v.rows.length ? t('nothingDue') : t('noSchedule')));
+  if (v.local) body.append(el('p', 'item-meta', t('localTruck')));
+  // 3. The one button.
   const logBtn = el('button', 'btn btn-log', t('logWork'));
   logBtn.type = 'button';
   logBtn.addEventListener('click', () => openWork(v.id));
   body.append(logBtn);
-
-  const codes = v.faults?.major ?? [];
-  if (codes.length) {
-    body.append(el('h3', 'section-title', t('activeFaults')));
-    codes.forEach((c) => body.append(el('div', 'fault-line', codeText(c))));
-    const minor = v.faults?.minor?.length ?? 0;
-    if (minor) body.append(el('div', 'due-more', t('minorCodes', minor)));
-  }
-  const due = v.rows.filter(DUE);
-  body.append(el('h3', 'section-title', t('dueHere')));
-  if (due.length) due.forEach((r) => body.append(dueLine(r)));
-  else body.append(el('div', 'due-none', t('nothingDue')));
-
+  // 4. Tires.
   body.append(truckTiresSection(v));
+  // 5. Recent work.
   body.append(el('h3', 'section-title', t('recentWork')));
   const visits = [...(visitsByTruck.get(v.id) ?? [])].filter((e) => e.type !== 'duty')
     .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.miles ?? 0) - (a.miles ?? 0)).slice(0, 5);
@@ -1446,6 +1385,44 @@ function renderShopTruck(v) {
     item.append(name, el('div', 'item-meta', [e.date ? dateText(e.date) : null, e.miles != null && `${fmt.format(Math.round(e.miles))} mi`].filter(Boolean).join(' · ')));
     body.append(item);
   }
+  if (!admin) return;
+
+  // Admin: everything else, folded.
+  const more = el('details', 'truck-more');
+  more.append(el('summary', 'section-title', t('moreDetails')));
+  if (v.rows.length) {
+    const all = el('details', 'all-services');
+    all.append(el('summary', 'section-title', `All services (${v.rows.length})`));
+    for (const scheduleId of v.scheduleIds) {
+      const schedule = schedules.get(scheduleId);
+      const items = v.rows.filter((r) => r.schedule.id === scheduleId);
+      if (!schedule || !items.length) continue;
+      const section = el('section', 'sched');
+      const head = el('div', 'sched-head');
+      const duty = items[0]?.duty;
+      const h3 = el('h3');
+      h3.append(categoryTag(schedule), el('span', null, duty ? `${schedule.name} · ${dutyLabel(schedule.dutyModel, duty)}` : schedule.name));
+      head.append(h3);
+      const link = el('a', 'muted', 'Manual');
+      Object.assign(link, { href: schedule.sourceUrl, target: '_blank', rel: 'noopener' });
+      head.append(link);
+      section.append(head);
+      items.forEach((r) => section.append(itemRow(v, r, false, { button: false })));
+      all.append(section);
+    }
+    more.append(all);
+  } else if (v.scheduleIds?.length) {
+    more.append(el('p', 'muted', 'Loading… If this stays empty, the next sync will set it up.'));
+  } else {
+    more.append(el('p', 'muted', v.local
+      ? 'No maintenance schedule yet. Add its year, make and model to apply one.'
+      : 'No maintenance schedule matches this truck.'));
+  }
+  const models = truckDutyModels(v);
+  if (models.length) more.append(dutySection(v, models));
+  if (!v.shop) more.append(shopButton(v));
+  if (v.vin) more.append(vinRow(v.vin));
+  body.append(more);
 }
 
 // ---- Record work ----------------------------------------------------------------
@@ -1952,7 +1929,7 @@ function renderTrailer() {
   for (const e of entries.slice(0, 20)) {
     const item = el('div', 'item');
     const name = el('div', 'item-name');
-    if (e.type === 'repair') name.append(el('span', 'badge badge-repair', 'Repair'), ' ');
+    if (e.type === 'repair') name.append(el('span', 'badge badge-repair', t('repair')), ' ');
     name.append(el('span', null, e.itemName));
     item.append(name, el('div', 'item-meta', [dateText(e.date), e.miles != null && `${fmt.format(Math.round(e.miles))} mi`,
       e.loggedBy, e.note].filter(Boolean).join(' · ')));
@@ -2324,7 +2301,6 @@ $('shop-tr-search').addEventListener('input', () => renderShopTrailers());
 $('w-close').addEventListener('click', () => $('work').close());
 $('work').addEventListener('close', () => { work = null; });
 $('log-add').addEventListener('click', () => openWork(null));
-$('shop-other').addEventListener('click', () => openWork(null));
 // Clicking the dimmed backdrop closes the dialog.
 $('truck').addEventListener('click', (e) => { if (e.target === $('truck')) $('truck').close(); });
 for (const th of document.querySelectorAll('th[data-sort]')) {
