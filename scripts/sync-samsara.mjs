@@ -22,6 +22,7 @@ import {
 } from './schedules.mjs';
 import { WINDOW_DAYS, classify, metricsFromReport, nextState } from './duty.mjs';
 import { addGpsMiles, pointsByTrailer } from './trailer-miles.mjs';
+import { missingTireStarts } from '../web/truck-tires.js';
 import {
   METERS_PER_MILE, dailyField, faultsFromStats, locationFromStats, samsaraGetAll,
 } from './samsara.mjs';
@@ -211,7 +212,7 @@ const dailyReadings = (fleet) => fleet
   .map((v) => ({ id: v.id, day: v.odometerTime.slice(0, 10), reading: { miles: v.odometerMiles, hours: v.engineHours, at: v.odometerTime } }));
 
 // Writes with admin credentials, which bypass the Firestore rules.
-async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccountJson, trailerMiles = {}) {
+async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccountJson, trailerMiles = {}, tireStarts = {}) {
   const { initializeApp, cert } = await import('firebase-admin/app');
   const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
 
@@ -256,6 +257,7 @@ async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, s
     batch.delete(db.collection('trailers').doc(id));
   }
   for (const [id, d] of Object.entries(trailerMiles)) batch.set(db.collection('trailerMiles').doc(id), d);
+  for (const [id, d] of Object.entries(tireStarts)) batch.set(db.collection('truckTires').doc(id), d);
   for (const schedule of scheduleDocs()) {
     batch.set(db.collection('maintenanceSchedules').doc(schedule.id), schedule);
   }
@@ -274,7 +276,7 @@ async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, s
 }
 
 // Writes with the public web API key (see firestore-rest.mjs).
-async function writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles = {}) {
+async function writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles = {}, tireStarts = {}) {
   const baselines = missingBaselines(fleet, await listDocs('serviceRecords'));
   const duty = metricsById
     ? classifyFleet(fleet, metricsById, await listDocs('dutyCycles'))
@@ -293,6 +295,7 @@ async function writeWithPublicApi(fleet, staleIds, trailers, metricsById, traile
     ...trailers.active.map((c) => setWrite(`trailers/${c.id}`, c, 'updatedAt')),
     ...trailers.staleIds.map((id) => deleteWrite(`trailers/${id}`)),
     ...Object.entries(trailerMiles).map(([id, d]) => setWrite(`trailerMiles/${id}`, d)),
+    ...Object.entries(tireStarts).map(([id, d]) => setWrite(`truckTires/${id}`, d)),
     ...scheduleDocs().map((sch) => setWrite(`maintenanceSchedules/${sch.id}`, sch)),
     setWrite('meta/schedules', assignmentsDoc()),
     ...allowedEmails().map((email) => setWrite(`allowedUsers/${email}`, { email })),
@@ -352,6 +355,14 @@ const trailerMiles = await trailerMilesDocs(trailers.active).catch((err) => {
 const moved = Object.values(trailerMiles).filter((d) => d.miles > 0).length;
 console.log(`Trailer miles: ${Object.keys(trailerMiles).length} trailer(s), ${moved} with miles since tracking began`);
 
+// Truck tire miles count from each truck's odometer the first time it's seen
+// (best-effort too). Existing starts are never changed.
+const tireStarts = await listDocs('truckTires').then((existing) => missingTireStarts(fleet, existing)).catch((err) => {
+  console.warn(`Skipping truck tire starts: ${err.message}`);
+  return {};
+});
+console.log(`Truck tire tracking: ${Object.keys(tireStarts).length} new start(s)`);
+
 if (dryRun) {
   const { docs } = metricsById ? classifyFleet(fleet, metricsById, {}) : { docs: {} };
   console.table(
@@ -367,8 +378,8 @@ if (dryRun) {
 } else {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
   const { baselines, dutyChanges, dutyClassified } = serviceAccount
-    ? await writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccount, trailerMiles)
-    : await writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles);
+    ? await writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccount, trailerMiles, tireStarts)
+    : await writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles, tireStarts);
   console.log(`Classified duty cycles for ${dutyClassified} truck(s); ${dutyChanges.length} change(s)`);
   for (const c of dutyChanges) console.log(`  ${c.vehicleName}: ${c.itemName} (${c.note})`);
   const added = Object.values(baselines).reduce((n, items) => n + Object.keys(items).length, 0);

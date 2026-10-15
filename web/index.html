@@ -192,10 +192,12 @@
         </section>
         <section class="setup">
           <form id="tires-form" class="setting company">
-            <div class="setting-title">Trailer tires</div>
-            <p class="muted">A trailer shows as needing work in the shop view when a tire position has run this many miles since it was changed.</p>
-            <label class="field"><span>Miles limit per tire</span><input id="tire-limit" type="number" inputmode="numeric" min="10000" max="300000" step="1000" required></label>
-            <button class="btn" type="submit">Save tire limit</button>
+            <div class="setting-title">Tire limits</div>
+            <p class="muted">A truck or trailer shows as needing service in the shop view when a tire position has run this many miles since it was changed. These are "check the tread" reminders.</p>
+            <label class="field"><span>Truck steer tires (miles)</span><input id="tire-limit-steer" type="number" inputmode="numeric" min="10000" max="500000" step="1000" required></label>
+            <label class="field"><span>Truck drive tires (miles)</span><input id="tire-limit-drive" type="number" inputmode="numeric" min="10000" max="500000" step="1000" required></label>
+            <label class="field"><span>Trailer tires (miles)</span><input id="tire-limit" type="number" inputmode="numeric" min="10000" max="500000" step="1000" required></label>
+            <button class="btn" type="submit">Save tire limits</button>
           </form>
         </section>
         <section id="fleet-setup" class="setup" hidden>

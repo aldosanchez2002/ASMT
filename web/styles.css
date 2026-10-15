@@ -1070,3 +1070,10 @@ dialog#admin-lock::backdrop { background: rgba(0, 0, 0, .55); }
 .vin-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 18px 0 4px; padding-top: 12px; border-top: 1px solid var(--border); }
 .vin-text { font: 700 14px var(--mono, monospace); letter-spacing: .02em; overflow-wrap: anywhere; }
 .vin-copy { flex: none; min-height: 40px; padding: 0 14px; }
+.tire-pair.single { grid-template-columns: 1fr; }
+
+/* Truck tires */
+.tire-worn-line { font-size: 14px; font-weight: 700; color: var(--red); }
+body.shop-mode .tire-worn-line { padding: 10px 12px 0; color: var(--floor-red); font-size: 15px; }
+.truck-tires { margin-top: 14px; }
+.tire-work-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
