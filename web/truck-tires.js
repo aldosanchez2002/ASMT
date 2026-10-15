@@ -9,8 +9,8 @@ export const TRUCK_TIRE_POSITIONS = ['SL', 'SR', '1LO', '1LI', '1RI', '1RO', '2L
 export const isSteer = (pos) => STEER.includes(pos);
 
 // "Check the tread" defaults; both can be changed in Settings.
-export const STEER_MILES_LIMIT = 80000;
-export const DRIVE_MILES_LIMIT = 150000;
+export const STEER_MILES_LIMIT = 100000;
+export const DRIVE_MILES_LIMIT = 200000;
 
 const LABELS = {
   en: { steer: 'Steer', drive: 'Drive', L: 'left', R: 'right', O: 'outer', I: 'inner' },

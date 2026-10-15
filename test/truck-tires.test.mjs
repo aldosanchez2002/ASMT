@@ -29,7 +29,7 @@ test('no tracking start and no record: miles unknown', () => {
 
 test('steer and drive limits are separate', () => {
   const s = truckTireStatus([], 600000, { startedAt: '2026-10-15', startMiles: 500000 }); // 100,000 mi on every tire
-  assert.deepEqual(truckTiresOverLimit(s), ['SL', 'SR']); // steer 80k, drive 150k
+  assert.deepEqual(truckTiresOverLimit(s), ['SL', 'SR']); // steer 100k, drive 200k
   assert.equal(truckTiresOverLimit(s, { steer: 120000, drive: 90000 }).length, 8);
 });
 
