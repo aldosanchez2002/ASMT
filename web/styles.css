@@ -1167,3 +1167,14 @@ body.shop-mode .fault-line.fault-soft::before, #truck .fault-line.fault-soft::be
 #settings-view .choice-pair button.active { background: #111; border-color: #111; color: var(--floor-yellow); }
 #settings-view .setting-help { margin: 0; font-size: 13px; color: var(--floor-muted, var(--muted)); }
 #settings-view .settings-save { width: 100%; min-height: 50px; margin-top: 12px; }
+
+/* Done today */
+.shop-today { margin-top: 22px; }
+.today-row { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "unit meta" "what what"; gap: 2px 10px; width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.today-unit { grid-area: unit; font-weight: 800; }
+.today-meta { grid-area: meta; justify-self: end; font-size: 13px; color: var(--muted); }
+.today-what { grid-area: what; font-size: 14px; }
+body.shop-mode .today-title::before { background: #2e7d32; }
+body.shop-mode .today-row { border: 2px solid var(--floor-line); border-left: 8px solid #2e7d32; border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); }
+body.shop-mode .today-unit { font: 800 22px/1 var(--cond); }
+body.shop-mode .today-meta { font: 700 13px var(--mono); color: var(--floor-muted); }

@@ -1225,6 +1225,7 @@ function renderShop() {
   $('shop-trailers').hidden = shopSide !== 'trailers';
   const updated = lastSyncIso ? t('updated', agoText(lastSyncIso)) : '';
   $('shop-count').textContent = updated;
+  renderToday();
   if (shopSide === 'trailers') {
     $('shop-title').textContent = trailers.length ? t('trailersNeed', trailersNeedWork) : t('trailersTitle');
     $('shop-count').textContent = [yardTrailers ? t('inYardCount', yardTrailers) : null, updated].filter(Boolean).join(' · ');
@@ -1235,6 +1236,31 @@ function renderShop() {
   $('shop-title').textContent = vehicles.length ? (needWork ? t('shopCount', needWork) : t('shopEmpty')) : t('shopTitle');
   $('shop-count').textContent = [inYard ? t('inYardCount', inYard) : null, updated].filter(Boolean).join(' · ');
   $('shop-cards').replaceChildren(...sectionList('trucks', trucks, t('groups'), shopCard));
+}
+
+// "Done today" at the bottom of the shop list: the work recorded today, newest
+// first, so mechanics see it counted and nobody records the same job twice.
+function renderToday() {
+  const box = $('shop-today');
+  const now = new Date();
+  const today = now.toLocaleDateString('en-CA');
+  const isToday = (e) => (e.loggedAtMs ? new Date(e.loggedAtMs).toLocaleDateString('en-CA') === today : e.source === 'app' && e.date === today);
+  const done = serviceLog.filter((e) => e.type !== 'duty' && isToday(e))
+    .sort((a, b) => (b.loggedAtMs || Infinity) - (a.loggedAtMs || Infinity));
+  box.hidden = !done.length;
+  if (!done.length) { box.replaceChildren(); return; }
+  box.replaceChildren(el('h3', 'shop-group today-title', t('doneToday', done.length)), ...done.map((e) => {
+    const row = el('button', 'today-row');
+    row.type = 'button';
+    const time = e.loggedAtMs ? new Date(e.loggedAtMs).toLocaleTimeString(getLang() === 'es' ? 'es-MX' : 'en-US', { hour: 'numeric', minute: '2-digit' }) : '…';
+    const what = el('span', 'today-what', e.type === 'repair' ? `${t('repair')}: ${e.itemName ?? ''}` : e.itemName ?? '');
+    row.append(el('span', 'today-unit', e.vehicleName ?? ''), what, el('span', 'today-meta', [time, e.loggedBy].filter(Boolean).join(' · ')));
+    row.addEventListener('click', () => {
+      if (e.assetType === 'trailer') openTrailer(e.vehicleId);
+      else if (vehicles.some((v) => v.id === e.vehicleId)) openTruck(e.vehicleId);
+    });
+    return row;
+  }));
 }
 
 // Trailers side: every trailer, in the yard first, then on the road, then the
@@ -1497,6 +1523,29 @@ function workSummary(v, keys) {
   return parts.join(', ');
 }
 
+// What's next after a save, worked out as if the new visit were already in
+// the log: the soonest of the items just done, or, for tires only, when the
+// new tires reach their limit. Shown in the "Saved" bar.
+function nextAfterSave(v, keys, miles, date, tires = []) {
+  if (keys.length) {
+    const visits = [...(visitsByTruck.get(v.id) ?? []), { date, miles, services: keys }];
+    const last = lastDoneFrom(visits, records[v.id]?.items);
+    const rows = truckMaintenance({ ...v, odometerMiles: Math.max(v.odometerMiles ?? 0, miles) }, schedules, last, new Date(), settings(), dutyModels(), dutyDocs[v.id])
+      .filter((r) => keys.includes(r.key) && (r.dueMiles != null || r.dueDate));
+    const soonest = rows.sort((a, b) => (a.urgency ?? Infinity) - (b.urgency ?? Infinity))[0];
+    if (soonest) {
+      const when = [soonest.dueMiles != null && `${fmt.format(soonest.dueMiles)} mi`, soonest.dueDate && dateText(soonest.dueDate)].filter(Boolean).join(t('or'));
+      return t('nextDue', shownName(soonest.item.name), when);
+    }
+  }
+  if (tires.length) {
+    const limits = truckTireLimits();
+    const first = Math.min(...tires.map((p) => limitFor(p, limits)));
+    return t('nextTires', fmt.format(miles + first));
+  }
+  return '';
+}
+
 function openWork(vehicleId, { keys = [] } = {}) {
   work = {
     vehicleId, jobs: new Set(), extra: new Set(keys), unticked: new Set(), days: null,
@@ -1660,7 +1709,7 @@ function buildWork() {
   const date = Object.assign(el('input'), { type: 'date', required: true, max: today, value: today });
   const hours = Object.assign(el('input'), { type: 'number', min: 0, inputMode: 'numeric', value: v.engineHours ?? '' });
   const note = Object.assign(el('input'), { type: 'text', placeholder: t('notePlaceholder') });
-  const who = Object.assign(el('input'), { type: 'text', placeholder: t('yourName'), value: rememberedName(), autocomplete: 'name' });
+  const who = loggedByField();
 
   const fixed = (label, input, textFor) => {
     const wrap = el('div', 'field fixed-field');
@@ -1727,7 +1776,7 @@ function buildWork() {
   // Engine hours are wrong on several trucks in Samsara; mechanics don't need them.
   if (!shopMode) details.append(field(t('hours'), hours));
   const wide = (f) => { f.classList.add('wide'); return f; };
-  details.append(wide(field(t('note'), note)), wide(field(t('loggedBy'), who)));
+  details.append(wide(field(t('note'), note)), who.wrap);
 
   const error = el('p', 'form-error');
   error.hidden = true;
@@ -1773,7 +1822,7 @@ function buildWork() {
 
     save.disabled = true;
     save.textContent = t('saving');
-    const loggedBy = who.value.trim();
+    const loggedBy = who.value();
     if (loggedBy) rememberName(loggedBy);
     const common = {
       vehicleId: v.id,
@@ -1822,8 +1871,9 @@ function buildWork() {
       await batch.commit();
       const summary = [keys.length || jobsDone ? workSummary(v, keys) : null, doRepair ? t('repairWord') : null,
         tires.length ? t('tiresSection').toLowerCase() : null].filter(Boolean).join(' + ');
+      const next = nextAfterSave(v, keys, m, date.value, tires);
       $('work').close();
-      showUndo(t('saved', v.name, summary), async () => {
+      showUndo([t('saved', v.name, summary), next].filter(Boolean).join(' · '), async () => {
         const undo = writeBatch(db);
         refs.forEach((ref) => undo.delete(ref));
         if (oldMiles && m > (oldMiles.odometerMiles ?? -1)) undo.set(doc(db, 'vehicles', v.id), oldMiles, { merge: true });
@@ -1899,55 +1949,63 @@ function tireDiagram(status, {
 // creatable combobox: type or pick from the list, and a brand typed for the
 // first time joins the list once the record is saved (the list is every
 // brand already in the service log, most used first).
-function savedBrands() {
-  const counts = new Map(); // lowercase -> { name, n }
+const savedBrands = () => savedValues((e) => Object.values(e.tireBrands ?? {}));
+
+// Compare names ignoring case, extra spaces and accents ("hector" = "Héctor").
+const plainName = (x) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+const sameName = (a, b) => plainName(a) === plainName(b);
+
+// A typed value in the list's spelling ("michelin" -> "Michelin"); a new one
+// tidied up (extra spaces, all-lowercase words capitalized).
+function canonicalName(typed, list) {
+  const clean = typed.trim().replace(/\s+/g, ' ');
+  const known = list.find((x) => sameName(x, clean));
+  if (known) return known;
+  return clean === clean.toLowerCase() ? clean.replace(/(^|\s)(\p{L})/gu, (m, sp, ch) => sp + ch.toUpperCase()) : clean;
+}
+const canonicalBrand = (typed, list = savedBrands()) => canonicalName(typed, list);
+
+// Most-used-first list of the values in a service log field (tire brands, names).
+function savedValues(valuesOf) {
+  const counts = [];
   for (const e of serviceLog) {
-    for (const name of Object.values(e.tireBrands ?? {})) {
-      const key = name.trim().toLowerCase();
-      if (!key) continue;
-      const c = counts.get(key) ?? { name: name.trim(), n: 0 };
-      c.n += 1;
-      counts.set(key, c);
+    for (const raw of valuesOf(e)) {
+      const name = String(raw ?? '').trim().replace(/\s+/g, ' ');
+      if (!name) continue;
+      const c = counts.find((x) => sameName(x.name, name));
+      if (c) c.n += 1; else counts.push({ name, n: 1 });
     }
   }
-  return [...counts.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)).map((c) => c.name);
+  return counts.sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)).map((c) => c.name);
 }
 
-// A typed brand in the list's spelling ("michelin" -> "Michelin"); a new one
-// tidied up (extra spaces, all-lowercase words capitalized).
-function canonicalBrand(typed, list = savedBrands()) {
-  const clean = typed.trim().replace(/\s+/g, ' ');
-  const known = list.find((b) => b.toLowerCase() === clean.toLowerCase());
-  if (known) return known;
-  return clean === clean.toLowerCase() ? clean.replace(/\b\w/g, (ch) => ch.toUpperCase()) : clean;
-}
-
-function brandCombo(value, onChange) {
+// A creatable combobox: type, or pick from `options()`; a value typed for the
+// first time joins the list once a record with it is saved.
+function combo(value, onChange, { options, placeholder, newText, emptyText }) {
   const wrap = el('div', 'combo');
-  const input = Object.assign(el('input'), { type: 'text', value, placeholder: t('brand'), autocomplete: 'off' });
+  const input = Object.assign(el('input'), { type: 'text', value, placeholder, autocomplete: 'off' });
   input.setAttribute('role', 'combobox');
   input.setAttribute('aria-expanded', 'false');
   const toggle = Object.assign(el('button', 'combo-toggle', '▾'), { type: 'button', tabIndex: -1 });
-  toggle.setAttribute('aria-label', t('brand'));
+  toggle.setAttribute('aria-label', placeholder);
   const list = el('div', 'combo-list');
   list.setAttribute('role', 'listbox');
   list.hidden = true;
   const set = (v) => { input.value = v; onChange(v); };
   function draw() {
-    const q = input.value.trim().toLowerCase();
-    const brands = savedBrands();
-    const matches = brands.filter((b) => !q || b.toLowerCase().includes(q));
+    const q = input.value.trim();
+    const all = options();
+    const matches = all.filter((x) => !q || plainName(x).includes(plainName(q)));
     list.replaceChildren();
-    for (const b of matches) {
-      const opt = Object.assign(el('button', 'combo-option', b), { type: 'button' });
+    for (const x of matches) {
+      const opt = Object.assign(el('button', 'combo-option', x), { type: 'button' });
       opt.setAttribute('role', 'option');
       opt.addEventListener('mousedown', (e) => e.preventDefault()); // keep the keyboard up
-      opt.addEventListener('click', () => { set(b); close(); });
+      opt.addEventListener('click', () => { set(x); close(); });
       list.append(opt);
     }
-    // Typed something new: it's saved as a new brand with the record.
-    if (q && !brands.some((b) => b.toLowerCase() === q)) list.append(el('div', 'combo-new', t('newBrand', canonicalBrand(input.value, brands))));
-    if (!list.childElementCount) list.append(el('div', 'combo-new', t('noBrandsYet')));
+    if (q && !all.some((x) => sameName(x, q))) list.append(el('div', 'combo-new', newText(canonicalName(q, all))));
+    if (!list.childElementCount) list.append(el('div', 'combo-new', emptyText));
   }
   function open() { draw(); list.hidden = false; input.setAttribute('aria-expanded', 'true'); }
   function close() { list.hidden = true; input.setAttribute('aria-expanded', 'false'); }
@@ -1962,6 +2020,24 @@ function brandCombo(value, onChange) {
   toggle.addEventListener('click', () => { if (list.hidden) { input.focus(); open(); } else close(); });
   wrap.append(input, toggle, list);
   return { wrap, input };
+}
+
+const brandCombo = (value, onChange) => combo(value, onChange, {
+  options: savedBrands, placeholder: t('brand'), newText: (b) => t('newBrand', b), emptyText: t('noBrandsYet'),
+});
+
+// "Logged by": the names already in the log, most used first; this phone's
+// last name is filled in.
+const savedNames = () => savedValues((e) => [e.loggedBy]);
+function loggedByField() {
+  const state = { value: rememberedName() };
+  const c = combo(state.value, (v) => { state.value = v; }, {
+    options: savedNames, placeholder: t('yourName'), newText: (n) => t('newName', n), emptyText: t('noNamesYet'),
+  });
+  const wrap = el('div', 'field wide');
+  wrap.append(el('span', null, t('loggedBy')), c.wrap);
+  // The name as saved: in the list's spelling when it's someone already there.
+  return { wrap, value: () => (state.value.trim() ? canonicalName(state.value, savedNames()) : '') };
 }
 
 function brandFields(order, nameOf, brands) {
@@ -2110,10 +2186,10 @@ function buildTrailerWork() {
   // 3. When and who.
   const date = Object.assign(el('input'), { type: 'date', required: true, max: today, value: today });
   const note = Object.assign(el('input'), { type: 'text', placeholder: t('notePlaceholder') });
-  const who = Object.assign(el('input'), { type: 'text', placeholder: t('yourName'), value: rememberedName(), autocomplete: 'name' });
+  const who = loggedByField();
   const wide = (f) => { f.classList.add('wide'); return f; };
   const details = el('div', 'work-details');
-  details.append(wide(field(t('date'), date)), wide(field(t('note'), note)), wide(field(t('loggedBy'), who)));
+  details.append(wide(field(t('date'), date)), wide(field(t('note'), note)), who.wrap);
   const error = el('p', 'form-error');
   error.hidden = true;
   const cancel = Object.assign(el('button', 'btn btn-ghost btn-cancel', t('cancel')), { type: 'button' });
@@ -2143,7 +2219,7 @@ function buildTrailerWork() {
     if (date.value > today) return fail(t('errFuture'));
     save.disabled = true;
     save.textContent = t('saving');
-    const loggedBy = who.value.trim();
+    const loggedBy = who.value();
     if (loggedBy) rememberName(loggedBy);
     const common = {
       assetType: 'trailer',
