@@ -1456,7 +1456,7 @@ function workSummary(v, keys) {
 function openWork(vehicleId, { keys = [] } = {}) {
   work = {
     vehicleId, jobs: new Set(), extra: new Set(keys), unticked: new Set(), repair: false, days: null,
-    tires: new Set(), tireWork: 'replaced',
+    tires: new Set(),
   };
   buildWork();
   if (!$('work').open) $('work').showModal();
@@ -1552,19 +1552,9 @@ function buildWork() {
     save.textContent = n ? t('saveCount', n, v.name) : t('save');
   }
 
-  // Tires: tap the positions, then replaced or a flat repair (which doesn't
-  // restart the tire's miles).
+  // Tires: tap each position that was replaced (flats are replaced too).
   const tireBox = el('div', 'work-tires');
   function drawTires() {
-    const kinds = el('div', 'tire-work-kind');
-    kinds.setAttribute('role', 'radiogroup');
-    for (const kind of ['replaced', 'repaired']) {
-      const label = el('label', `check-row${work.tireWork === kind ? ' on' : ''}`);
-      const radio = Object.assign(el('input'), { type: 'radio', name: 'tire-work', checked: work.tireWork === kind });
-      radio.addEventListener('change', () => { work.tireWork = kind; drawTires(); });
-      label.append(radio, el('span', 'check-text', t(kind === 'replaced' ? 'tireReplaced' : 'tireRepaired')));
-      kinds.append(label);
-    }
     tireBox.replaceChildren(
       el('div', 'section-title', t('tiresSection')),
       el('p', 'muted', t('tapTruckTires')),
@@ -1573,7 +1563,6 @@ function buildWork() {
         onToggle: (pos) => { if (work.tires.has(pos)) work.tires.delete(pos); else work.tires.add(pos); drawTires(); refresh(); },
       }),
     );
-    if (work.tires.size) tireBox.append(kinds);
   }
 
   jobs.append(el('legend', 'section-title', t('whatDone')));
@@ -1746,10 +1735,9 @@ function buildWork() {
       const order = TRUCK_TIRE_POSITIONS.filter((p) => work.tires.has(p));
       const ref = doc(collection(db, 'serviceLog'));
       // Log text stays in English, like the other records.
-      const what = work.tireWork === 'replaced' ? 'Tires replaced' : 'Flat repair';
       batch.set(ref, {
-        ...common, type: 'tires', services: [], tires: order, tireWork: work.tireWork,
-        itemName: `${what}: ${order.map((p) => truckPositionName(p, 'en')).join(', ')}`,
+        ...common, type: 'tires', services: [], tires: order,
+        itemName: `Tires replaced: ${order.map((p) => truckPositionName(p, 'en')).join(', ')}`,
       });
       refs.push(ref);
     }

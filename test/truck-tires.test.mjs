@@ -13,9 +13,8 @@ test('10 positions with readable names', () => {
 
 test('tires count from their last replacement, or from the tracking start', () => {
   const entries = [
-    { tires: ['SL', 'SR'], tireWork: 'replaced', miles: 520000, date: '2026-11-01' },
-    { tires: ['SL'], tireWork: 'replaced', miles: 505000, date: '2026-10-20' },
-    { tires: ['1LO'], tireWork: 'repaired', miles: 510000, date: '2026-10-25' }, // a flat fix doesn't reset
+    { tires: ['SL', 'SR'], miles: 520000, date: '2026-11-01' },
+    { tires: ['SL'], miles: 505000, date: '2026-10-20' },
   ];
   const s = truckTireStatus(entries, 600000, { startedAt: '2026-10-15T12:00:00Z', startMiles: 500000 });
   assert.deepEqual([s.SL.miles, s.SL.since, s.SL.recorded], [80000, '2026-11-01', true]);

@@ -1,6 +1,7 @@
 // Truck tires: 10 positions on a 6x4 tractor (2 steer singles, two drive
 // axles with duals), tracked by position. A tire's miles are the truck's
-// odometer miles since the last record that replaced it, or since tracking
+// odometer miles since the last record that replaced it (flats are replaced
+// too, so every tire record is a replacement), or since tracking
 // began (the truckTires/{vehicleId} start, written by the sync). Plain ES module.
 
 export const STEER = ['SL', 'SR'];
@@ -25,8 +26,7 @@ export function truckPositionName(pos, lang = 'en') {
 
 /**
  * Where each tire position stands.
- * @param entries      the truck's service log entries; tire records have
- *                     `tires: [...]` and `tireWork: 'replaced' | 'repaired'`
+ * @param entries      the truck's service log entries; tire records have `tires: [...]`
  * @param currentMiles the truck's odometer now
  * @param start        truckTires doc ({ startedAt, startMiles }) or null
  * @returns { [pos]: { miles, since, recorded, entry } }; miles is null when
@@ -36,7 +36,7 @@ export function truckTireStatus(entries = [], currentMiles = null, start = null)
   const out = {};
   for (const pos of TRUCK_TIRE_POSITIONS) {
     const last = entries
-      .filter((e) => e.tireWork === 'replaced' && Array.isArray(e.tires) && e.tires.includes(pos) && e.miles != null)
+      .filter((e) => Array.isArray(e.tires) && e.tires.includes(pos) && e.miles != null)
       .sort((a, b) => b.miles - a.miles || (b.date ?? '').localeCompare(a.date ?? ''))[0];
     const from = last ? last.miles : start?.startMiles ?? null;
     out[pos] = {
