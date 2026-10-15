@@ -18,7 +18,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20 # room for the Samsara retries (30 s, 2 min, 5 min)
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

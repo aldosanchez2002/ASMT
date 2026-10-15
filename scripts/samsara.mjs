@@ -6,9 +6,10 @@ export const METERS_PER_MILE = 1609.344;
 
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
-// Samsara sometimes answers 504 / 503 / 429 for a moment (and connections
-// drop): try up to 4 times, waiting 2 s, 5 s, then 15 s (or what Retry-After says).
-const RETRY_WAITS_MS = [2000, 5000, 15000];
+// Samsara sometimes answers 504 / 503 / 429 for a while (and connections
+// drop): try up to 4 times, waiting 30 s, 2 min, then 5 min (or what
+// Retry-After says), so a short Samsara outage doesn't fail the sync.
+const RETRY_WAITS_MS = [30_000, 120_000, 300_000];
 export async function fetchWithRetry(url, headers, waits = RETRY_WAITS_MS) {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -17,7 +18,7 @@ export async function fetchWithRetry(url, headers, waits = RETRY_WAITS_MS) {
       if (!retryable || attempt >= waits.length) return res;
       const after = Number(res.headers.get('retry-after'));
       console.warn(`Samsara ${url.pathname}: ${res.status}, retrying (${attempt + 1}/${waits.length})`);
-      await sleep(Number.isFinite(after) && after > 0 ? Math.min(after * 1000, 60000) : waits[attempt]);
+      await sleep(Number.isFinite(after) && after > 0 ? Math.min(after * 1000, 300_000) : waits[attempt]);
     } catch (err) {
       if (attempt >= waits.length) throw err;
       console.warn(`Samsara ${url.pathname}: ${err.message}, retrying (${attempt + 1}/${waits.length})`);
