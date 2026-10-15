@@ -645,15 +645,17 @@ function renderSetup() {
   };
 
   $('setup-toggles').replaceChildren(...defs.map((d) => {
-    const row = el('div', 'setting');
-    const title = el('div', 'setting-title', d.question ?? d.label);
-    title.append(el('span', 'chip', d.appliesTo));
-    const seg = el('div', 'segmented choice');
+    // Same layout as every other setting: label (and what it applies to), the
+    // control (two equal buttons), then the help text.
+    const row = el('div', 'setting-row');
+    const label = el('div', 'setting-label', d.question ?? d.label);
+    label.append(el('span', 'chip', d.appliesTo));
+    const seg = el('div', 'choice-pair');
     seg.setAttribute('role', 'radiogroup');
     seg.setAttribute('aria-label', d.question ?? d.label);
     const buttons = [true, false].map((value) => {
-      const label = d.choices?.[value ? 'on' : 'off'] ?? (value ? 'Yes' : 'No');
-      const b = el('button', current[d.id] === value ? 'active' : '', label);
+      const text = d.choices?.[value ? 'on' : 'off'] ?? (value ? 'Yes' : 'No');
+      const b = el('button', current[d.id] === value ? 'active' : '', text);
       b.type = 'button';
       b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', String(current[d.id] === value));
@@ -662,11 +664,11 @@ function renderSetup() {
     buttons.forEach((b, i) => b.addEventListener('click', () => {
       const value = i === 0;
       if (current[d.id] === value) return;
-      const label = d.choices?.[value ? 'on' : 'off'] ?? (value ? 'Yes' : 'No');
-      if (confirm(`Change "${d.question ?? d.label}" to "${label}" for ALL trucks?`)) save(d, value, buttons);
+      const text = d.choices?.[value ? 'on' : 'off'] ?? (value ? 'Yes' : 'No');
+      if (confirm(`Change "${d.question ?? d.label}" to "${text}" for ALL trucks?`)) save(d, value, buttons);
     }));
     seg.append(...buttons);
-    row.append(title, seg, el('p', 'muted setting-desc', d.description));
+    row.append(label, seg, el('p', 'setting-help', d.description));
     return row;
   }));
 }

@@ -1150,3 +1150,20 @@ body.shop-mode .fault-line.fault-soft::before, #truck .fault-line.fault-soft::be
 .combo-option { display: block; width: 100%; min-height: 46px; padding: 0 12px; border: none; border-bottom: 1px solid var(--floor-track, #eee); background: none; color: var(--floor-ink, inherit); font: inherit; font-size: 16px; font-weight: 600; text-align: left; cursor: pointer; }
 .combo-option:hover, .combo-option:focus { background: var(--floor-track, #f2f2f2); }
 .combo-new { padding: 10px 12px; font-size: 14px; color: var(--floor-muted, var(--muted)); }
+
+/* Settings: one look for every setting (card > heading + description > rows) */
+#settings-view .settings-card { margin: 0 0 14px; padding: 16px; border: 2px solid var(--floor-line); background: var(--floor-paper, #fff); }
+#settings-view .settings-card h3 { margin: 0; font: 800 20px var(--cond); text-transform: uppercase; letter-spacing: .04em; }
+#settings-view .settings-desc { margin: 4px 0 6px; font-size: 13px; color: var(--floor-muted, var(--muted)); }
+#settings-view .settings-form { display: grid; gap: 0; }
+#settings-view .setting-row { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--floor-track, var(--border)); }
+#settings-view .setting-label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
+#settings-view .setting-row input { width: 100%; box-sizing: border-box; min-height: 48px; padding: 0 12px; font: inherit; font-size: 17px; border: 2px solid var(--floor-line); border-radius: 0; background: #fff; color: var(--floor-ink, inherit); }
+#settings-view .input-unit { display: flex; }
+#settings-view .input-unit input { border-right: none; }
+#settings-view .input-unit span { display: flex; align-items: center; padding: 0 12px; border: 2px solid var(--floor-line); background: var(--floor-track, #eee); font-weight: 700; }
+#settings-view .choice-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#settings-view .choice-pair button { min-height: 48px; padding: 6px 8px; border: 2px solid var(--floor-line); border-radius: 0; background: #fff; color: var(--floor-ink, inherit); font: 700 15px var(--cond); text-transform: uppercase; letter-spacing: .03em; line-height: 1.15; cursor: pointer; }
+#settings-view .choice-pair button.active { background: #111; border-color: #111; color: var(--floor-yellow); }
+#settings-view .setting-help { margin: 0; font-size: 13px; color: var(--floor-muted, var(--muted)); }
+#settings-view .settings-save { width: 100%; min-height: 50px; margin-top: 12px; }

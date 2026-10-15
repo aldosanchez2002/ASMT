@@ -182,28 +182,29 @@
       <div id="settings-view" hidden>
         <h2 class="settings-title">Settings</h2>
         <p class="muted">Applies to every truck and trailer, for everyone using the app.</p>
-        <section class="setup">
-          <form id="company-form" class="setting company">
-            <div class="setting-title">Company info for maintenance record PDFs</div>
-            <label class="field"><span>Company name</span><input id="company-name" type="text" autocomplete="organization"></label>
-            <label class="field"><span>USDOT number</span><input id="company-usdot" type="text" inputmode="numeric"></label>
-            <button class="btn" type="submit">Save company info</button>
+        <section class="settings-card">
+          <h3>Company info</h3>
+          <p class="settings-desc">Shown on the maintenance record PDFs.</p>
+          <form id="company-form" class="settings-form">
+            <label class="setting-row"><span class="setting-label">Company name</span><input id="company-name" type="text" autocomplete="organization"></label>
+            <label class="setting-row"><span class="setting-label">USDOT number</span><input id="company-usdot" type="text" inputmode="numeric"></label>
+            <button class="btn settings-save" type="submit">Save company info</button>
           </form>
         </section>
-        <section class="setup">
-          <form id="tires-form" class="setting company">
-            <div class="setting-title">Tire limits</div>
-            <p class="muted">A truck or trailer shows as needing service in the shop view when a tire position has run this many miles since it was changed. These are "check the tread" reminders.</p>
-            <label class="field"><span>Truck steer tires (miles)</span><input id="tire-limit-steer" type="number" inputmode="numeric" min="10000" max="500000" step="1000" required></label>
-            <label class="field"><span>Truck drive tires (miles)</span><input id="tire-limit-drive" type="number" inputmode="numeric" min="10000" max="500000" step="1000" required></label>
-            <label class="field"><span>Trailer tires (miles)</span><input id="tire-limit" type="number" inputmode="numeric" min="10000" max="500000" step="1000" required></label>
-            <button class="btn" type="submit">Save tire limits</button>
+        <section class="settings-card">
+          <h3>Tire limits</h3>
+          <p class="settings-desc">"Check the tread" reminders: a tire past its limit shows as needing service in the shop view.</p>
+          <form id="tires-form" class="settings-form">
+            <label class="setting-row"><span class="setting-label">Truck steer tires</span><span class="input-unit"><input id="tire-limit-steer" type="number" inputmode="numeric" min="10000" max="500000" step="1000" required><span>mi</span></span><span class="setting-help">Steer tires usually come off around 100,000–150,000 mi; regional work and heat wear them faster. Legal minimum tread: 4/32".</span></label>
+            <label class="setting-row"><span class="setting-label">Truck drive tires</span><span class="input-unit"><input id="tire-limit-drive" type="number" inputmode="numeric" min="10000" max="500000" step="1000" required><span>mi</span></span><span class="setting-help">Drive tires usually last 150,000–250,000 mi before their first retread. Legal minimum tread: 2/32".</span></label>
+            <label class="setting-row"><span class="setting-label">Trailer tires</span><span class="input-unit"><input id="tire-limit" type="number" inputmode="numeric" min="10000" max="500000" step="1000" required><span>mi</span></span><span class="setting-help">Trailer tires usually last 100,000–150,000 mi. Legal minimum tread: 2/32".</span></label>
+            <button class="btn settings-save" type="submit">Save tire limits</button>
           </form>
         </section>
-        <section id="fleet-setup" class="setup" hidden>
-          <h3>Fleet setup: oil, filters &amp; coolant</h3>
-          <p class="muted">Changes the maintenance schedules for the matching trucks.</p>
-          <div id="setup-toggles"></div>
+        <section id="fleet-setup" class="settings-card" hidden>
+          <h3>Oil, filters &amp; coolant</h3>
+          <p class="settings-desc">Changes the maintenance schedules for the matching trucks. Each choice saves right away.</p>
+          <div id="setup-toggles" class="settings-form"></div>
         </section>
       </div>
     </section>
