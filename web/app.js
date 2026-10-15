@@ -1806,8 +1806,8 @@ function buildWork() {
       // Log text stays in English, like the other records.
       batch.set(ref, {
         ...common, type: 'tires', services: [], tires: order,
-        tireBrands: Object.fromEntries(order.map((p) => [p, work.brands[p].trim()])),
-        itemName: `Tires replaced: ${withBrands(order, truckPositionName, work.brands)}`,
+        tireBrands: savedTireBrands(order, work.brands),
+        itemName: `Tires replaced: ${withBrands(order, truckPositionName, savedTireBrands(order, work.brands))}`,
       });
       refs.push(ref);
     }
@@ -1893,27 +1893,86 @@ function tireDiagram(status, {
   return wrap;
 }
 
-// Brand of each tire changed: required, one box per tire. Suggestions are
-// common truck tire brands plus any brand already used here.
-const TIRE_BRANDS = ['Bridgestone', 'Continental', 'Cooper', 'Double Coin', 'Firestone', 'General', 'Goodyear',
-  'Hankook', 'Kumho', 'Michelin', 'Sailun', 'Toyo', 'Yokohama'];
+// Brand of each tire changed: required, one box per tire. Each box is a
+// creatable combobox: type or pick from the list, and a brand typed for the
+// first time joins the list once the record is saved (the list is every
+// brand already in the service log, most used first).
+function savedBrands() {
+  const counts = new Map(); // lowercase -> { name, n }
+  for (const e of serviceLog) {
+    for (const name of Object.values(e.tireBrands ?? {})) {
+      const key = name.trim().toLowerCase();
+      if (!key) continue;
+      const c = counts.get(key) ?? { name: name.trim(), n: 0 };
+      c.n += 1;
+      counts.set(key, c);
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)).map((c) => c.name);
+}
+
+// A typed brand in the list's spelling ("michelin" -> "Michelin"); a new one
+// tidied up (extra spaces, all-lowercase words capitalized).
+function canonicalBrand(typed, list = savedBrands()) {
+  const clean = typed.trim().replace(/\s+/g, ' ');
+  const known = list.find((b) => b.toLowerCase() === clean.toLowerCase());
+  if (known) return known;
+  return clean === clean.toLowerCase() ? clean.replace(/\b\w/g, (ch) => ch.toUpperCase()) : clean;
+}
+
+function brandCombo(value, onChange) {
+  const wrap = el('div', 'combo');
+  const input = Object.assign(el('input'), { type: 'text', value, placeholder: t('brand'), autocomplete: 'off' });
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-expanded', 'false');
+  const toggle = Object.assign(el('button', 'combo-toggle', '▾'), { type: 'button', tabIndex: -1 });
+  toggle.setAttribute('aria-label', t('brand'));
+  const list = el('div', 'combo-list');
+  list.setAttribute('role', 'listbox');
+  list.hidden = true;
+  const set = (v) => { input.value = v; onChange(v); };
+  function draw() {
+    const q = input.value.trim().toLowerCase();
+    const brands = savedBrands();
+    const matches = brands.filter((b) => !q || b.toLowerCase().includes(q));
+    list.replaceChildren();
+    for (const b of matches) {
+      const opt = Object.assign(el('button', 'combo-option', b), { type: 'button' });
+      opt.setAttribute('role', 'option');
+      opt.addEventListener('mousedown', (e) => e.preventDefault()); // keep the keyboard up
+      opt.addEventListener('click', () => { set(b); close(); });
+      list.append(opt);
+    }
+    // Typed something new: it's saved as a new brand with the record.
+    if (q && !brands.some((b) => b.toLowerCase() === q)) list.append(el('div', 'combo-new', t('newBrand', canonicalBrand(input.value, brands))));
+    if (!list.childElementCount) list.append(el('div', 'combo-new', t('noBrandsYet')));
+  }
+  function open() { draw(); list.hidden = false; input.setAttribute('aria-expanded', 'true'); }
+  function close() { list.hidden = true; input.setAttribute('aria-expanded', 'false'); }
+  input.addEventListener('focus', open);
+  input.addEventListener('input', () => { onChange(input.value); open(); });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter') { e.preventDefault(); close(); }
+  });
+  toggle.addEventListener('mousedown', (e) => e.preventDefault());
+  toggle.addEventListener('click', () => { if (list.hidden) { input.focus(); open(); } else close(); });
+  wrap.append(input, toggle, list);
+  return { wrap, input };
+}
+
 function brandFields(order, nameOf, brands) {
   const box = el('div', 'tire-brands');
   if (!order.length) return box;
-  const used = serviceLog.flatMap((e) => Object.values(e.tireBrands ?? {}));
-  const list = el('datalist');
-  list.id = 'tire-brand-list';
-  [...new Set([...TIRE_BRANDS, ...used])].sort((a, b) => a.localeCompare(b)).forEach((b) => list.append(Object.assign(el('option'), { value: b })));
-  box.append(el('div', 'section-title', t('tireBrandsTitle')), list);
+  box.append(el('div', 'section-title', t('tireBrandsTitle')));
   const inputs = order.map((pos) => {
-    const input = Object.assign(el('input'), { type: 'text', value: brands[pos] ?? '', placeholder: t('brand'), autocomplete: 'off' });
-    input.setAttribute('list', 'tire-brand-list');
-    input.dataset.pos = pos;
-    input.addEventListener('input', () => { brands[pos] = input.value; });
-    const row = el('label', 'tire-brand-row');
-    row.append(el('span', 'tire-brand-pos', nameOf(pos, getLang())), input);
+    const combo = brandCombo(brands[pos] ?? '', (v) => { brands[pos] = v; });
+    combo.input.dataset.pos = pos;
+    const row = el('div', 'tire-brand-row');
+    row.append(el('span', 'tire-brand-pos', nameOf(pos, getLang())), combo.wrap);
     box.append(row);
-    return input;
+    return combo.input;
   });
   // Usually every new tire is the same brand: one tap copies the first box.
   if (order.length > 1) {
@@ -1929,7 +1988,12 @@ function brandFields(order, nameOf, brands) {
 }
 // Tires left without a brand (the form won't save until each has one).
 const missingBrands = (order, brands) => order.filter((p) => !(brands[p] ?? '').trim());
-const withBrands = (order, nameOf, brands) => order.map((p) => `${nameOf(p, 'en')} (${brands[p].trim()})`).join(', ');
+const withBrands = (order, nameOf, brands) => order.map((p) => `${nameOf(p, 'en')} (${brands[p]})`).join(', ');
+// Brands as saved: in the list's spelling when it's a known brand.
+const savedTireBrands = (order, brands) => {
+  const list = savedBrands();
+  return Object.fromEntries(order.map((p) => [p, canonicalBrand(brands[p], list)]));
+};
 
 // A truck's tire drawing, with its own steer / drive limits.
 const truckTireDiagram = (v, opts = {}) => tireDiagram(v.tires, {
@@ -2101,8 +2165,8 @@ function buildTrailerWork() {
       // Log text stays in English, like the truck records.
       batch.set(ref, {
         ...common, tires: order,
-        tireBrands: Object.fromEntries(order.map((p) => [p, work.brands[p].trim()])),
-        itemName: `Tires changed: ${withBrands(order, positionName, work.brands)}`,
+        tireBrands: savedTireBrands(order, work.brands),
+        itemName: `Tires changed: ${withBrands(order, positionName, savedTireBrands(order, work.brands))}`,
       });
       refs.push(ref);
     }

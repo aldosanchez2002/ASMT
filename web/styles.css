@@ -1141,3 +1141,12 @@ body.shop-mode .fault-line.fault-soft::before, #truck .fault-line.fault-soft::be
 .tire-brand-row input { min-height: 46px; font: inherit; font-size: 16px; padding: 0 10px; border: 2px solid var(--floor-line, var(--border)); border-radius: 0; background: var(--floor-paper, #fff); color: var(--floor-ink, inherit); }
 .tire-brands .link-btn { justify-self: start; }
 .tire-brand { font-style: normal; font-weight: 700; }
+
+/* Tire brand combobox: type or pick; new brands join the list once saved */
+.combo { position: relative; display: flex; }
+.combo input { flex: 1; min-width: 0; min-height: 46px; font: inherit; font-size: 16px; padding: 0 10px; border: 2px solid var(--floor-line, var(--border)); border-right: none; border-radius: 0; background: var(--floor-paper, #fff); color: var(--floor-ink, inherit); }
+.combo-toggle { flex: none; width: 44px; border: 2px solid var(--floor-line, var(--border)); border-radius: 0; background: var(--floor-paper, #fff); color: var(--floor-ink, inherit); font-size: 18px; cursor: pointer; }
+.combo-list { position: absolute; z-index: 5; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; border: 2px solid var(--floor-line, var(--border)); border-top: none; background: var(--floor-paper, #fff); box-shadow: 0 6px 16px rgba(0, 0, 0, .18); }
+.combo-option { display: block; width: 100%; min-height: 46px; padding: 0 12px; border: none; border-bottom: 1px solid var(--floor-track, #eee); background: none; color: var(--floor-ink, inherit); font: inherit; font-size: 16px; font-weight: 600; text-align: left; cursor: pointer; }
+.combo-option:hover, .combo-option:focus { background: var(--floor-track, #f2f2f2); }
+.combo-new { padding: 10px 12px; font-size: 14px; color: var(--floor-muted, var(--muted)); }
