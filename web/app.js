@@ -18,8 +18,9 @@ import {
   DRIVE_MILES_LIMIT, STEER_MILES_LIMIT, TRUCK_TIRE_POSITIONS, isSteer, limitFor, truckPositionName,
   truckTireStatus, truckTiresOverLimit,
 } from './truck-tires.js';
+import { itemName } from './item-names.js';
 import {
-  agoText, dateText, getLang, setLang, t, useEnglish,
+  activeLang, agoText, dateText, getLang, setLang, t, useEnglish,
 } from './i18n.js';
 import {
   QUIET_DAYS, atShop, codeId, codeText, faultSummary, quietDays,
@@ -79,11 +80,11 @@ function niceDate(value) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-// Trucks that haven't reported in a week are shown dimmed. Local trucks
-// aren't in Samsara, so they never report.
+// No signal: a truck or trailer that hasn't reported in QUIET_DAYS (3) days,
+// one rule everywhere. Local trucks aren't in Samsara, so they never report.
 function isQuiet(v) {
   if (v.local) return false;
-  return !v.lastReportedAt || Date.now() - Date.parse(v.lastReportedAt) > 7 * DAY_MS;
+  return (quietDays(v.lastReportedAt) ?? Infinity) >= QUIET_DAYS;
 }
 
 function timeAgo(iso) {
@@ -126,8 +127,12 @@ function withMaintenance(v) {
   // Tires: miles on each position, and the ones over their limit.
   const tires = truckTireStatus(visitsByTruck.get(v.id), v.odometerMiles, truckTireStarts[v.id]);
   const wornTires = truckTiresOverLimit(tires, truckTireLimits());
+  // Needs service (one rule for the shop list and the admin count): something
+  // due, a STOP lamp or check engine light, a tire over its limit, or out of
+  // service. An emissions or protect lamp alone shows but doesn't count.
+  const needsService = Boolean(rows.some(DUE) || shop || faults?.stop || faults?.lamps?.includes('warning') || wornTires.length);
   return {
-    ...v, rows, next, shop, faults, oldFaults, here, quiet, tires, wornTires, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)),
+    ...v, rows, next, shop, faults, oldFaults, here, quiet, tires, wornTires, needsService, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)),
   };
 }
 
@@ -201,10 +206,12 @@ function compare(a, b) {
 // tapped, shows only those trucks.
 const TRUCK_FILTERS = [
   { id: 'all', label: 'All', test: () => true },
+  // The same count as the shop view's "N trucks need service".
+  { id: 'service', label: 'Needs service', test: (v) => v.needsService },
   { id: 'overdue', label: 'Overdue', test: (v) => v.next?.status === 'overdue' },
   { id: 'soon', label: 'Due soon', test: (v) => v.next?.status === 'soon' },
   { id: 'out', label: 'Out of service', test: (v) => Boolean(v.shop) },
-  { id: 'quiet', label: 'No signal 3+ days', test: (v) => !v.shop && v.quiet != null && v.quiet >= QUIET_DAYS },
+  { id: 'quiet', label: 'No signal 3+ days', test: (v) => v.quiet != null && v.quiet >= QUIET_DAYS },
 ];
 
 // A row of count buttons under the search box (Trucks and Trailers tabs).
@@ -264,10 +271,10 @@ const isMoving = (c) => (c.speedMph ?? 0) >= 3;
 let trailerFilter = 'all'; // Trailers tab count buttons
 const TRAILER_FILTERS = [
   { id: 'all', label: 'All', test: () => true },
-  { id: 'work', label: 'Needs work', test: (c) => c.needsWork },
+  { id: 'work', label: 'Needs service', test: (c) => c.needsWork },
   { id: 'yard', label: 'In yard', test: (c) => !isQuiet(c) && trailerInYard(c) },
   { id: 'moving', label: 'Moving', test: (c) => !isQuiet(c) && isMoving(c) },
-  { id: 'quiet', label: 'No signal 7+ days', test: (c) => isQuiet(c) },
+  { id: 'quiet', label: 'No signal 3+ days', test: (c) => isQuiet(c) },
 ];
 
 function renderTrailers() {
@@ -1017,7 +1024,6 @@ function renderTruck(v) {
   const attention = v.rows.filter((r) => r.status === 'overdue' || r.status === 'soon');
   const todo = el('section', 'todo');
   todo.append(el('h3', 'section-title', attention.length ? `Needs attention (${attention.length})` : 'Nothing due'));
-  if (!attention.length) todo.append(el('p', 'muted', 'All services are up to date.'));
   attention.forEach((r) => todo.append(itemRow(v, r, true)));
   body.append(todo, truckTiresSection(v));
 
@@ -1182,7 +1188,7 @@ function dueWhen(r) {
 function dueLine(r, { meter: showMeter = true } = {}) {
   const line = el('div', `due-line due-${r.status}`);
   const text = el('div', 'due-text');
-  text.append(el('span', 'due-name', r.item.name), el('span', 'due-when', dueWhen(r)));
+  text.append(el('span', 'due-name', shownName(r.item.name)), el('span', 'due-when', dueWhen(r)));
   if (r.last?.source === 'baseline') text.append(el('span', 'due-note', `(${t('noRecord')})`));
   // How much of the interval is used up: a full bar means it's due now.
   const used = r.status === 'overdue' ? 1 : Math.min(1, Math.max(0, 1 - (Number.isFinite(r.urgency) ? r.urgency : 1)));
@@ -1248,12 +1254,9 @@ function renderShop() {
   // Sections, in the shop's order:
   //   1. in the yard and needs service   2. no GPS signal lately
   //   3. in the yard, nothing needed     4. needs service, not in the yard
-  // "Needs service": something due, a STOP lamp or check engine light, a tire
-  // over its miles limit, or out of service. (An emissions or protect lamp
-  // alone shows on the card but doesn't list the truck.)
+  // "Needs service" is worked out in withMaintenance (same rule as admin).
   const flag = (x) => Number(Boolean(x));
-  const lampOn = (v) => Boolean(v.faults?.stop || v.faults?.lamps?.includes('warning'));
-  const needsService = ({ v, due }) => Boolean(due.length || v.shop || lampOn(v) || v.wornTires.length);
+  const needsService = ({ v }) => v.needsService;
   const groupOf = (entry) => {
     const { v } = entry;
     if (v.quiet != null && v.quiet >= QUIET_DAYS) return 'quiet';
@@ -1469,6 +1472,10 @@ function itemNameFor(key) {
   return item.name;
 }
 
+// An item's name on screen: Spanish in the shop view when it's in Spanish.
+// (itemNameFor and r.item.name stay English for the records.)
+const shownName = (name) => itemName(name, activeLang());
+
 // Job label (and hint) in the current language.
 const jobLabel = (j) => t('jobs')[j.id]?.[0] ?? j.label;
 const jobHint = (j) => t('jobs')[j.id]?.[1] ?? j.hint;
@@ -1603,7 +1610,7 @@ function buildWork() {
     if (due.length) {
       serviceBox.append(el('div', 'section-title', t('dueHere')), el('p', 'muted', t('dueHint')));
       for (const r of due) {
-        serviceBox.append(checkRow(r.item.name, keys.includes(r.key), (checked) => {
+        serviceBox.append(checkRow(shownName(r.item.name), keys.includes(r.key), (checked) => {
           if (checked) { work.extra.add(r.key); work.unticked.delete(r.key); } else { work.extra.delete(r.key); work.unticked.add(r.key); }
           refresh();
         }, [dueWhen(r), r.last?.source === 'baseline' && `(${t('noRecord')})`].filter(Boolean).join(' '), `due-${r.status}`));
@@ -1614,7 +1621,7 @@ function buildWork() {
       // A ticked job says exactly what it marks done on this truck.
       const covers = itemKeysFor(v, j.tags, schedules).filter((k) => applies.has(k));
       const hint = work.jobs.has(j.id)
-        ? (covers.length ? t('jobMarks', covers.map((k) => itemNameFor(k) ?? k).join(', ')) : t('nothingOnSchedule'))
+        ? (covers.length ? t('jobMarks', covers.map((k) => shownName(itemNameFor(k) ?? k)).join(', ')) : t('nothingOnSchedule'))
         : jobHint(j);
       serviceBox.append(checkRow(jobLabel(j), work.jobs.has(j.id), (checked) => {
         if (checked) work.jobs.add(j.id); else work.jobs.delete(j.id);
@@ -1624,14 +1631,14 @@ function buildWork() {
     // Other items added one by one (not due, not part of a job).
     const dueKeys = new Set(due.map((r) => r.key));
     for (const k of [...work.extra].filter((x) => !dueKeys.has(x))) {
-      serviceBox.append(checkRow(itemNameFor(k) ?? k, true, () => { work.extra.delete(k); refresh(); }));
+      serviceBox.append(checkRow(shownName(itemNameFor(k) ?? k), true, () => { work.extra.delete(k); refresh(); }));
     }
     const shown = new Set([...dueKeys, ...workKeys(v, { includeUnticked: true })]);
     const others = v.rows.filter((r) => !shown.has(r.key));
     if (others.length) {
       const add = el('select', 'add-item');
       add.append(Object.assign(el('option', null, t('addService')), { value: '' }));
-      others.forEach((r) => add.append(Object.assign(el('option', null, r.item.name), { value: r.key })));
+      others.forEach((r) => add.append(Object.assign(el('option', null, shownName(r.item.name)), { value: r.key })));
       add.addEventListener('change', () => { if (add.value) { work.extra.add(add.value); work.unticked.delete(add.value); refresh(); } });
       serviceBox.append(add);
     }
@@ -1775,7 +1782,7 @@ function buildWork() {
     if (off && !confirm(t('confirmSamsara', v.name, off.lo === off.hi ? fmt.format(off.lo) : `${fmt.format(off.lo)}–${fmt.format(off.hi)}`,
       dateText(date.value), fmt.format(m)))) return;
     const older = v.rows.filter((r) => keys.includes(r.key) && r.last?.source === 'done' && m < r.last.miles);
-    if (older.length && !confirm(t('confirmOlder', older.map((r) => r.item.name).join(', '), fmt.format(older[0].last.miles)))) return;
+    if (older.length && !confirm(t('confirmOlder', older.map((r) => shownName(r.item.name)).join(', '), fmt.format(older[0].last.miles)))) return;
 
     save.disabled = true;
     save.textContent = t('saving');

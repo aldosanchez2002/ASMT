@@ -4,7 +4,7 @@
 const TEXT = {
   en: {
     shopTitle: 'Trucks that need work',
-    shopCount: (n) => (n === 1 ? '1 truck needs work' : `${n} trucks need work`),
+    shopCount: (n) => (n === 1 ? '1 truck needs service' : `${n} trucks need service`),
     shopEmpty: 'Nothing is due right now.',
     anotherTruck: 'Record work on another truck…',
     admin: 'Admin',
@@ -116,18 +116,18 @@ const TEXT = {
     truckTiresWorn: (n, name, mi) => (n === 1 ? `${name} tire: ${mi} mi` : `${n} tires over the limit · ${name}: ${mi} mi`),
     tiresSection: 'Tires',
     tapTruckTires: 'Tap each tire that was replaced.',
-    groups: { yardWork: 'In yard · needs service', quiet: 'No GPS signal lately', yardIdle: 'In yard · nothing due', away: 'Needs service · not in yard' },
+    groups: { yardWork: 'In yard · needs service', quiet: 'No signal 3+ days', yardIdle: 'In yard · nothing due', away: 'Needs service · not in yard' },
     sideTrucks: 'Trucks',
     inYardCount: (n) => `${n} in yard`,
     nothingDue: 'Nothing due',
     recentWork: 'Recent work',
     sideTrailers: 'Trailers',
     trailersTitle: 'Trailers',
-    trailersNeed: (n) => (n === 0 ? 'No trailers need work' : n === 1 ? '1 trailer needs work' : `${n} trailers need work`),
+    trailersNeed: (n) => (n === 0 ? 'No trailers need service' : n === 1 ? '1 trailer needs service' : `${n} trailers need service`),
     tiresWorn: (n, pos, mi) => (n === 1 ? `Tire ${pos}: ${mi} mi` : n === 8 ? `All 8 tires: ${mi} mi` : `${n} tires over the limit · ${pos}: ${mi} mi`),
     searchTrailer: 'Find a trailer (number)',
     noTrailerMatch: 'No trailer with that number.',
-    trailerGroups: { yardWork: 'In yard · needs work', quiet: 'No GPS signal 7+ days', yardIdle: 'In yard · nothing due', away: 'Needs work · not in yard', road: 'On the road · nothing due' },
+    trailerGroups: { yardWork: 'In yard · needs service', quiet: 'No signal 3+ days', yardIdle: 'In yard · nothing due', away: 'Needs service · not in yard', road: 'On the road · nothing due' },
     lastWork: (what, d) => `Last: ${what} · ${d}`,
     ago: { now: 'just now', min: (n) => `${n} min ago`, h: (n) => `${n} h ago`, d: (n) => `${n} ${n === 1 ? 'day' : 'days'} ago` },
   },
@@ -245,7 +245,7 @@ const TEXT = {
     truckTiresWorn: (n, name, mi) => (n === 1 ? `Llanta ${name}: ${mi} mi` : `${n} llantas pasadas del límite · ${name}: ${mi} mi`),
     tiresSection: 'Llantas',
     tapTruckTires: 'Toque cada llanta que se cambió.',
-    groups: { yardWork: 'En la yarda · necesita servicio', quiet: 'Sin señal GPS reciente', yardIdle: 'En la yarda · nada pendiente', away: 'Necesita servicio · fuera de la yarda' },
+    groups: { yardWork: 'En la yarda · necesita servicio', quiet: 'Sin señal 3+ días', yardIdle: 'En la yarda · nada pendiente', away: 'Necesita servicio · fuera de la yarda' },
     sideTrucks: 'Camiones',
     inYardCount: (n) => `${n} en la yarda`,
     nothingDue: 'Nada pendiente',
@@ -256,7 +256,7 @@ const TEXT = {
     tiresWorn: (n, pos, mi) => (n === 1 ? `Llanta ${pos}: ${mi} mi` : n === 8 ? `Las 8 llantas: ${mi} mi` : `${n} llantas pasadas del límite · ${pos}: ${mi} mi`),
     searchTrailer: 'Buscar trailer (número)',
     noTrailerMatch: 'No hay trailer con ese número.',
-    trailerGroups: { yardWork: 'En la yarda · necesita servicio', quiet: 'Sin señal GPS por 7+ días', yardIdle: 'En la yarda · nada pendiente', away: 'Necesita servicio · fuera de la yarda', road: 'En camino · nada pendiente' },
+    trailerGroups: { yardWork: 'En la yarda · necesita servicio', quiet: 'Sin señal 3+ días', yardIdle: 'En la yarda · nada pendiente', away: 'Necesita servicio · fuera de la yarda', road: 'En camino · nada pendiente' },
     lastWork: (what, d) => `Último: ${what} · ${d}`,
     ago: { now: 'ahora', min: (n) => `hace ${n} min`, h: (n) => `hace ${n} h`, d: (n) => `hace ${n} ${n === 1 ? 'día' : 'días'}` },
   },
@@ -276,6 +276,8 @@ let lang = (() => {
 let english = false;
 export function useEnglish(on) { english = Boolean(on); }
 const active = () => (english ? 'en' : lang);
+// The language on screen right now (admin is always English).
+export const activeLang = active;
 
 export const getLang = () => lang;
 export function setLang(next) {

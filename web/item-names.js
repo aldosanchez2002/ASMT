@@ -1,0 +1,68 @@
+// Spanish names for the maintenance schedule items, shown in the shop view
+// when it's in Spanish. Records (the service log, PDFs) stay in English.
+// An item missing here shows its English name. Plain ES module.
+
+const ES = {
+  '120k chassis PM': 'PM de chasis 120k',
+  '15k chassis inspection & lube': 'Inspección y engrase de chasis 15k',
+  '30k chassis PM': 'PM de chasis 30k',
+  '60k chassis PM': 'PM de chasis 60k',
+  'A: 15k chassis inspection & lube': 'A: Inspección y engrase de chasis 15k',
+  'Aftertreatment external hardware inspection': 'Inspección externa del postratamiento',
+  'Air dryer oil-coalescing desiccant cartridge': 'Cartucho del secador de aire (coalescente)',
+  'Air dryer service': 'Servicio del secador de aire',
+  'Annual DOT inspection (49 CFR 396.17)': 'Inspección anual DOT (49 CFR 396.17)',
+  'B: 30k chassis PM': 'B: PM de chasis 30k',
+  'Bendix automatic drain valve inspection': 'Inspección de la válvula de purga automática Bendix',
+  'C: 60k chassis PM': 'C: PM de chasis 60k',
+  'Check coolant SCA levels': 'Revisar nivel de SCA del anticongelante',
+  'Clutch hydraulic fluid - replace & bleed': 'Líquido del clutch: cambiar y purgar',
+  'Coolant blank water filter (if applicable)': 'Filtro de agua sin químico (si aplica)',
+  'Coolant filter (if equipped)': 'Filtro de anticongelante (si tiene)',
+  'D: 120k chassis PM': 'D: PM de chasis 120k',
+  'DEF filter': 'Filtro de DEF',
+  'DEF pump filter': 'Filtro de la bomba de DEF',
+  'DEF pump white filter': 'Filtro blanco de la bomba de DEF',
+  'DEF pump white filter (GHG14)': 'Filtro blanco de la bomba de DEF (GHG14)',
+  'DEF pump yellow filter (GHG14)': 'Filtro amarillo de la bomba de DEF (GHG14)',
+  'DPF ash cleaning': 'Limpieza de ceniza del DPF',
+  'DPF cleaning': 'Limpieza del DPF',
+  'Drive axle oil change - synthetic lubricant (PACCAR linehaul axle)': 'Cambio de aceite de diferenciales, sintético (eje PACCAR)',
+  'Drive belts - replace (inspect at every oil change)': 'Bandas: cambiar (revisar en cada cambio de aceite)',
+  'Engine air cleaner element': 'Filtro de aire del motor',
+  'Engine air filter': 'Filtro de aire del motor',
+  'Engine brake assembly': 'Freno de motor',
+  'Engine fuel filter (no frame-mounted filter)': 'Filtro de diésel del motor (sin filtro en el chasis)',
+  'Engine fuel filter (with frame-mounted filter)': 'Filtro de diésel del motor (con filtro en el chasis)',
+  'Engine oil & oil filter': 'Aceite y filtro de motor',
+  'Extended-life coolant - flush, drain & refill': 'Anticongelante de larga vida: lavar, vaciar y rellenar',
+  'Extended-life coolant - flush, drain & refill (interval E)': 'Anticongelante de larga vida: lavar, vaciar y rellenar (intervalo E)',
+  'Extended-life coolant - replace': 'Anticongelante de larga vida: cambiar',
+  'Extended-life coolant - test/maintain': 'Anticongelante de larga vida: probar y mantener',
+  'First PM': 'Primer PM',
+  'First PM (interval I)': 'Primer PM (intervalo I)',
+  'Frame-mounted fuel filter / water separator': 'Filtro de diésel del chasis / separador de agua',
+  'Front axle kingpin & tie rod end grease (PACCAR linehaul axle)': 'Engrase de kingpin y terminales del eje delantero (PACCAR)',
+  'Fuel filter(s)': 'Filtro(s) de diésel',
+  'Hubs (non-LMS) - change oil & seal': 'Mazas (no LMS): cambiar aceite y retén',
+  'Hubs with outrunner seals - change oil & seal': 'Mazas con retén outrunner: cambiar aceite y retén',
+  'Initial maintenance (IM)': 'Mantenimiento inicial (IM)',
+  'LMS hubs (mineral) - service bearings, seals & oil': 'Mazas LMS (mineral): baleros, retenes y aceite',
+  'LMS hubs (synthetic) - service bearings, seals & oil': 'Mazas LMS (sintético): baleros, retenes y aceite',
+  'M1 chassis PM': 'PM de chasis M1',
+  'M2 chassis PM (includes M1)': 'PM de chasis M2 (incluye M1)',
+  'M3 chassis PM (includes M1 + M2)': 'PM de chasis M3 (incluye M1 + M2)',
+  'Overhead (valve) adjustment': 'Ajuste de punterías (válvulas)',
+  'Seat belt system inspection': 'Inspección de cinturones de seguridad',
+  'Standard coolant - replace': 'Anticongelante estándar: cambiar',
+  'Standard coolant - test/maintain (SCA)': 'Anticongelante estándar: probar y mantener (SCA)',
+  'Transmission fluid change (Eaton automated / PACCAR)': 'Cambio de aceite de transmisión (Eaton automática / PACCAR)',
+  'Transmission fluid change (on highway)': 'Cambio de aceite de transmisión (carretera)',
+  'Valve lash adjustment': 'Ajuste de punterías',
+};
+
+// The item's name in the given language.
+export const itemName = (name, lang = 'en') => (lang === 'es' && ES[name]) || name;
+
+// For a check that every schedule item has a Spanish name.
+export const hasSpanish = (name) => name in ES;
