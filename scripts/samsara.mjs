@@ -4,6 +4,28 @@
 const SAMSARA_BASE = 'https://api.samsara.com';
 export const METERS_PER_MILE = 1609.344;
 
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+// Samsara sometimes answers 504 / 503 / 429 for a moment (and connections
+// drop): try up to 4 times, waiting 2 s, 5 s, then 15 s (or what Retry-After says).
+const RETRY_WAITS_MS = [2000, 5000, 15000];
+export async function fetchWithRetry(url, headers, waits = RETRY_WAITS_MS) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const res = await fetch(url, { headers });
+      const retryable = res.status === 429 || res.status >= 500;
+      if (!retryable || attempt >= waits.length) return res;
+      const after = Number(res.headers.get('retry-after'));
+      console.warn(`Samsara ${url.pathname}: ${res.status}, retrying (${attempt + 1}/${waits.length})`);
+      await sleep(Number.isFinite(after) && after > 0 ? Math.min(after * 1000, 60000) : waits[attempt]);
+    } catch (err) {
+      if (attempt >= waits.length) throw err;
+      console.warn(`Samsara ${url.pathname}: ${err.message}, retrying (${attempt + 1}/${waits.length})`);
+      await sleep(waits[attempt]);
+    }
+  }
+}
+
 // Follows Samsara's cursor pagination and returns every item.
 export async function samsaraGetAll(path, params = {}) {
   const apiKey = process.env.SAMSARA_API_KEY;
@@ -15,9 +37,7 @@ export async function samsaraGetAll(path, params = {}) {
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
     if (after) url.searchParams.set('after', after);
 
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-    });
+    const res = await fetchWithRetry(url, { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' });
     if (!res.ok) {
       throw new Error(`Samsara ${path} failed: ${res.status} ${await res.text()}`);
     }

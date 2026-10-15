@@ -326,7 +326,9 @@ async function removableStaleIds(staleIds) {
 validate();
 const [{ active: fleet, staleIds: allStaleIds }, trailers, metricsById] = await Promise.all([
   fetchFleet(),
-  fetchTrailers(),
+  // Trailers are best-effort: if Samsara fails on them even after retries, the
+  // trucks still sync and the trailers simply keep their last data (nothing removed).
+  fetchTrailers().catch((err) => { console.warn(`Skipping trailers this run: ${err.message}`); return { active: [], staleIds: [] }; }),
   // Duty classification is best-effort: if the report fails, the sync still runs.
   fetchDutyMetrics().catch((err) => { console.warn(`Skipping duty classification: ${err.message}`); return null; }),
 ]);
