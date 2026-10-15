@@ -443,20 +443,23 @@ function renderLog() {
 
   const services = rows.filter((e) => e.type !== 'duty');
   const dutyChanges = rows.length - services.length;
+  // Automatic duty-cycle changes are hidden unless asked for: they'd bury the real work.
+  const showAuto = $('log-auto').checked;
+  const shown = showAuto ? rows : services;
   const trucks = new Set(services.filter((e) => e.assetType !== 'trailer').map((e) => e.vehicleId)).size;
   const trailerCount = new Set(services.filter((e) => e.assetType === 'trailer').map((e) => e.vehicleId)).size;
   const units = [trucks && plural(trucks, 'truck'), trailerCount && plural(trailerCount, 'trailer')].filter(Boolean).join(' and ');
   $('log-summary').textContent = [
     services.length && `${plural(services.length, 'service')} on ${units}`,
-    dutyChanges && plural(dutyChanges, 'duty cycle change'),
+    dutyChanges && `${plural(dutyChanges, 'automatic change')}${showAuto ? '' : ' (hidden)'}`,
   ].filter(Boolean).join(' · ');
-  $('log-empty').hidden = rows.length > 0;
-  $('log-rows').closest('.table-wrap').hidden = rows.length === 0;
+  $('log-empty').hidden = shown.length > 0;
+  $('log-rows').closest('.table-wrap').hidden = shown.length === 0;
   $('log-empty').textContent = serviceLog.length
     ? 'No services match these filters.'
     : 'No services recorded yet. Open a truck and use "Record work".';
 
-  $('log-rows').replaceChildren(...rows.map((e) => {
+  $('log-rows').replaceChildren(...shown.map((e) => {
     const tr = el('tr');
     const unitCell = el('td', 'strong');
     const link = el('button', 'link-btn', e.vehicleName || e.vehicleId);
@@ -478,7 +481,7 @@ function renderLog() {
       el('td', null, e.date ? niceDate(e.date) : 'Not written'),
       unitCell,
       service,
-      el('td', 'num', e.miles == null ? '—' : fmt.format(e.miles)),
+      el('td', e.miles == null ? 'num empty' : 'num', e.miles == null ? '—' : fmt.format(e.miles)),
       el('td', 'num hide-sm', e.hours == null ? '—' : fmt.format(e.hours)),
       el('td', 'wrap-cell muted-cell hide-sm', e.note || ''),
     );
@@ -2246,6 +2249,7 @@ for (const id of ['log-from', 'log-to']) {
   $(id).addEventListener('change', () => { $('log-period').value = 'custom'; renderLog(); });
 }
 $('log-unit').addEventListener('change', renderLog);
+$('log-auto').addEventListener('change', renderLog);
 $('log-pdf').addEventListener('click', () => exportLog($('log-pdf')));
 $('company-form').addEventListener('submit', async (e) => {
   e.preventDefault();
