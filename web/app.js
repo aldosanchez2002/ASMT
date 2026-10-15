@@ -1401,8 +1401,8 @@ function renderTruck(v) {
   logBtn.type = 'button';
   logBtn.addEventListener('click', () => openWork(v.id));
   body.append(logBtn);
-  // 4. Tires.
-  body.append(truckTiresSection(v));
+  // 4. Tires and batteries.
+  body.append(truckTiresSection(v), batterySection(v));
   // 5. Recent work.
   body.append(el('h3', 'section-title', t('recentWork')));
   const visits = [...(visitsByTruck.get(v.id) ?? [])].filter((e) => e.type !== 'duty')
@@ -1549,7 +1549,7 @@ function nextAfterSave(v, keys, miles, date, tires = []) {
 function openWork(vehicleId, { keys = [] } = {}) {
   work = {
     vehicleId, jobs: new Set(), extra: new Set(keys), unticked: new Set(), days: null,
-    tires: new Set(), brands: {}, parts: new Set(keys.length ? ['service'] : []),
+    tires: new Set(), brands: {}, batteryCount: null, parts: new Set(keys.length ? ['service'] : []),
   };
   buildWork();
   showDialog($('work'));
@@ -1609,7 +1609,9 @@ function buildWork() {
   const serviceBox = el('div', 'work-service');
   const tireBox = el('div', 'work-tires');
   const repairBox = el('div', 'repair-box');
-  const PARTS = [['service', 'partService', 'partServiceHint'], ['tires', 'partTires', 'partTiresHint'], ['repair', 'partRepair', 'partRepairHint']];
+  const batteryBox = el('div', 'work-batteries');
+  const PARTS = [['service', 'partService', 'partServiceHint'], ['tires', 'partTires', 'partTiresHint'],
+    ['batteries', 'partBatteries', 'partBatteriesHint'], ['repair', 'partRepair', 'partRepairHint']];
   function drawParts() {
     parts.replaceChildren(el('div', 'section-title', t('whatDone')), ...PARTS.map(([id, label, hint]) => {
       const b = el('button', `part-tile${on(id) ? ' on' : ''}`);
@@ -1629,6 +1631,7 @@ function buildWork() {
   function showParts() {
     serviceBox.hidden = !on('service');
     tireBox.hidden = !on('tires');
+    batteryBox.hidden = !on('batteries');
     repairBox.hidden = !on('repair');
   }
 
@@ -1673,7 +1676,7 @@ function buildWork() {
       add.addEventListener('change', () => { if (add.value) { work.extra.add(add.value); work.unticked.delete(add.value); refresh(); } });
       serviceBox.append(add);
     }
-    const n = (on('service') ? keys.length : 0) + (on('repair') ? 1 : 0) + (on('tires') ? work.tires.size : 0);
+    const n = (on('service') ? keys.length : 0) + (on('repair') ? 1 : 0) + (on('tires') ? work.tires.size : 0) + (on('batteries') ? 1 : 0);
     save.textContent = n ? t('saveCount', n, v.name) : t('save');
   }
 
@@ -1688,6 +1691,18 @@ function buildWork() {
       }),
       brandFields(TRUCK_TIRE_POSITIONS.filter((p) => work.tires.has(p)), truckPositionName, work.brands),
     );
+  }
+
+  // Batteries: replaced, and how many (optional; tap again to clear).
+  function drawBatteries() {
+    const chips = el('div', 'battery-count');
+    for (const n of [1, 2, 3, 4]) {
+      const b = Object.assign(el('button', `count-chip${work.batteryCount === n ? ' on' : ''}`, String(n)), { type: 'button' });
+      b.setAttribute('aria-pressed', String(work.batteryCount === n));
+      b.addEventListener('click', () => { work.batteryCount = work.batteryCount === n ? null : n; drawBatteries(); });
+      chips.append(b);
+    }
+    batteryBox.replaceChildren(el('div', 'section-title', t('batteriesTitle')), el('p', 'muted', t('howManyBatteries')), chips);
   }
 
   // Repair: what was done, and which fault codes it fixed.
@@ -1786,11 +1801,12 @@ function buildWork() {
   // Save stays at the bottom of the screen while scrolling.
   const actions = el('div', 'work-actions');
   actions.append(error, save, cancel);
-  form.append(...(faultBox ? [faultBox] : []), parts, serviceBox, tireBox, repairBox, details, actions);
+  form.append(...(faultBox ? [faultBox] : []), parts, serviceBox, tireBox, batteryBox, repairBox, details, actions);
   body.append(form);
   drawParts();
   showParts();
   drawTires();
+  drawBatteries();
   refresh();
 
   form.addEventListener('submit', async (e) => {
@@ -1801,11 +1817,12 @@ function buildWork() {
     const keys = service ? workKeys(v) : [];
     const jobsDone = service ? work.jobs.size : 0;
     const doRepair = on('repair');
+    const doBatteries = on('batteries');
     const tires = on('tires') ? TRUCK_TIRE_POSITIONS.filter((p) => work.tires.has(p)) : [];
     const m = Number(miles.value);
     const repair = repairText.value.trim();
     // Catch typos before they're saved.
-    if (!keys.length && !jobsDone && !doRepair && !tires.length) return fail(t('errTick'));
+    if (!keys.length && !jobsDone && !doRepair && !tires.length && !doBatteries) return fail(t('errTick'));
     if (doRepair && !repair) return fail(t('errRepair'));
     if (missingBrands(tires, work.brands).length) {
       tireBox.querySelector(`input[data-pos="${missingBrands(tires, work.brands)[0]}"]`)?.focus();
@@ -1862,6 +1879,15 @@ function buildWork() {
       });
       refs.push(ref);
     }
+    if (doBatteries) {
+      const ref = doc(collection(db, 'serviceLog'));
+      const n = work.batteryCount ?? null;
+      batch.set(ref, {
+        ...common, type: 'batteries', services: [], batteries: n,
+        itemName: n ? `Batteries replaced (${n})` : 'Batteries replaced',
+      });
+      refs.push(ref);
+    }
     // Local trucks aren't in Samsara: a logged visit is how their miles move.
     const oldMiles = v.local ? { odometerMiles: v.odometerMiles ?? null, odometerTime: v.odometerTime ?? null } : null;
     if (v.local && m > (v.odometerMiles ?? -1)) {
@@ -1870,7 +1896,7 @@ function buildWork() {
     try {
       await batch.commit();
       const summary = [keys.length || jobsDone ? workSummary(v, keys) : null, doRepair ? t('repairWord') : null,
-        tires.length ? t('tiresSection').toLowerCase() : null].filter(Boolean).join(' + ');
+        tires.length ? t('tiresSection').toLowerCase() : null, doBatteries ? t('batteriesWord') : null].filter(Boolean).join(' + ');
       const next = nextAfterSave(v, keys, m, date.value, tires);
       $('work').close();
       showUndo([t('saved', v.name, summary), next].filter(Boolean).join(' · '), async () => {
@@ -2080,6 +2106,18 @@ const truckTireDiagram = (v, opts = {}) => tireDiagram(v.tires, {
   nameOf: truckPositionName,
   isWorn: (pos, st) => st?.miles != null && st.miles >= limitFor(pos, truckTireLimits()),
 });
+
+// Truck page: when the batteries were last replaced.
+function batterySection(v) {
+  const box = el('section', 'truck-batteries');
+  const last = (visitsByTruck.get(v.id) ?? []).filter((e) => e.type === 'batteries')
+    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.miles ?? 0) - (a.miles ?? 0))[0];
+  box.append(el('h3', 'section-title', t('batteriesSection')));
+  box.append(el('p', 'item-meta', last
+    ? t('batteriesLast', dateText(last.date), last.miles != null ? fmt.format(Math.round(last.miles)) : null, last.batteries)
+    : t('batteriesNone')));
+  return box;
+}
 
 // Truck page section: the drawing plus where the miles start.
 function truckTiresSection(v) {

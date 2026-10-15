@@ -1178,3 +1178,14 @@ body.shop-mode .today-title::before { background: #2e7d32; }
 body.shop-mode .today-row { border: 2px solid var(--floor-line); border-left: 8px solid #2e7d32; border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); }
 body.shop-mode .today-unit { font: 800 22px/1 var(--cond); }
 body.shop-mode .today-meta { font: 700 13px var(--mono); color: var(--floor-muted); }
+
+/* Record work: four tiles (2 x 2) and the battery count */
+.work-parts { grid-template-columns: repeat(2, 1fr); }
+.battery-count { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.count-chip { min-height: 52px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: 800 22px var(--cond, inherit); cursor: pointer; }
+#work .count-chip { border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); }
+#work .count-chip.on { background: var(--floor-yellow); border-color: #111; box-shadow: inset 0 0 0 2px #111; color: #111; }
+.work-batteries { display: grid; gap: 6px; }
+.work-batteries .section-title { margin: 0; }
+.work-batteries > p { margin: 0; font-size: 13px; }
+.truck-batteries { margin-top: 14px; }
