@@ -1498,7 +1498,7 @@ function workSummary(v, keys) {
 function openWork(vehicleId, { keys = [] } = {}) {
   work = {
     vehicleId, jobs: new Set(), extra: new Set(keys), unticked: new Set(), days: null,
-    tires: new Set(), parts: new Set(keys.length ? ['service'] : []),
+    tires: new Set(), brands: {}, parts: new Set(keys.length ? ['service'] : []),
   };
   buildWork();
   showDialog($('work'));
@@ -1635,6 +1635,7 @@ function buildWork() {
         selected: work.tires,
         onToggle: (pos) => { if (work.tires.has(pos)) work.tires.delete(pos); else work.tires.add(pos); drawTires(); refresh(); },
       }),
+      brandFields(TRUCK_TIRE_POSITIONS.filter((p) => work.tires.has(p)), truckPositionName, work.brands),
     );
   }
 
@@ -1755,6 +1756,10 @@ function buildWork() {
     // Catch typos before they're saved.
     if (!keys.length && !jobsDone && !doRepair && !tires.length) return fail(t('errTick'));
     if (doRepair && !repair) return fail(t('errRepair'));
+    if (missingBrands(tires, work.brands).length) {
+      tireBox.querySelector(`input[data-pos="${missingBrands(tires, work.brands)[0]}"]`)?.focus();
+      return fail(t('errBrand'));
+    }
     if (date.value > today) return fail(t('errFuture'));
     if (!v.local && v.odometerMiles != null && m > v.odometerMiles + 500) return fail(t('errTooHigh', fmt.format(v.odometerMiles)));
     // Back-dated work: compare with what Samsara recorded around that day.
@@ -1801,7 +1806,8 @@ function buildWork() {
       // Log text stays in English, like the other records.
       batch.set(ref, {
         ...common, type: 'tires', services: [], tires: order,
-        itemName: `Tires replaced: ${order.map((p) => truckPositionName(p, 'en')).join(', ')}`,
+        tireBrands: Object.fromEntries(order.map((p) => [p, work.brands[p].trim()])),
+        itemName: `Tires replaced: ${withBrands(order, truckPositionName, work.brands)}`,
       });
       refs.push(ref);
     }
@@ -1875,6 +1881,8 @@ function tireDiagram(status, {
         );
         if (st && !st.recorded) tile.append(el('span', 'tire-note', t('noRecordShort')));
         else if (st?.since) tile.append(el('span', 'tire-note', dateText(st.since)));
+        const brand = st?.entry?.tireBrands?.[pos];
+        if (brand) tile.append(el('span', 'tire-note tire-brand', brand));
         g.append(tile);
       }
       return g;
@@ -1884,6 +1892,44 @@ function tireDiagram(status, {
   }
   return wrap;
 }
+
+// Brand of each tire changed: required, one box per tire. Suggestions are
+// common truck tire brands plus any brand already used here.
+const TIRE_BRANDS = ['Bridgestone', 'Continental', 'Cooper', 'Double Coin', 'Firestone', 'General', 'Goodyear',
+  'Hankook', 'Kumho', 'Michelin', 'Sailun', 'Toyo', 'Yokohama'];
+function brandFields(order, nameOf, brands) {
+  const box = el('div', 'tire-brands');
+  if (!order.length) return box;
+  const used = serviceLog.flatMap((e) => Object.values(e.tireBrands ?? {}));
+  const list = el('datalist');
+  list.id = 'tire-brand-list';
+  [...new Set([...TIRE_BRANDS, ...used])].sort((a, b) => a.localeCompare(b)).forEach((b) => list.append(Object.assign(el('option'), { value: b })));
+  box.append(el('div', 'section-title', t('tireBrandsTitle')), list);
+  const inputs = order.map((pos) => {
+    const input = Object.assign(el('input'), { type: 'text', value: brands[pos] ?? '', placeholder: t('brand'), autocomplete: 'off' });
+    input.setAttribute('list', 'tire-brand-list');
+    input.dataset.pos = pos;
+    input.addEventListener('input', () => { brands[pos] = input.value; });
+    const row = el('label', 'tire-brand-row');
+    row.append(el('span', 'tire-brand-pos', nameOf(pos, getLang())), input);
+    box.append(row);
+    return input;
+  });
+  // Usually every new tire is the same brand: one tap copies the first box.
+  if (order.length > 1) {
+    const same = Object.assign(el('button', 'link-btn', t('sameForAll')), { type: 'button' });
+    same.addEventListener('click', () => {
+      const first = inputs[0].value.trim();
+      if (!first) { inputs[0].focus(); return; }
+      inputs.forEach((i) => { i.value = first; brands[i.dataset.pos] = first; });
+    });
+    box.append(same);
+  }
+  return box;
+}
+// Tires left without a brand (the form won't save until each has one).
+const missingBrands = (order, brands) => order.filter((p) => !(brands[p] ?? '').trim());
+const withBrands = (order, nameOf, brands) => order.map((p) => `${nameOf(p, 'en')} (${brands[p].trim()})`).join(', ');
 
 // A truck's tire drawing, with its own steer / drive limits.
 const truckTireDiagram = (v, opts = {}) => tireDiagram(v.tires, {
@@ -1941,7 +1987,7 @@ function renderTrailer() {
 }
 
 function openTrailerWork(trailerId) {
-  work = { kind: 'trailer', trailerId, tires: new Set(), repair: false };
+  work = { kind: 'trailer', trailerId, tires: new Set(), brands: {}, repair: false };
   buildWork();
   showDialog($('work'));
 }
@@ -1980,7 +2026,8 @@ function buildTrailerWork() {
       tireDiagram(status, {
         selected: work.tires,
         onToggle: (pos) => { if (work.tires.has(pos)) work.tires.delete(pos); else work.tires.add(pos); drawTires(); count(); },
-      }));
+      }),
+      brandFields(TIRE_POSITIONS.filter((p) => work.tires.has(p)), positionName, work.brands));
   };
   // 2. Repairs.
   const jobs = el('fieldset', 'work-jobs');
@@ -2022,6 +2069,11 @@ function buildTrailerWork() {
     const repair = repairText.value.trim();
     if (!work.tires.size && !work.repair) return fail(t('errTrailer'));
     if (work.repair && !repair) return fail(t('errRepair'));
+    const changed = TIRE_POSITIONS.filter((p) => work.tires.has(p));
+    if (missingBrands(changed, work.brands).length) {
+      tires.querySelector(`input[data-pos="${missingBrands(changed, work.brands)[0]}"]`)?.focus();
+      return fail(t('errBrand'));
+    }
     if (date.value > today) return fail(t('errFuture'));
     save.disabled = true;
     save.textContent = t('saving');
@@ -2047,7 +2099,11 @@ function buildTrailerWork() {
       const order = TIRE_POSITIONS.filter((p) => work.tires.has(p));
       const ref = doc(collection(db, 'serviceLog'));
       // Log text stays in English, like the truck records.
-      batch.set(ref, { ...common, tires: order, itemName: `Tires changed: ${order.map((p) => positionName(p, 'en')).join(', ')}` });
+      batch.set(ref, {
+        ...common, tires: order,
+        tireBrands: Object.fromEntries(order.map((p) => [p, work.brands[p].trim()])),
+        itemName: `Tires changed: ${withBrands(order, positionName, work.brands)}`,
+      });
       refs.push(ref);
     }
     if (work.repair) {

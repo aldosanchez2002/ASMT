@@ -1133,3 +1133,11 @@ body.shop-mode .fault-line.fault-soft::before, #truck .fault-line.fault-soft::be
   body:not(.shop-mode) .tabs { justify-content: space-between; gap: 0; }
   body:not(.shop-mode) .tabs a { font-size: 14px; letter-spacing: .02em; padding: 12px 4px; }
 }
+
+/* Tire brands (required for each tire changed) */
+.tire-brands { display: grid; gap: 8px; margin-top: 12px; }
+.tire-brands .section-title { margin: 0; }
+.tire-brand-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 10px; font-weight: 600; font-size: 14px; }
+.tire-brand-row input { min-height: 46px; font: inherit; font-size: 16px; padding: 0 10px; border: 2px solid var(--floor-line, var(--border)); border-radius: 0; background: var(--floor-paper, #fff); color: var(--floor-ink, inherit); }
+.tire-brands .link-btn { justify-self: start; }
+.tire-brand { font-style: normal; font-weight: 700; }
