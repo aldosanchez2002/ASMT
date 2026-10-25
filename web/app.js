@@ -20,6 +20,10 @@ import {
 } from './truck-tires.js';
 import { itemName } from './item-names.js';
 import {
+  AUTO_USES, KIT_SPLITS, KIT_TAGS, batteryParts, kitCategory, kitKey, kitParts, onHand, shoppingList, tagsForJobs,
+  tagsForKeys, tireParts, upcomingWork,
+} from './parts.js';
+import {
   activeLang, agoText, dateText, getLang, setLang, t, useEnglish,
 } from './i18n.js';
 import {
@@ -65,6 +69,9 @@ let work = null; // the open "Record work" form ({ vehicleId, jobs, extra, untic
 let truckFilter = 'all'; // Trucks tab status buttons (TRUCK_FILTERS)
 let sortKey = 'name';
 let sortDir = 1;
+let partsList = []; // parts docs: the shelf (oil, filters, tires, batteries…)
+let kits = {}; // meta/kits doc: { [kitKey]: { [tag]: [{ part, qty }] } }
+let receipts = []; // receipts docs (createdMs from createdAt)
 let unsubscribers = [];
 
 function show(section) {
@@ -262,6 +269,7 @@ function render() {
   renderLog();
   renderTrailers();
   renderShop();
+  renderParts();
 }
 
 // ---- Trailers tab --------------------------------------------------------
@@ -492,7 +500,9 @@ function renderLog() {
 // ---- Schedules tab ---------------------------------------------------------
 
 // The shop view is the main page; the rest is the admin side.
-const TABS = ['shop', 'trucks', 'trailers', 'schedules', 'log', 'settings'];
+const TABS = ['shop', 'trucks', 'trailers', 'parts', 'schedules', 'log', 'settings'];
+// Open without the admin password: the shop floor and the buyer's Parts page.
+const OPEN_TABS = ['shop', 'parts'];
 
 // ---- Popups and the Back button ---------------------------------------------
 // Each popup adds a history step, so the phone's Back button closes the top
@@ -505,7 +515,7 @@ function showDialog(dlg) {
   dlg.showModal();
   history.pushState({ dialog: dlg.id }, '');
 }
-for (const id of ['work', 'truck', 'schedule']) {
+for (const id of ['work', 'truck', 'schedule', 'pdlg']) {
   $(id).addEventListener('close', () => {
     if (closingFromBack || history.state?.dialog !== id) return;
     ignorePop += 1;
@@ -514,7 +524,7 @@ for (const id of ['work', 'truck', 'schedule']) {
 }
 addEventListener('popstate', () => {
   if (ignorePop) { ignorePop -= 1; return; }
-  const top = ['work', 'truck', 'schedule'].map((id) => $(id)).find((d) => d.open);
+  const top = ['pdlg', 'work', 'truck', 'schedule'].map((id) => $(id)).find((d) => d.open);
   if (!top) return;
   closingFromBack = true;
   top.close();
@@ -545,13 +555,15 @@ function askAdminPassword() {
 function currentTab() {
   const tab = location.hash.slice(1);
   if (!TABS.includes(tab)) return 'shop';
-  return tab === 'shop' || adminUnlocked() ? tab : 'shop';
+  return OPEN_TABS.includes(tab) || adminUnlocked() ? tab : 'shop';
 }
 
 function showTab() {
   const tab = currentTab();
   for (const x of TABS) $(`${x}-view`).hidden = x !== tab;
-  const shop = tab === 'shop';
+  // The buyer opens Parts without the admin password: it then looks and
+  // reads like the shop view (EN/ES, no admin tabs). Admin sees it as a tab.
+  const shop = tab === 'shop' || (tab === 'parts' && !adminUnlocked());
   useEnglish(!shop);
   document.body.classList.toggle('shop-mode', shop);
   $('admin-nav').hidden = shop;
@@ -1549,7 +1561,7 @@ function nextAfterSave(v, keys, miles, date, tires = []) {
 function openWork(vehicleId, { keys = [] } = {}) {
   work = {
     vehicleId, jobs: new Set(), extra: new Set(keys), unticked: new Set(), days: null,
-    tires: new Set(), brands: {}, batteryCount: null, parts: new Set(keys.length ? ['service'] : []),
+    tires: new Set(), brands: {}, batteryCount: null, parts: new Set(keys.length ? ['service'] : []), shelf: {},
   };
   buildWork();
   showDialog($('work'));
@@ -1610,6 +1622,7 @@ function buildWork() {
   const tireBox = el('div', 'work-tires');
   const repairBox = el('div', 'repair-box');
   const batteryBox = el('div', 'work-batteries');
+  const shelfBox = el('div', 'work-shelf');
   const PARTS = [['service', 'partService', 'partServiceHint'], ['tires', 'partTires', 'partTiresHint'],
     ['batteries', 'partBatteries', 'partBatteriesHint'], ['repair', 'partRepair', 'partRepairHint']];
   function drawParts() {
@@ -1634,6 +1647,43 @@ function buildWork() {
     batteryBox.hidden = !on('batteries');
     repairBox.hidden = !on('repair');
   }
+
+  // Parts from the shelf: what the picked work uses, from the service kits
+  // (oil, filters) and the tire / battery parts. Each can be changed; it's
+  // saved on the work entry, which is what takes it off the stock count.
+  function shelfUse() {
+    const tags = on('service') ? [...new Set([...tagsForJobs([...work.jobs]), ...tagsForKeys(workKeys(v))])] : [];
+    const groups = {
+      service: kitParts(v, tags, kits, schedules).parts,
+      tires: on('tires') ? tireParts(TRUCK_TIRE_POSITIONS.filter((p) => work.tires.has(p)), partsList) : {},
+      batteries: on('batteries') ? batteryParts(work.batteryCount, partsList) : {},
+    };
+    for (const g of Object.values(groups)) for (const id of Object.keys(g)) if (work.shelf[id] != null) g[id] = work.shelf[id];
+    return groups;
+  }
+  function drawShelf() {
+    const used = Object.entries(Object.assign({}, ...Object.values(shelfUse())));
+    shelfBox.hidden = !used.length;
+    if (!used.length) { shelfBox.replaceChildren(); return; }
+    const rows = used.map(([id, qty]) => {
+      const part = partById(id);
+      const row = el('div', 'shelf-row');
+      const minus = Object.assign(el('button', 'shelf-step', '−'), { type: 'button' });
+      const plus = Object.assign(el('button', 'shelf-step', '+'), { type: 'button' });
+      minus.setAttribute('aria-label', `− ${part?.name ?? ''}`);
+      plus.setAttribute('aria-label', `+ ${part?.name ?? ''}`);
+      const step = (d) => { work.shelf[id] = Math.max(0, Math.round((qty + d) * 100) / 100); drawShelf(); };
+      minus.addEventListener('click', () => step(-1));
+      plus.addEventListener('click', () => step(1));
+      const left = part ? onHand(part, receipts, serviceLog) - qty : null;
+      const name = el('span', 'shelf-name', part?.name ?? id);
+      const meta = el('span', 'shelf-meta', [part?.number, left != null && part?.countAt ? t('shelfLeft', amountText(part, left)) : null].filter(Boolean).join(' · '));
+      row.append(name, meta, minus, el('span', `shelf-qty${qty ? '' : ' zero'}`, amountText(part, qty)), plus);
+      return row;
+    });
+    shelfBox.replaceChildren(el('div', 'section-title', t('fromShelf')), el('p', 'muted', t('fromShelfHint')), ...rows);
+  }
+  const shelfFor = (group) => Object.fromEntries(Object.entries(shelfUse()[group]).filter(([, q]) => q > 0));
 
   // Service: what's due (tap each one done), shop jobs, and any other item.
   function refresh() {
@@ -1678,6 +1728,7 @@ function buildWork() {
     }
     const n = (on('service') ? keys.length : 0) + (on('repair') ? 1 : 0) + (on('tires') ? work.tires.size : 0) + (on('batteries') ? 1 : 0);
     save.textContent = n ? t('saveCount', n, v.name) : t('save');
+    drawShelf();
   }
 
   // Tires: tap each position that was replaced (flats are replaced too).
@@ -1699,7 +1750,7 @@ function buildWork() {
     for (const n of [1, 2, 3, 4]) {
       const b = Object.assign(el('button', `count-chip${work.batteryCount === n ? ' on' : ''}`, String(n)), { type: 'button' });
       b.setAttribute('aria-pressed', String(work.batteryCount === n));
-      b.addEventListener('click', () => { work.batteryCount = work.batteryCount === n ? null : n; drawBatteries(); });
+      b.addEventListener('click', () => { work.batteryCount = work.batteryCount === n ? null : n; drawBatteries(); drawShelf(); });
       chips.append(b);
     }
     batteryBox.replaceChildren(el('div', 'section-title', t('batteriesTitle')), el('p', 'muted', t('howManyBatteries')), chips);
@@ -1801,7 +1852,7 @@ function buildWork() {
   // Save stays at the bottom of the screen while scrolling.
   const actions = el('div', 'work-actions');
   actions.append(error, save, cancel);
-  form.append(...(faultBox ? [faultBox] : []), parts, serviceBox, tireBox, batteryBox, repairBox, details, actions);
+  form.append(...(faultBox ? [faultBox] : []), parts, serviceBox, tireBox, batteryBox, repairBox, shelfBox, details, actions);
   body.append(form);
   drawParts();
   showParts();
@@ -1858,7 +1909,7 @@ function buildWork() {
     const refs = [];
     if (keys.length || jobsDone) {
       const ref = doc(collection(db, 'serviceLog'));
-      batch.set(ref, { ...common, services: keys, itemName: workSummary(v, keys) });
+      batch.set(ref, { ...common, services: keys, itemName: workSummary(v, keys), partsUsed: shelfFor('service') });
       refs.push(ref);
     }
     if (doRepair) {
@@ -1874,7 +1925,7 @@ function buildWork() {
       // Log text stays in English, like the other records.
       batch.set(ref, {
         ...common, type: 'tires', services: [], tires: order,
-        tireBrands: savedTireBrands(order, work.brands),
+        tireBrands: savedTireBrands(order, work.brands), partsUsed: shelfFor('tires'),
         itemName: `Tires replaced: ${withBrands(order, truckPositionName, savedTireBrands(order, work.brands))}`,
       });
       refs.push(ref);
@@ -1883,7 +1934,7 @@ function buildWork() {
       const ref = doc(collection(db, 'serviceLog'));
       const n = work.batteryCount ?? null;
       batch.set(ref, {
-        ...common, type: 'batteries', services: [], batteries: n,
+        ...common, type: 'batteries', services: [], batteries: n, partsUsed: shelfFor('batteries'),
         itemName: n ? `Batteries replaced (${n})` : 'Batteries replaced',
       });
       refs.push(ref);
@@ -1908,6 +1959,564 @@ function buildWork() {
     } catch (err) {
       save.disabled = false;
       refresh();
+      fail(t('couldNotSave', err.message));
+    }
+  });
+}
+
+// ---- Parts: the buyer's page ---------------------------------------------------
+// Three tabs: To buy (what upcoming work needs minus what's on the shelf),
+// Stock (every part, its count, and the service kits) and Receipts. The buyer
+// opens it at aslog.dev/#parts; admin has it as a tab too.
+
+const PART_GROUPS = ['oil', 'filter', 'tire', 'battery', 'fluid', 'other'];
+const PARTS_SIDES = ['buy', 'stock', 'receipts'];
+const PARTS_SIDE_KEY = 'aslog.partsSide';
+let partsSide = (() => {
+  try { const s = localStorage.getItem(PARTS_SIDE_KEY); return PARTS_SIDES.includes(s) ? s : 'buy'; } catch { return 'buy'; }
+})();
+let showAllWork = true; // To buy: the upcoming work list (open until folded)
+let showKits = false; // Stock: the service kits, folded by default
+
+const activeParts = () => partsList.filter((p) => !p.archived)
+  .sort((a, b) => PART_GROUPS.indexOf(a.group) - PART_GROUPS.indexOf(b.group) || String(a.name).localeCompare(String(b.name)));
+const partById = (id) => partsList.find((p) => p.id === id);
+const qtyText = (n) => fmt.format(Math.round(n * 100) / 100);
+// "11 gal" for oil, "2" for filters.
+const amountText = (part, n) => (part?.unit === 'gal' ? `${qtyText(n)} gal` : qtyText(n));
+const money = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const stockNow = () => Object.fromEntries(partsList.map((p) => [p.id, onHand(p, receipts, serviceLog)]));
+
+// Upcoming work across the fleet: services due soon or overdue, worn tires.
+function fleetWork() {
+  const trucks = vehicles.map(withMaintenance).filter((v) => !v.shop);
+  const trailerRows = trailerList().map(({ c, worn }) => ({ id: c.id, name: c.name, worn }));
+  return upcomingWork(trucks, trailerRows, kits, schedules, partsList)
+    .sort((a, b) => (a.status === b.status ? 0 : a.status === 'overdue' ? -1 : 1)
+      || String(a.unitName).localeCompare(String(b.unitName), undefined, { numeric: true }));
+}
+
+function setPartsSide(side) {
+  partsSide = PARTS_SIDES.includes(side) ? side : 'buy';
+  try { localStorage.setItem(PARTS_SIDE_KEY, partsSide); } catch { /* not remembered */ }
+  renderParts();
+  window.scrollTo(0, 0);
+}
+
+function renderParts() {
+  if (currentTab() !== 'parts') return;
+  for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
+  $('admin-link').textContent = t('admin');
+  const stock = stockNow();
+  const work = fleetWork();
+  const list = shoppingList(partsList, work, stock);
+  const counts = { buy: list.length, stock: activeParts().length, receipts: receipts.length };
+  for (const b of document.querySelectorAll('#parts-side button')) {
+    const on = b.dataset.side === partsSide;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+    b.querySelector('.side-name').textContent = t(`partsSide_${b.dataset.side}`);
+    b.querySelector('.side-count').textContent = counts[b.dataset.side] || '';
+  }
+  const body = $('parts-body');
+  if (partsSide === 'stock') body.replaceChildren(...partsStock(stock));
+  else if (partsSide === 'receipts') body.replaceChildren(...partsReceipts());
+  else body.replaceChildren(...partsBuy(list, work, stock));
+}
+
+// To buy: the shopping list, then the work it's for.
+function partsBuy(list, work, stock) {
+  const out = [el('h2', 'parts-title', t('toBuyTitle')), el('p', 'parts-intro', t('toBuyIntro'))];
+  if (!activeParts().length) {
+    out.push(el('p', 'parts-empty', t('noPartsYet')));
+    return out;
+  }
+  if (!list.length) out.push(el('p', 'parts-empty parts-good', t('nothingToBuy')));
+  for (const x of list) {
+    const row = el('button', 'buy-row');
+    row.type = 'button';
+    const name = el('span', 'buy-name', x.part.name);
+    const meta = el('span', 'buy-meta', [x.part.number, x.part.countAt ? null : t('notCounted')].filter(Boolean).join(' · '));
+    const amount = el('span', 'buy-amount', amountText(x.part, x.buy));
+    const packs = x.packs.length ? el('span', 'buy-packs', `= ${x.packs.map((p) => `${p.count} ${p.name.toLowerCase()}${p.count === 1 ? '' : 's'}`).join(` ${t('or')} `)}`) : null;
+    const why = el('span', 'buy-why', t('buyWhy', amountText(x.part, x.need), x.min ? amountText(x.part, x.min) : null, amountText(x.part, x.have)));
+    row.append(name, amount, meta, ...(packs ? [packs] : []), why);
+    row.addEventListener('click', () => openPart(x.part.id));
+    out.push(row);
+  }
+  if (list.length) {
+    const copy = Object.assign(el('button', 'btn parts-copy', t('copyList')), { type: 'button' });
+    copy.addEventListener('click', async () => {
+      const text = [t('toBuyTitle'), ...list.map((x) => `• ${x.part.name}${x.part.number ? ` (${x.part.number})` : ''}: ${amountText(x.part, x.buy)}${x.packs.length ? ` = ${x.packs.map((p) => `${p.count} ${p.name.toLowerCase()}`).join(` ${t('or')} `)}` : ''}`)].join('\n');
+      try {
+        if (navigator.share) await navigator.share({ text });
+        else { await navigator.clipboard.writeText(text); copy.textContent = t('copied'); setTimeout(() => { copy.textContent = t('copyList'); }, 2000); }
+      } catch { /* closed the share sheet */ }
+    });
+    out.push(copy);
+  }
+
+  // The work behind the list: one line per truck (or trailer).
+  const head = el('button', `shop-group section-toggle parts-work-head${showAllWork ? ' open' : ''}`);
+  head.type = 'button';
+  head.setAttribute('aria-expanded', String(showAllWork));
+  head.append(el('span', 'section-label', t('upcomingWork')), el('span', 'section-count', String(work.length)), el('span', 'section-chevron', showAllWork ? '▾' : '▸'));
+  head.addEventListener('click', () => { showAllWork = !showAllWork; renderParts(); });
+  out.push(head);
+  if (showAllWork) {
+    if (!work.length) out.push(el('p', 'muted', t('noUpcoming')));
+    for (const w of work) {
+      const row = el('div', `work-need need-${w.status}`);
+      const what = w.what === 'tires'
+        ? t('needTires', w.tires.length)
+        : w.tags.map((tag) => t('kitTags')[tag] ?? tag).join(' + ');
+      row.append(el('span', 'need-unit', w.unitName), el('span', 'need-what', `${what} · ${t(w.status)}`));
+      const used = Object.entries(w.parts).map(([id, qty]) => `${amountText(partById(id), qty)} ${partById(id)?.name ?? id}`);
+      if (used.length) row.append(el('span', 'need-parts', used.join(' · ')));
+      if (w.missing.length) row.append(el('span', 'need-missing', t('kitMissing', w.missing.map((tag) => t('kitTags')[tag] ?? tag).join(', '))));
+      if (w.what === 'tires' && !used.length) row.append(el('span', 'need-missing', t('tirePartMissing')));
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+// Stock: every part with what's on the shelf, then the service kits.
+function partsStock(stock) {
+  const add = Object.assign(el('button', 'btn parts-add', t('addPart')), { type: 'button' });
+  add.addEventListener('click', () => openPart(null));
+  const out = [el('h2', 'parts-title', t('stockTitle')), el('p', 'parts-intro', t('stockIntro')), add];
+  for (const [group, list] of Map.groupBy(activeParts(), (p) => p.group ?? 'other')) {
+    out.push(el('h3', 'shop-group parts-group', t('partGroups')[group] ?? group));
+    for (const p of list) {
+      const have = stock[p.id] ?? 0;
+      const low = p.min != null && p.min !== '' && have < Number(p.min);
+      const row = el('button', `stock-row${low ? ' low' : ''}${have < 0 ? ' negative' : ''}`);
+      row.type = 'button';
+      row.append(
+        el('span', 'stock-name', p.name),
+        el('span', 'stock-qty', amountText(p, have)),
+        el('span', 'stock-meta', [p.number, p.min ? t('keepMin', amountText(p, Number(p.min))) : null, p.countAt ? null : t('notCounted')].filter(Boolean).join(' · ')),
+      );
+      row.addEventListener('click', () => openPart(p.id));
+      out.push(row);
+    }
+  }
+  out.push(...kitCards());
+  return out;
+}
+
+// What each service uses, per engine (oil, fuel filters) and per truck model
+// (air filter, air dryer): one card per kit, with the trucks it covers.
+function kitGroups() {
+  const groups = new Map();
+  for (const v of vehicles) {
+    for (const tag of ['oil', 'airFilter']) {
+      const key = kitKey(v, tag, schedules);
+      if (!key) continue;
+      const g = groups.get(key) ?? { key, category: kitCategory(tag), scheduleId: key.split('@')[0], trucks: [] };
+      g.trucks.push(v);
+      groups.set(key, g);
+    }
+  }
+  for (const g of groups.values()) {
+    const name = schedules.get(g.scheduleId)?.name ?? g.scheduleId;
+    // Split kits say which model years they cover.
+    const split = Object.values(KIT_SPLITS).find((x) => x.key === g.key);
+    const years = g.trucks.map((v) => Number(v.year)).filter(Boolean);
+    const range = years.length ? ` · ${yearRange(Math.min(...years), Math.max(...years))}` : '';
+    g.label = split ? `${split.label}${range}` : KIT_SPLITS[g.key] ? `${name}${range}` : name;
+    g.trucks.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+  }
+  return [...groups.values()];
+}
+
+function kitCards() {
+  const groups = kitGroups();
+  const unset = groups.reduce((n, g) => n + KIT_TAGS.filter((tag) => kitCategory(tag) === g.category && !kits[g.key]?.[tag]?.length).length, 0);
+  const head = el('button', `shop-group section-toggle kits-head${showKits ? ' open' : ''}`);
+  head.type = 'button';
+  head.setAttribute('aria-expanded', String(showKits));
+  head.append(el('span', 'section-label', t('kitsTitle')), el('span', 'section-count', String(groups.length)), el('span', 'section-chevron', showKits ? '▾' : '▸'));
+  head.addEventListener('click', () => { showKits = !showKits; renderParts(); });
+  const out = [head, el('p', 'parts-intro', [t('kitsIntro'), unset ? t('kitsUnset', unset) : null].filter(Boolean).join(' '))];
+  if (!showKits) return out;
+  for (const category of ['engine', 'chassis']) {
+    for (const g of groups.filter((x) => x.category === category).sort((a, b) => b.trucks.length - a.trucks.length)) {
+      const card = el('section', 'kit-card');
+      card.append(el('h3', 'kit-name', g.label), el('p', 'kit-trucks', `${t('kitTrucks', g.trucks.length)}: ${g.trucks.map((v) => v.name).join(', ')}`));
+      for (const tag of KIT_TAGS.filter((x) => kitCategory(x) === category)) {
+        const lines = kits[g.key]?.[tag] ?? [];
+        const row = el('button', `kit-row${lines.length ? '' : ' empty'}`);
+        row.type = 'button';
+        row.append(
+          el('span', 'kit-tag', t('kitTags')[tag]),
+          el('span', 'kit-parts', lines.length ? lines.map((l) => `${amountText(partById(l.part), l.qty)} ${partById(l.part)?.name ?? '?'}`).join(' · ') : t('kitEmpty')),
+          el('span', 'kit-edit', t('edit')),
+        );
+        row.addEventListener('click', () => openKit(g.key, tag, g.label));
+        card.append(row);
+      }
+      out.push(card);
+    }
+  }
+  return out;
+}
+
+// Receipts: newest first.
+function partsReceipts() {
+  const add = Object.assign(el('button', 'btn parts-add', t('newReceipt')), { type: 'button' });
+  add.addEventListener('click', () => openReceipt(null));
+  const out = [el('h2', 'parts-title', t('receiptsTitle')), el('p', 'parts-intro', t('receiptsIntro')), add];
+  const list = [...receipts].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || b.createdMs - a.createdMs);
+  if (!list.length) out.push(el('p', 'parts-empty', t('noReceipts')));
+  for (const r of list) {
+    const row = el('button', 'receipt-row');
+    row.type = 'button';
+    row.append(
+      el('span', 'receipt-vendor', r.vendor || t('noVendor')),
+      el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
+      el('span', 'receipt-meta', [dateText(r.date), t('lineCount', r.lines?.length ?? 0), r.hasPhoto ? t('photo') : null, r.boughtBy].filter(Boolean).join(' · ')),
+    );
+    row.addEventListener('click', () => openReceipt(r.id));
+    out.push(row);
+  }
+  return out;
+}
+
+// ---- Parts popups: a part, a kit, a receipt -------------------------------------
+
+function partsDialog(title, sub) {
+  $('p-close').textContent = t('close');
+  $('p-title').textContent = title;
+  $('p-sub').textContent = sub ?? '';
+  const body = $('p-body');
+  body.replaceChildren();
+  showDialog($('pdlg'));
+  return body;
+}
+
+const numberInput = (value, { step = 'any', min = 0 } = {}) => Object.assign(el('input'), {
+  type: 'number', inputMode: 'decimal', step, min, value: value ?? '',
+});
+function selectOf(options, value) {
+  const s = el('select');
+  for (const [v, label] of options) s.append(Object.assign(el('option', null, label), { value: v }));
+  s.value = value ?? options[0]?.[0] ?? '';
+  return s;
+}
+const pform = () => el('form', 'parts-form');
+function formActions(form, saveText, { onDelete } = {}) {
+  const error = el('p', 'form-error');
+  error.hidden = true;
+  const save = Object.assign(el('button', 'btn btn-save', saveText), { type: 'submit' });
+  const actions = el('div', 'work-actions');
+  actions.append(error, save);
+  if (onDelete) {
+    const del = Object.assign(el('button', 'btn btn-ghost btn-delete', t('delete')), { type: 'button' });
+    del.addEventListener('click', onDelete);
+    actions.append(del);
+  }
+  form.append(actions);
+  return { save, fail: (msg) => { error.textContent = msg; error.hidden = false; } };
+}
+
+// Add or change a part; "On hand" saves a count when it's changed.
+function openPart(id) {
+  const p = id ? partById(id) : null;
+  const body = partsDialog(p ? p.name : t('addPart'), p?.number);
+  const form = pform();
+  const name = Object.assign(el('input'), { type: 'text', value: p?.name ?? '', required: true, placeholder: t('partNamePh') });
+  const number = Object.assign(el('input'), { type: 'text', value: p?.number ?? '', placeholder: t('partNumberPh') });
+  const group = selectOf(PART_GROUPS.map((g) => [g, t('partGroups')[g]]), p?.group ?? 'filter');
+  const unit = selectOf([['each', t('unitEach')], ['gal', t('unitGal')]], p?.unit ?? 'each');
+  const have = p ? onHand(p, receipts, serviceLog) : 0;
+  const count = numberInput(p ? have : '');
+  const min = numberInput(p?.min ?? '');
+  const auto = selectOf([['', t('autoNone')], ...AUTO_USES.map((u) => [u, t('autoUses')[u]])], p?.autoUse ?? '');
+  // Packs: how it's bought (drum, case…), in gallons or units.
+  const packs = (p?.packs ?? []).map((x) => ({ ...x }));
+  const packBox = el('div', 'pack-box');
+  function drawPacks() {
+    packBox.replaceChildren(...packs.map((x, i) => {
+      const row = el('div', 'pack-row');
+      const pn = Object.assign(el('input'), { type: 'text', value: x.name, placeholder: t('packNamePh') });
+      const ps = numberInput(x.size);
+      ps.placeholder = t('packSizePh');
+      pn.addEventListener('input', () => { x.name = pn.value; });
+      ps.addEventListener('input', () => { x.size = ps.value; });
+      const rm = Object.assign(el('button', 'btn btn-ghost pack-rm', '×'), { type: 'button' });
+      rm.setAttribute('aria-label', t('remove'));
+      rm.addEventListener('click', () => { packs.splice(i, 1); drawPacks(); });
+      row.append(pn, ps, rm);
+      return row;
+    }));
+    const addPack = Object.assign(el('button', 'link-btn', t('addPack')), { type: 'button' });
+    addPack.addEventListener('click', () => { packs.push({ name: '', size: '' }); drawPacks(); });
+    packBox.append(addPack);
+  }
+  drawPacks();
+  form.append(
+    field(t('partName'), name), field(t('partNumber'), number), field(t('partGroup'), group), field(t('partUnit'), unit),
+    field(p ? t('onHandCount') : t('onHandStart'), count),
+    field(t('keepAtLeast'), min),
+    field(t('packs'), packBox),
+    field(t('autoUse'), auto),
+  );
+  if (p && !p.countAt) form.append(el('p', 'parts-hint', t('countHint')));
+  const { save, fail } = formActions(form, t('save'), {
+    onDelete: p ? async () => {
+      if (!confirm(t('confirmArchive', p.name))) return;
+      await setDoc(doc(db, 'parts', p.id), { archived: true, updatedAt: serverTimestamp() }, { merge: true });
+      $('pdlg').close();
+    } : null,
+  });
+  body.append(form);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!name.value.trim()) return fail(t('errPartName'));
+    save.disabled = true;
+    const data = {
+      name: name.value.trim(),
+      number: number.value.trim(),
+      group: group.value,
+      unit: unit.value,
+      min: min.value === '' ? null : Number(min.value),
+      autoUse: auto.value || null,
+      packs: packs.filter((x) => x.name.trim() && Number(x.size) > 0).map((x) => ({ name: x.name.trim(), size: Number(x.size) })),
+      updatedAt: serverTimestamp(),
+    };
+    // A changed (or first) number on hand is a count: stock starts from it.
+    const counted = count.value !== '' && (!p || Number(count.value) !== have);
+    if (counted) Object.assign(data, { countQty: Number(count.value), countAt: serverTimestamp() });
+    const ref = p ? doc(db, 'parts', p.id) : doc(collection(db, 'parts'));
+    if (!p) Object.assign(data, { id: ref.id, createdAt: serverTimestamp() });
+    try {
+      await setDoc(ref, data, { merge: true });
+      $('pdlg').close();
+    } catch (err) {
+      save.disabled = false;
+      fail(t('couldNotSave', err.message));
+    }
+  });
+}
+
+// One kit: the parts a service uses on the trucks of one kit group.
+function openKit(key, tag, label) {
+  const lines = (kits[key]?.[tag] ?? []).map((l) => ({ ...l }));
+  const body = partsDialog(t('kitTags')[tag], label);
+  const form = pform();
+  const box = el('div', 'kit-lines');
+  const options = [['', t('choosePart')], ...activeParts().map((p) => [p.id, [p.name, p.number].filter(Boolean).join(' · ')])];
+  function draw() {
+    box.replaceChildren(...lines.map((l, i) => {
+      const row = el('div', 'kit-line');
+      const part = selectOf(options, l.part);
+      const qty = numberInput(l.qty);
+      part.addEventListener('change', () => { l.part = part.value; });
+      qty.addEventListener('input', () => { l.qty = qty.value; });
+      const rm = Object.assign(el('button', 'btn btn-ghost pack-rm', '×'), { type: 'button' });
+      rm.setAttribute('aria-label', t('remove'));
+      rm.addEventListener('click', () => { lines.splice(i, 1); draw(); });
+      row.append(part, qty, rm);
+      return row;
+    }));
+    const addLine = Object.assign(el('button', 'link-btn', t('addPartLine')), { type: 'button' });
+    addLine.addEventListener('click', () => { lines.push({ part: '', qty: 1 }); draw(); });
+    box.append(addLine);
+  }
+  draw();
+  form.append(el('p', 'parts-hint', t('kitHint')), box);
+  const { save, fail } = formActions(form, t('save'));
+  body.append(form);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const clean = lines.filter((l) => l.part && Number(l.qty) > 0).map((l) => ({ part: l.part, qty: Number(l.qty) }));
+    save.disabled = true;
+    try {
+      await setDoc(doc(db, 'meta', 'kits'), { [key]: { [tag]: clean } }, { merge: true });
+      $('pdlg').close();
+    } catch (err) {
+      save.disabled = false;
+      fail(t('couldNotSave', err.message));
+    }
+  });
+}
+
+// Shrinks a receipt photo to fit in a Firestore document (under ~700 KB).
+async function shrinkPhoto(file) {
+  const img = await createImageBitmap(file);
+  const scale = Math.min(1, 1400 / Math.max(img.width, img.height));
+  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(img.width * scale), height: Math.round(img.height * scale) });
+  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+  let quality = 0.7;
+  let url = canvas.toDataURL('image/jpeg', quality);
+  while (url.length > 700000 && quality > 0.3) { quality -= 0.15; url = canvas.toDataURL('image/jpeg', quality); }
+  return url;
+}
+
+const savedVendors = () => {
+  const counts = new Map();
+  for (const r of receipts) if (r.vendor) counts.set(r.vendor, (counts.get(r.vendor) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([v]) => v);
+};
+
+// A receipt: photo, store, date, and its lines. A line is a stocked part
+// (goes on the shelf) or anything else, charged to a truck or the shop.
+function openReceipt(id) {
+  const r = id ? receipts.find((x) => x.id === id) : null;
+  const body = partsDialog(r ? (r.vendor || t('receipt')) : t('newReceipt'), r ? dateText(r.date) : null);
+  const form = pform();
+  const today = new Date().toLocaleDateString('en-CA');
+  const state = {
+    photo: null, // new photo (data URL)
+    vendor: r?.vendor ?? '',
+    lines: (r?.lines ?? [{ part: '', qty: '', price: '' }]).map((l) => ({ ...l, packSize: 1, packQty: l.qty })),
+  };
+
+  // Photo: take one now, or see the saved one.
+  const photoBox = el('div', 'receipt-photo');
+  const fileInput = Object.assign(el('input'), { type: 'file', accept: 'image/*', capture: 'environment', hidden: true });
+  const takeBtn = Object.assign(el('button', 'btn btn-ghost photo-btn', r?.hasPhoto ? t('retakePhoto') : t('takePhoto')), { type: 'button' });
+  const preview = Object.assign(el('img', 'receipt-img'), { alt: t('receipt'), hidden: true });
+  takeBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    takeBtn.disabled = true;
+    try {
+      state.photo = await shrinkPhoto(file);
+      preview.src = state.photo;
+      preview.hidden = false;
+      takeBtn.textContent = t('retakePhoto');
+    } catch (err) {
+      showAppError(`Could not read the photo: ${err.message}`);
+    } finally {
+      takeBtn.disabled = false;
+    }
+  });
+  if (r?.hasPhoto) {
+    getDoc(doc(db, 'receiptPhotos', r.id)).then((snap) => {
+      if (!state.photo && snap.exists()) { preview.src = snap.data().data; preview.hidden = false; }
+    }).catch(() => {});
+  }
+  preview.addEventListener('click', () => { if (preview.src) window.open(preview.src, '_blank'); });
+  photoBox.append(takeBtn, fileInput, preview);
+
+  const date = Object.assign(el('input'), { type: 'date', required: true, max: today, value: r?.date ?? today });
+  const vendor = combo(state.vendor, (v) => { state.vendor = v; }, {
+    options: savedVendors, placeholder: t('vendorPh'), newText: (v) => t('newVendor', v), emptyText: t('noVendorsYet'),
+  });
+  const vendorWrap = el('div', 'field');
+  vendorWrap.append(el('span', null, t('vendor')), vendor.wrap);
+
+  const truckOptions = [...vehicles].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true })).map((v) => [`truck:${v.id}`, v.name]);
+  const partOptions = [['', t('choosePart')], ...activeParts().map((p) => [`part:${p.id}`, [p.name, p.number].filter(Boolean).join(' · ')]), ['other:shop', t('otherShop')], ...truckOptions.map(([v, n]) => [v, t('otherTruck', n)])];
+  const linesBox = el('div', 'receipt-lines');
+  const tax = numberInput(r?.tax ?? '');
+  const totalText = el('div', 'receipt-sum');
+  const lineValue = (l) => (l.part ? `part:${l.part}` : l.to === 'truck' ? `truck:${l.vehicleId}` : l.to === 'shop' ? 'other:shop' : '');
+  function updateTotal() {
+    const sum = state.lines.reduce((s, l) => s + (Number(l.price) || 0), 0) + (Number(tax.value) || 0);
+    totalText.textContent = t('receiptTotal', money(sum));
+  }
+  function drawLines() {
+    linesBox.replaceChildren(...state.lines.map((l, i) => {
+      const row = el('div', 'receipt-line');
+      const what = selectOf(partOptions, lineValue(l));
+      const part = () => partById(l.part);
+      const text = Object.assign(el('input'), { type: 'text', value: l.text ?? '', placeholder: t('lineTextPh') });
+      text.hidden = Boolean(l.part) || !lineValue(l);
+      // Quantity, in packs when the part has them ("2 drums" = 110 gal).
+      const qty = numberInput(l.packQty);
+      qty.placeholder = t('qty');
+      const packOptions = () => (part() ? [[1, part().unit === 'gal' ? 'gal' : t('unitEachShort')], ...(part().packs ?? []).map((p) => [p.size, `${p.name} (${p.size})`])] : [[1, t('unitEachShort')]]);
+      const pack = selectOf(packOptions(), l.packSize);
+      pack.hidden = !part()?.packs?.length && part()?.unit !== 'gal';
+      const price = numberInput(l.price, { step: '0.01' });
+      price.placeholder = t('linePrice');
+      const sync = () => { l.qty = qty.value === '' ? '' : Number(qty.value) * Number(l.packSize || 1); };
+      what.addEventListener('change', () => {
+        const [kind, ref] = what.value.split(':');
+        Object.assign(l, kind === 'part' ? { part: ref, to: 'stock', vehicleId: null } : kind === 'truck' ? { part: null, to: 'truck', vehicleId: ref } : kind === 'other' ? { part: null, to: 'shop', vehicleId: null } : { part: null, to: null, vehicleId: null });
+        l.packSize = 1;
+        sync();
+        drawLines();
+      });
+      text.addEventListener('input', () => { l.text = text.value; });
+      qty.addEventListener('input', () => { l.packQty = qty.value; sync(); });
+      pack.addEventListener('change', () => { l.packSize = Number(pack.value); sync(); });
+      price.addEventListener('input', () => { l.price = price.value; updateTotal(); });
+      const rm = Object.assign(el('button', 'btn btn-ghost pack-rm', '×'), { type: 'button' });
+      rm.setAttribute('aria-label', t('remove'));
+      rm.addEventListener('click', () => { state.lines.splice(i, 1); drawLines(); updateTotal(); });
+      const nums = el('div', 'receipt-nums');
+      nums.append(qty, pack, price, rm);
+      row.append(what, text, nums);
+      return row;
+    }));
+    const addLine = Object.assign(el('button', 'link-btn', t('addLine')), { type: 'button' });
+    addLine.addEventListener('click', () => { state.lines.push({ part: '', qty: '', price: '', packSize: 1, packQty: '' }); drawLines(); });
+    linesBox.append(addLine);
+  }
+  drawLines();
+  tax.addEventListener('input', updateTotal);
+  updateTotal();
+  const who = loggedByField();
+  who.wrap.querySelector('span').textContent = t('boughtBy');
+  if (r?.boughtBy) who.wrap.querySelector('input').value = r.boughtBy;
+
+  form.append(photoBox, field(t('date'), date), vendorWrap, el('div', 'section-title', t('lines')), linesBox, field(t('tax'), tax), totalText, who.wrap);
+  const { save, fail } = formActions(form, t('saveReceipt'), {
+    onDelete: r ? async () => {
+      if (!confirm(t('confirmDeleteReceipt'))) return;
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'receipts', r.id));
+      batch.delete(doc(db, 'receiptPhotos', r.id));
+      await batch.commit();
+      $('pdlg').close();
+    } : null,
+  });
+  body.append(form);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const lines = state.lines.filter((l) => l.part || l.to);
+    if (!lines.length) return fail(t('errNoLines'));
+    const bad = lines.find((l) => !(Number(l.qty) > 0));
+    if (bad) return fail(t('errLineQty'));
+    if (lines.some((l) => !l.part && !(l.text ?? '').trim())) return fail(t('errLineText'));
+    save.disabled = true;
+    const total = lines.reduce((s, l) => s + (Number(l.price) || 0), 0) + (Number(tax.value) || 0);
+    const by = who.value();
+    if (by) rememberName(by);
+    const ref = r ? doc(db, 'receipts', r.id) : doc(collection(db, 'receipts'));
+    const data = {
+      id: ref.id,
+      date: date.value,
+      vendor: state.vendor.trim() ? canonicalName(state.vendor, savedVendors()) : '',
+      lines: lines.map((l) => ({
+        part: l.part || null,
+        text: l.part ? partById(l.part)?.name ?? '' : l.text.trim(),
+        qty: Number(l.qty),
+        price: l.price === '' || l.price == null ? null : Number(l.price),
+        to: l.part ? 'stock' : l.to,
+        vehicleId: l.to === 'truck' ? l.vehicleId : null,
+      })),
+      tax: tax.value === '' ? null : Number(tax.value),
+      total: Math.round(total * 100) / 100,
+      boughtBy: by || null,
+      hasPhoto: Boolean(state.photo || r?.hasPhoto),
+      updatedAt: serverTimestamp(),
+      ...(r ? {} : { createdAt: serverTimestamp() }),
+    };
+    const batch = writeBatch(db);
+    batch.set(ref, data, { merge: true });
+    if (state.photo) batch.set(doc(db, 'receiptPhotos', ref.id), { data: state.photo });
+    try {
+      await batch.commit();
+      $('pdlg').close();
+    } catch (err) {
+      save.disabled = false;
       fail(t('couldNotSave', err.message));
     }
   });
@@ -2280,7 +2889,7 @@ function buildTrailerWork() {
       const ref = doc(collection(db, 'serviceLog'));
       // Log text stays in English, like the truck records.
       batch.set(ref, {
-        ...common, tires: order,
+        ...common, tires: order, partsUsed: tireParts(order, partsList, { trailer: true }),
         tireBrands: savedTireBrands(order, work.brands),
         itemName: `Tires changed: ${withBrands(order, positionName, savedTireBrands(order, work.brands))}`,
       });
@@ -2328,7 +2937,7 @@ function showUndo(message, undo) {
   });
   bar.replaceChildren(el('span', null, message), btn);
   // An open popup sits above the page, so the bar goes inside it.
-  const host = [$('work'), $('truck'), $('schedule')].find((d) => d.open) ?? document.body;
+  const host = [$('pdlg'), $('work'), $('truck'), $('schedule')].find((d) => d.open) ?? document.body;
   if (bar.parentElement !== host) host.append(bar);
   bar.hidden = false;
   undoTimer = setTimeout(() => { bar.hidden = true; }, 10000);
@@ -2381,7 +2990,8 @@ function watchFleet() {
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'serviceLog'), (snap) => {
       serviceLog = snap.docs.map((d) => {
-        const e = d.data();
+        // Just-saved entries count right away (estimated time until the server's).
+        const e = d.data({ serverTimestamps: 'estimate' });
         return { ...e, id: d.id, loggedAtMs: e.loggedAt?.toMillis?.() ?? 0 };
       });
       visitsByTruck = Map.groupBy(serviceLog, (e) => e.vehicleId);
@@ -2402,6 +3012,21 @@ function watchFleet() {
     onSnapshot(doc(db, 'meta', 'schedules'), (snap) => {
       assignments = snap.data() ?? null;
       render();
+    }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'parts'), (snap) => {
+      partsList = snap.docs.map((d) => ({ ...d.data({ serverTimestamps: 'estimate' }), id: d.id }));
+      renderParts();
+    }, (err) => console.error(err)),
+    onSnapshot(doc(db, 'meta', 'kits'), (snap) => {
+      kits = snap.data() ?? {};
+      renderParts();
+    }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'receipts'), (snap) => {
+      receipts = snap.docs.map((d) => {
+        const r = d.data({ serverTimestamps: 'estimate' });
+        return { ...r, id: d.id, createdMs: r.createdAt?.toMillis?.() ?? 0 };
+      });
+      renderParts();
     }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'sync'), (snap) => {
       const t = snap.data()?.lastRun?.toDate();
@@ -2446,7 +3071,7 @@ $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
 addEventListener('hashchange', () => {
   const tab = location.hash.slice(1);
-  if (TABS.includes(tab) && tab !== 'shop' && !adminUnlocked()) askAdminPassword();
+  if (TABS.includes(tab) && !OPEN_TABS.includes(tab) && !adminUnlocked()) askAdminPassword();
   showTab();
   render();
 });
@@ -2529,7 +3154,7 @@ $('tires-form').addEventListener('submit', async (e) => {
   }
 });
 applyLogPeriod();
-if (TABS.includes(location.hash.slice(1)) && location.hash.slice(1) !== 'shop' && !adminUnlocked()) askAdminPassword();
+if (TABS.includes(location.hash.slice(1)) && !OPEN_TABS.includes(location.hash.slice(1)) && !adminUnlocked()) askAdminPassword();
 showTab();
 $('t-close').addEventListener('click', () => $('truck').close());
 $('s-close').addEventListener('click', () => $('schedule').close());
@@ -2537,6 +3162,9 @@ $('schedule').addEventListener('close', () => { openGroupKey = null; });
 $('schedule').addEventListener('click', (e) => { if (e.target === $('schedule')) $('schedule').close(); });
 $('truck').addEventListener('close', () => { openTruckId = null; openTrailerId = null; });
 for (const b of document.querySelectorAll('#shop-side button')) b.addEventListener('click', () => setShopSide(b.dataset.side));
+for (const b of document.querySelectorAll('#parts-side button')) b.addEventListener('click', () => setPartsSide(b.dataset.side));
+$('p-close').addEventListener('click', () => $('pdlg').close());
+$('pdlg').addEventListener('click', (e) => { if (e.target === $('pdlg')) $('pdlg').close(); });
 $('shop-tr-search').addEventListener('input', () => renderShopTrailers());
 $('w-close').addEventListener('click', () => $('work').close());
 $('work').addEventListener('close', () => { work = null; });

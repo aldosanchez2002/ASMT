@@ -1189,3 +1189,93 @@ body.shop-mode .today-meta { font: 700 13px var(--mono); color: var(--floor-mute
 .work-batteries .section-title { margin: 0; }
 .work-batteries > p { margin: 0; font-size: 13px; }
 .truck-batteries { margin-top: 14px; }
+
+/* ---- Parts: the buyer's page (To buy · Stock · Receipts) ---- */
+.parts-side { grid-template-columns: repeat(3, 1fr); }
+.parts-title { margin: 18px 0 2px; font: 800 26px/1.1 var(--cond); text-transform: uppercase; letter-spacing: .02em; }
+.parts-intro { margin: 0 0 10px; font-size: 14px; color: var(--floor-muted); }
+.parts-empty { padding: 14px; border: 2px dashed var(--floor-line); font-weight: 700; }
+.parts-good { border-style: solid; border-left: 8px solid #2e7d32; }
+.parts-hint { margin: 0; font-size: 13px; color: var(--floor-muted); }
+.parts-add, .parts-copy { width: 100%; min-height: 50px; margin: 4px 0 8px; font: 800 17px var(--cond); text-transform: uppercase; letter-spacing: .04em; border-radius: 0; }
+.parts-group { margin-top: 18px; }
+#parts-view .section-toggle { width: 100%; border: none; background: none; padding: 0; font: inherit; cursor: pointer; text-align: left; }
+
+.buy-row, .stock-row, .receipt-row, .work-need {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: baseline; width: 100%;
+  margin-top: 8px; padding: 10px 12px; border: 2px solid var(--floor-line); border-radius: 0;
+  background: var(--floor-paper); color: var(--floor-ink); font: inherit; text-align: left; cursor: pointer;
+}
+.buy-row { border-left: 8px solid var(--floor-yellow); }
+.buy-name, .stock-name, .receipt-vendor { font-weight: 700; font-size: 17px; line-height: 1.2; }
+.buy-amount, .stock-qty, .receipt-total { font: 800 22px/1 var(--cond); justify-self: end; white-space: nowrap; }
+.buy-meta, .buy-packs, .buy-why, .stock-meta, .receipt-meta { grid-column: 1 / -1; font-size: 13px; color: var(--floor-muted); }
+.buy-meta, .stock-meta { font-family: var(--mono); font-size: 12px; }
+.buy-packs { font-weight: 700; color: var(--floor-ink); font-size: 14px; }
+.stock-row.low { border-left: 8px solid var(--floor-yellow); }
+.stock-row.negative { border-left: 8px solid var(--floor-red); }
+.stock-row.negative .stock-qty { color: var(--floor-red); }
+
+.work-need { cursor: default; grid-template-columns: auto 1fr; }
+.need-unit { font: 800 22px/1 var(--cond); }
+.need-what { font-weight: 700; }
+.need-parts, .need-missing { grid-column: 1 / -1; font-size: 13px; color: var(--floor-muted); }
+.need-missing { color: var(--floor-red); font-weight: 700; }
+.need-overdue { border-left: 8px solid var(--floor-red); }
+.need-soon { border-left: 8px solid var(--floor-yellow); }
+
+.kits-title { margin-top: 30px; }
+.kit-card { margin-top: 10px; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.kit-name { margin: 0; padding: 10px 12px 0; font: 800 19px/1.15 var(--cond); text-transform: uppercase; }
+.kit-trucks { margin: 2px 0 6px; padding: 0 12px; font-size: 12px; color: var(--floor-muted); }
+.kit-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; padding: 10px 12px; border: none; border-top: 1px solid var(--floor-track); background: none; color: var(--floor-ink); font: inherit; text-align: left; cursor: pointer; }
+.kit-tag { font-weight: 700; }
+.kit-edit { grid-row: 1; grid-column: 2; font: 800 13px var(--cond); text-transform: uppercase; color: var(--floor-muted); }
+.kit-parts { grid-column: 1 / -1; font-size: 13px; }
+.kit-row.empty .kit-parts { color: var(--floor-red); font-weight: 700; }
+
+/* Parts popups */
+dialog#pdlg { width: min(560px, calc(100vw - 16px)); max-height: calc(100vh - 32px); padding: 0; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-bg); color: var(--floor-ink); font-family: 'Barlow', system-ui, sans-serif; }
+dialog#pdlg::backdrop { background: rgba(0, 0, 0, .45); }
+#pdlg .dlg-head { background: #111; color: #fff; border-bottom: none; }
+#pdlg .dlg-head .muted { color: #bbb; }
+#pdlg .dlg-head .btn-ghost { color: #fff; border-color: #fff; }
+#p-body { padding: 12px 14px 0; }
+.parts-form { display: grid; gap: 12px; }
+.parts-form .field > span { font-weight: 700; font-size: 14px; color: var(--floor-ink); }
+.parts-form input, .parts-form select { width: 100%; min-height: 46px; padding: 0 10px; font: inherit; font-size: 16px; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); box-sizing: border-box; }
+.pack-box, .kit-lines, .receipt-lines { display: grid; gap: 8px; }
+.pack-row, .kit-line { display: grid; grid-template-columns: 1fr 90px 44px; gap: 6px; }
+.pack-rm { min-height: 46px; padding: 0; border-radius: 0; font-size: 22px; }
+.receipt-line { display: grid; gap: 6px; padding: 10px; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.receipt-nums { display: grid; grid-template-columns: 1fr 1fr 1fr 44px; gap: 6px; }
+.receipt-nums select[hidden] + input { grid-column: span 2; }
+.receipt-sum { font: 800 22px var(--cond); text-align: right; }
+.receipt-photo { display: grid; gap: 8px; }
+.photo-btn { min-height: 54px; border: 2px dashed var(--floor-line); border-radius: 0; font-weight: 700; }
+.receipt-img { width: 100%; max-height: 320px; object-fit: contain; border: 2px solid var(--floor-line); background: #fff; cursor: zoom-in; }
+#pdlg .work-actions { position: sticky; bottom: 0; display: grid; gap: 8px; margin: 4px -14px 0; padding: 10px 14px 14px; background: var(--floor-bg); border-top: 2px solid var(--floor-line); }
+.btn-delete { color: var(--floor-red); border-color: var(--floor-red); }
+
+/* Record work: parts from the shelf */
+.work-shelf { display: grid; gap: 6px; }
+.work-shelf .section-title { margin: 6px 0 0; }
+.work-shelf > p { margin: 0; font-size: 13px; }
+.shelf-row { display: grid; grid-template-columns: 1fr 44px 70px 44px; grid-template-areas: "name minus qty plus" "meta minus qty plus"; align-items: center; gap: 0 6px; padding: 8px 10px; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.shelf-name { grid-area: name; font-weight: 700; line-height: 1.2; }
+.shelf-meta { grid-area: meta; font: 700 12px var(--mono); color: var(--floor-muted); }
+.shelf-step { min-height: 44px; border: 2px solid var(--floor-line); background: var(--floor-paper); color: var(--floor-ink); font: 800 22px var(--cond); cursor: pointer; }
+.shelf-row .shelf-step:first-of-type { grid-area: minus; }
+.shelf-row .shelf-step:last-of-type { grid-area: plus; }
+.shelf-qty { grid-area: qty; text-align: center; font: 800 20px var(--cond); }
+.shelf-qty.zero { color: var(--floor-muted); text-decoration: line-through; }
+/* Parts: same buttons as Record work; three tabs fit a phone */
+#pdlg .btn-save, .parts-add, .parts-copy { border: none; border-radius: 0; background: #111; color: var(--floor-yellow); min-height: 54px; font: 800 18px var(--cond); letter-spacing: .06em; text-transform: uppercase; }
+#pdlg .btn-delete { border: 2px solid var(--floor-red); border-radius: 0; background: transparent; color: var(--floor-red); font: 800 16px var(--cond); text-transform: uppercase; letter-spacing: .06em; }
+#pdlg .link-btn { font: 800 15px var(--cond); text-transform: uppercase; letter-spacing: .05em; color: var(--floor-ink); text-decoration: underline; justify-self: start; }
+@media (prefers-color-scheme: dark) {
+  #pdlg .btn-save, .parts-add, .parts-copy { background: var(--floor-yellow); color: #111; }
+}
+.parts-side button { gap: 6px; padding: 0 6px; }
+body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 18px; letter-spacing: .04em; white-space: nowrap; }
+.kit-row.empty .kit-parts { color: var(--floor-muted); font-weight: 600; }
