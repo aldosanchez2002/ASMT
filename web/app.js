@@ -2007,7 +2007,7 @@ function buildWork() {
 // opens it at aslog.dev/#parts; admin has it as a tab too.
 
 const PART_GROUPS = ['oil', 'filter', 'tire', 'battery', 'fluid', 'other'];
-const PARTS_SIDES = ['receipts', 'buy', 'stock'];
+const PARTS_SIDES = ['receipts', 'buy', 'check', 'stock'];
 const PARTS_SIDE_KEY = 'aslog.partsSide';
 let partsSide = (() => {
   try { const s = localStorage.getItem(PARTS_SIDE_KEY); return PARTS_SIDES.includes(s) ? s : 'receipts'; } catch { return 'receipts'; }
@@ -2066,12 +2066,14 @@ function renderParts() {
   const stock = stockNow();
   const work = fleetWork();
   const list = shoppingList(partsList, work, stock);
-  const counts = { buy: list.length, stock: activeParts().length, receipts: receipts.length };
-  // The buyer's job is the list and the receipts; counting the shelf and the
-  // kits are admin's (Admin → Parts).
+  const counts = { buy: list.length, check: toCheck().length, stock: activeParts().length, receipts: receipts.length };
+  // The buyer's job is the list, the receipts and checking what the reader
+  // wasn't sure of; counting the shelf and the kits are admin's (Admin → Parts).
   const buyer = roleOfTab(currentTab()) === 'inventory';
   if (buyer && partsSide === 'stock') partsSide = 'buy';
-  for (const b of document.querySelectorAll('#parts-side button')) {
+  const tabs = document.querySelectorAll('#parts-side button');
+  $('parts-side').classList.toggle('many', !buyer);
+  for (const b of tabs) {
     b.hidden = buyer && b.dataset.side === 'stock';
     const on = b.dataset.side === partsSide;
     b.classList.toggle('active', on);
@@ -2082,6 +2084,7 @@ function renderParts() {
   const body = $('parts-body');
   if (partsSide === 'stock') body.replaceChildren(...partsStock(stock));
   else if (partsSide === 'receipts') body.replaceChildren(...partsReceipts());
+  else if (partsSide === 'check') body.replaceChildren(...partsCheck());
   else body.replaceChildren(...partsBuy(list, work, stock));
 }
 
@@ -2228,7 +2231,7 @@ function kitCards() {
 
 // Receipts: one button to upload photos (each becomes a receipt that the
 // "Read receipts" GitHub Action fills in), then the history, newest first,
-// each with its photo. Admin can also type a receipt by hand.
+// each with its photo.
 function partsReceipts() {
   const admin = roleOfTab(currentTab()) === 'admin';
   const picker = Object.assign(el('input'), { type: 'file', accept: 'image/*', multiple: true, hidden: true });
@@ -2251,11 +2254,6 @@ function partsReceipts() {
     }
   });
   const out = [el('h2', 'parts-title', t('receiptsTitle')), el('p', 'parts-intro', t('receiptsIntro')), upload, picker];
-  if (admin) {
-    const typed = Object.assign(el('button', 'link-btn type-receipt', t('typeReceipt')), { type: 'button' });
-    typed.addEventListener('click', () => openReceipt(null));
-    out.push(typed);
-  }
   // Newest upload first, so a receipt just uploaded is always on top.
   const list = [...receipts].sort((a, b) => b.createdMs - a.createdMs || (b.date ?? '').localeCompare(a.date ?? ''));
   if (!list.length) out.push(el('p', 'parts-empty', t('noReceipts')));
@@ -2283,9 +2281,40 @@ function partsReceipts() {
   return out;
 }
 
-// The buyer sees a receipt as read once it's read; which lines still need
-// placing is admin's business ("Needs a look" shows in Admin only).
+// In the history the buyer sees a receipt as read once it's read; the lines
+// that still need placing are in the To check tab ("Needs a look" in Admin).
 const shownStatus = (r, admin) => (!admin && r.status === 'review' ? 'read' : r.status ?? 'read');
+
+// Receipts with lines the reader couldn't place (or whose math is off).
+const toCheck = () => receipts.filter((r) => r.status === 'review').sort((a, b) => b.createdMs - a.createdMs);
+
+// To check: the receipts the reader wasn't sure of, each opening the receipt
+// form (what was read, the best guess, pick where each line goes), and a
+// receipt typed by hand for one without a photo.
+function partsCheck() {
+  const typed = Object.assign(el('button', 'btn btn-ghost type-receipt', t('typeReceipt')), { type: 'button' });
+  typed.addEventListener('click', () => openReceipt(null));
+  const out = [el('h2', 'parts-title', t('checkTitle')), el('p', 'parts-intro', t('checkIntro'))];
+  const list = toCheck();
+  if (!list.length) out.push(el('p', 'parts-empty parts-good', t('nothingToCheck')));
+  for (const r of list) {
+    const open = (r.lines ?? []).filter((l) => !l.part && !l.to).length;
+    const card = el('div', 'receipt-card status-review');
+    const row = el('button', 'receipt-row');
+    row.type = 'button';
+    row.append(
+      el('span', 'receipt-vendor', r.vendor || t('noVendor')),
+      el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
+      el('span', 'receipt-status', open ? t('linesToPlace', open) : t('checkTotal')),
+      el('span', 'receipt-meta', [dateText(r.date), r.uploadedBy].filter(Boolean).join(' · ')),
+    );
+    row.addEventListener('click', () => openReceipt(r.id));
+    card.append(row);
+    out.push(card);
+  }
+  out.push(typed);
+  return out;
+}
 
 // Each photo becomes a receipt "waiting to be read".
 async function uploadReceipts(files) {

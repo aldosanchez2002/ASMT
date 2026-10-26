@@ -1312,7 +1312,7 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 
 /* Receipts: upload, and the history with each photo */
 .upload-receipts { min-height: 64px; font-size: 20px; }
-.type-receipt { display: block; margin: 0 0 8px; }
+.type-receipt { width: 100%; min-height: 52px; margin-top: 14px; border: 2px solid var(--floor-line); border-radius: 0; font: 800 16px var(--cond); letter-spacing: .05em; text-transform: uppercase; }
 #parts-view .link-btn { font: 800 15px var(--cond); text-transform: uppercase; letter-spacing: .05em; color: var(--floor-ink); text-decoration: underline; background: none; border: none; padding: 6px 0; cursor: pointer; }
 .receipt-card { margin-top: 8px; border-left: 8px solid #2e7d32; }
 .receipt-card .receipt-row { margin-top: 0; }
@@ -1329,3 +1329,5 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 .receipt-line.needs-choice { border-color: var(--floor-yellow); border-width: 3px; }
 .line-read { margin: 0; font: 700 13px var(--mono); overflow-wrap: anywhere; }
 .receipt-tax { margin: 0; text-align: right; font-size: 14px; color: var(--floor-muted); }
+/* Admin's Parts tabs: four in a row */
+.parts-side.many button { font-size: 15px !important; letter-spacing: .02em !important; padding: 0 4px; gap: 4px; }
