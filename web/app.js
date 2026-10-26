@@ -1992,15 +1992,15 @@ function buildWork() {
 }
 
 // ---- Parts: the buyer's page ---------------------------------------------------
-// Three tabs: To buy (what upcoming work needs minus what's on the shelf),
-// Stock (every part, its count, and the service kits) and Receipts. The buyer
+// Three tabs: Receipts, To buy (what upcoming work needs minus what's on the
+// shelf) and Stock (every part, its count, and the service kits). The buyer
 // opens it at aslog.dev/#parts; admin has it as a tab too.
 
 const PART_GROUPS = ['oil', 'filter', 'tire', 'battery', 'fluid', 'other'];
-const PARTS_SIDES = ['buy', 'stock', 'receipts'];
+const PARTS_SIDES = ['receipts', 'buy', 'stock'];
 const PARTS_SIDE_KEY = 'aslog.partsSide';
 let partsSide = (() => {
-  try { const s = localStorage.getItem(PARTS_SIDE_KEY); return PARTS_SIDES.includes(s) ? s : 'buy'; } catch { return 'buy'; }
+  try { const s = localStorage.getItem(PARTS_SIDE_KEY); return PARTS_SIDES.includes(s) ? s : 'receipts'; } catch { return 'receipts'; }
 })();
 let showAllWork = true; // To buy: the upcoming work list (open until folded)
 let showKits = false; // Stock: the service kits, folded by default
@@ -2024,7 +2024,7 @@ function fleetWork() {
 }
 
 function setPartsSide(side) {
-  partsSide = PARTS_SIDES.includes(side) ? side : 'buy';
+  partsSide = PARTS_SIDES.includes(side) ? side : 'receipts';
   try { localStorage.setItem(PARTS_SIDE_KEY, partsSide); } catch { /* not remembered */ }
   renderParts();
   window.scrollTo(0, 0);
