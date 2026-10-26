@@ -2,7 +2,8 @@
 // and fills in each receipt: store, date, items matched to the stock list,
 // tax and total. Run by the "Read receipts" GitHub Action.
 //
-// Needs ANTHROPIC_API_KEY (a GitHub secret). Without it, it does nothing.
+// Needs ANTHROPIC_API_KEY (the workflow passes the AS_LOG_KEY GitHub secret
+// as it). Without it, it does nothing.
 // Usage: node scripts/read-receipts.mjs [--dry-run]   (dry run: read, don't save)
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -16,9 +17,9 @@ export async function readPhoto(client, photo, context) {
   const [, mediaType, data] = photo.match(/^data:(image\/[a-z+]+);base64,(.+)$/) ?? [];
   if (!data) throw new Error('The saved photo is not an image');
   const response = await client.beta.messages.create({
-    model: 'claude-opus-5-5',
+    model: 'claude-sonnet-5-5',
     max_tokens: 16000,
-    // If Claude Opus 5.5 declines, Anthropic's recommended model takes over.
+    // If Claude Sonnet 5.5 declines, Anthropic's recommended model takes over.
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     system: SYSTEM_PROMPT,
@@ -47,7 +48,7 @@ async function main() {
     return;
   }
   if (!process.env.ANTHROPIC_API_KEY) {
-    console.log(`${receipts.length} receipt(s) waiting, but ANTHROPIC_API_KEY isn't set. Add it as a GitHub secret to read them.`);
+    console.log(`${receipts.length} receipt(s) waiting, but no Claude API key is set (GitHub secret AS_LOG_KEY).`);
     return;
   }
 

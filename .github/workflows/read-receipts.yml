@@ -27,4 +27,4 @@ jobs:
       - run: npm ci
       - run: node scripts/read-receipts.mjs
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.AS_LOG_KEY }}

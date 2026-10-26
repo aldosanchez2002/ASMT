@@ -48,7 +48,7 @@ In the repo: **Settings → Secrets and variables → Actions → New repository
 | `SAMSARA_API_KEY` | Your Samsara API token (read-only is enough) |
 | `FIREBASE_SERVICE_ACCOUNT` | *(Optional)* The entire contents of the service-account JSON file. Without it, the sync writes through Firestore's public API, which only works while your Firestore rules allow public writes. Add it before locking writes down. |
 | `ALLOWED_EMAILS` | *(Only if sign-in is on)* Google account(s) allowed to view the site, comma-separated |
-| `ANTHROPIC_API_KEY` | *(For receipt reading)* A Claude API key from console.anthropic.com (set a monthly spend limit there). The "Read receipts" Action uses it to fill in the receipts the buyer uploads; without it, receipts stay "Waiting to be read". |
+| `AS_LOG_KEY` | *(For receipt reading)* A Claude API key from console.anthropic.com (set a monthly spend limit there). The "Read receipts" Action uses it with Claude Sonnet 5.5 to fill in the receipts the buyer uploads (about 2–3¢ a receipt); without it, receipts stay "Waiting to be read". |
 
 ### 3. Run the first sync
 **Actions → Sync Samsara to Firestore → Run workflow.** After that it runs every 30 minutes on its own. You should then see a `vehicles` collection in Firestore.
