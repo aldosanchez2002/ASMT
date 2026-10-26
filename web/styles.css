@@ -1329,3 +1329,4 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 .receipt-view { margin: 8px 0; }
 .receipt-line.needs-choice { border-color: var(--floor-yellow); border-width: 3px; }
 .line-read { margin: 0; font: 700 13px var(--mono); overflow-wrap: anywhere; }
+.receipt-tax { margin: 0; text-align: right; font-size: 14px; color: var(--floor-muted); }

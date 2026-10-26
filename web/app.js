@@ -2261,7 +2261,7 @@ function partsReceipts() {
   const list = [...receipts].sort((a, b) => b.createdMs - a.createdMs || (b.date ?? '').localeCompare(a.date ?? ''));
   if (!list.length) out.push(el('p', 'parts-empty', t('noReceipts')));
   for (const r of list) {
-    const status = r.status ?? 'read';
+    const status = shownStatus(r, admin);
     const card = el('div', `receipt-card status-${status}`);
     const row = el('button', 'receipt-row');
     row.type = 'button';
@@ -2283,6 +2283,10 @@ function partsReceipts() {
   }
   return out;
 }
+
+// The buyer sees a receipt as read once it's read; which lines still need
+// placing is admin's business ("Needs a look" shows in Admin only).
+const shownStatus = (r, admin) => (!admin && r.status === 'review' ? 'read' : r.status ?? 'read');
 
 // Each photo becomes a receipt "waiting to be read".
 async function uploadReceipts(files) {
@@ -2309,24 +2313,24 @@ async function showReceiptPhoto(r) {
   body.replaceChildren(snap.exists() ? Object.assign(img, { src: snap.data().data }) : el('p', 'muted', t('noPhoto')));
 }
 
-// The buyer's view of a receipt: what was read, and what still waits for admin.
+// The buyer's view of a receipt: what was read from it, and the photo.
 function viewReceipt(id) {
   const r = receipts.find((x) => x.id === id);
   if (!r) return;
-  const status = r.status ?? 'read';
+  const status = shownStatus(r, false);
   const body = partsDialog(r.vendor || t('receipt'), [dateText(r.date), t('receiptStatus')[status]].filter(Boolean).join(' · '));
   if (status === 'waiting') body.append(el('p', 'parts-hint', t('waitingHint')));
   if (status === 'unreadable' || status === 'error') body.append(el('p', 'need-missing', `${t('unreadableHint')} ${(r.problems ?? []).concat(r.readError ?? []).join(' ')}`));
-  for (const p of r.problems ?? []) if (status === 'review') body.append(el('p', 'need-missing', p));
   const lines = el('div', 'buy-lines receipt-view');
   for (const l of r.lines ?? []) {
-    const row = el('div', `buy-line ${l.part || l.to ? '' : 'line-restock'}`);
+    const row = el('div', 'buy-line');
     const name = l.part ? partById(l.part)?.name ?? l.text : l.text;
-    const where = l.to === 'truck' ? vehicles.find((v) => v.id === l.vehicleId)?.name : l.to === 'shop' ? t('forShop') : l.part ? null : t('waitingAdmin');
-    row.append(el('span', 'buy-text', `${qtyText(l.qty)} × ${name}${where ? ` · ${where}` : ''}`), el('strong', null, l.price != null ? money(l.price) : ''));
+    const truck = l.to === 'truck' ? vehicles.find((v) => v.id === l.vehicleId)?.name : null;
+    row.append(el('span', 'buy-text', `${qtyText(l.qty)} × ${name}${truck ? ` · ${truck}` : ''}`), el('strong', null, l.price != null ? money(l.price) : ''));
     lines.append(row);
   }
-  if (r.lines?.length) body.append(lines);
+  if (r.tax != null && r.lines?.length) body.append(lines, el('p', 'receipt-tax', `${t('taxWord')} ${money(r.tax)}`));
+  else if (r.lines?.length) body.append(lines);
   if (r.total != null) body.append(el('div', 'receipt-sum', t('receiptTotal', money(r.total))));
   if (r.hasPhoto) {
     const photo = Object.assign(el('button', 'btn parts-copy', t('seePhoto')), { type: 'button' });
