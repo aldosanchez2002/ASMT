@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  averageCost, kitKey, kitParts, onHand, packsFor, receiptLinesFor, shoppingList, tagsForJobs, tagsForKeys, tireParts,
+  averageCost, kitKey, kitParts, onHand, packsFor, shoppingList, tagsForJobs, tagsForKeys, tireParts,
   upcomingWork,
 } from '../web/parts.js';
 
@@ -85,21 +85,6 @@ test('the shelf goes to the most urgent truck first; the minimum is restocked', 
   ];
   assert.deepEqual(shoppingList(p, work, { of: 1 }).map((x) => [x.kind, x.unitName ?? null, x.qty]), [
     ['unit', 'T-02', 1], ['restock', null, 2],
-  ]);
-});
-
-test('lines ticked as bought make one receipt: one line per part, the trucks noted', () => {
-  const of = { id: 'of' };
-  const oil = { id: 'oil', unit: 'gal', packs: [{ name: 'Drum', size: 55 }] };
-  const lines = [
-    { kind: 'unit', part: of, qty: 1, unitId: 'a', unitName: 'T-02' },
-    { kind: 'unit', part: of, qty: 1, unitId: 'b', unitName: 'T-28' },
-    { kind: 'restock', part: of, qty: 2 },
-    { kind: 'bulk', part: oil, qty: 89 },
-  ];
-  assert.deepEqual(receiptLinesFor(lines), [
-    { part: 'of', qty: 4, packSize: 1, packQty: 4, to: 'stock', for: [{ id: 'a', name: 'T-02' }, { id: 'b', name: 'T-28' }] },
-    { part: 'oil', qty: 110, packSize: 55, packQty: 2, to: 'stock', for: [] },
   ]);
 });
 

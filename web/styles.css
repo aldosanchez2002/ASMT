@@ -1189,7 +1189,7 @@ body.shop-mode .today-meta { font: 700 13px var(--mono); color: var(--floor-mute
 .truck-batteries { margin-top: 14px; }
 
 /* ---- Parts: the buyer's page (To buy · Stock · Receipts) ---- */
-.parts-side { grid-template-columns: repeat(3, 1fr); }
+.parts-side { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; }
 .parts-title { margin: 18px 0 2px; font: 800 26px/1.1 var(--cond); text-transform: uppercase; letter-spacing: .02em; }
 .parts-intro { margin: 0 0 10px; font-size: 14px; color: var(--floor-muted); }
 .parts-empty { padding: 14px; border: 2px dashed var(--floor-line); font-weight: 700; }
@@ -1309,10 +1309,23 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 .vin-chip { min-height: 40px; padding: 0 10px; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); font: 800 13px var(--cond); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; cursor: pointer; }
 .need-vin { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
 .need-vin .vin-text { font-size: 13px; }
-/* Shopping list: tick what was bought, then one receipt */
-.buy-check { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; }
-.buy-check input { flex: none; width: 26px; height: 26px; margin: 0; accent-color: #111; }
-.buy-line.bought { background: var(--floor-track); }
-.buy-line.bought .buy-text { text-decoration: line-through; text-decoration-thickness: 2px; }
-.make-receipt { position: sticky; bottom: 10px; z-index: 2; margin-top: 10px; box-shadow: 0 6px 16px rgba(0, 0, 0, .25); }
 .line-for { margin: 0; font-size: 13px; font-weight: 700; color: var(--floor-muted); }
+
+/* Receipts: upload, and the history with each photo */
+.upload-receipts { min-height: 64px; font-size: 20px; }
+.type-receipt { display: block; margin: 0 0 8px; }
+#parts-view .link-btn { font: 800 15px var(--cond); text-transform: uppercase; letter-spacing: .05em; color: var(--floor-ink); text-decoration: underline; background: none; border: none; padding: 6px 0; cursor: pointer; }
+.receipt-card { margin-top: 8px; border-left: 8px solid #2e7d32; }
+.receipt-card .receipt-row { margin-top: 0; }
+.receipt-card.status-waiting { border-left-color: var(--floor-track); }
+.receipt-card.status-review { border-left-color: var(--floor-yellow); }
+.receipt-card.status-unreadable, .receipt-card.status-error { border-left-color: var(--floor-red); }
+.receipt-status { grid-column: 1 / -1; justify-self: start; padding: 2px 8px; background: var(--floor-track); font: 800 13px var(--cond); letter-spacing: .04em; text-transform: uppercase; }
+.status-review .receipt-status { background: var(--floor-yellow); color: #111; }
+.status-unreadable .receipt-status, .status-error .receipt-status { background: var(--floor-red); color: #fff; }
+.status-read .receipt-status { background: #2e7d32; color: #fff; }
+.receipt-photo-link { display: block; width: 100%; min-height: 44px; border: 2px solid var(--floor-line); border-top: none; background: var(--floor-paper); color: var(--floor-ink); font: 800 14px var(--cond); letter-spacing: .05em; text-transform: uppercase; text-align: left; padding: 0 12px; cursor: pointer; }
+.receipt-full { display: block; width: 100%; height: auto; margin-bottom: 14px; border: 2px solid var(--floor-line); background: #fff; }
+.receipt-view { margin: 8px 0; }
+.receipt-line.needs-choice { border-color: var(--floor-yellow); border-width: 3px; }
+.line-read { margin: 0; font: 700 13px var(--mono); overflow-wrap: anywhere; }

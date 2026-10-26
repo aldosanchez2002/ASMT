@@ -174,28 +174,6 @@ export function shoppingList(parts, work, stock) {
   return [...unitLines.map(({ order, ...x }) => x), ...restock, ...bulk];
 }
 
-/**
- * Shopping list lines ticked as bought -> one receipt's lines: one line per
- * part (quantities added up), noting the trucks it's for. Parts bought in
- * packs (oil by the drum) are rounded up to whole packs of the first size.
- * @returns [{ part, qty, packSize, packQty, to: 'stock', for: [{ id, name }] }]
- */
-export function receiptLinesFor(lines) {
-  const byPart = new Map();
-  for (const x of lines) {
-    const line = byPart.get(x.part.id) ?? { part: x.part.id, need: 0, for: [], packs: x.part.packs ?? [] };
-    line.need = round(line.need + x.qty);
-    if (x.unitId && !line.for.some((u) => u.id === x.unitId)) line.for.push({ id: x.unitId, name: x.unitName });
-    byPart.set(x.part.id, line);
-  }
-  return [...byPart.values()].map(({ part, need, for: units, packs }) => {
-    const pack = packs.find((p) => Number(p.size) > 0);
-    const packSize = pack ? Number(pack.size) : 1;
-    const packQty = pack ? Math.ceil(need / packSize - 1e-9) : need;
-    return { part, qty: round(packQty * packSize), packSize, packQty, to: 'stock', for: units };
-  });
-}
-
 // How many of each pack (drum, case…) covers a quantity.
 export const packsFor = (part, qty) => (part.packs ?? [])
   .filter((p) => Number(p.size) > 0)

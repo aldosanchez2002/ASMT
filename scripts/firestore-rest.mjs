@@ -86,6 +86,17 @@ export function fromValue(v) {
   return x;
 }
 
+// Reads one document ("collection/id"); null if it doesn't exist.
+export async function getDoc(path) {
+  const url = new URL(`https://firestore.googleapis.com/v1/${docsPath}/${path}`);
+  url.searchParams.set('key', apiKey);
+  const res = await fetch(url);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Firestore read of ${path} failed: ${res.status} ${await res.text()}`);
+  const body = await res.json();
+  return fromValue({ mapValue: { fields: body.fields ?? {} } });
+}
+
 // Reads every document in a collection as { id: data }.
 export async function listDocs(collection) {
   const docs = {};

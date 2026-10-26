@@ -20,7 +20,7 @@ import {
 } from './truck-tires.js';
 import { itemName } from './item-names.js';
 import {
-  AUTO_USES, KIT_TAGS, batteryParts, kitCategory, kitKey, kitParts, onHand, receiptLinesFor, shoppingList, tagsForJobs,
+  AUTO_USES, KIT_TAGS, batteryParts, kitCategory, kitKey, kitParts, onHand, shoppingList, tagsForJobs,
   tagsForKeys, tireParts, upcomingWork,
 } from './parts.js';
 import {
@@ -2013,8 +2013,6 @@ let partsSide = (() => {
   try { const s = localStorage.getItem(PARTS_SIDE_KEY); return PARTS_SIDES.includes(s) ? s : 'receipts'; } catch { return 'receipts'; }
 })();
 let showAllWork = false; // To buy: the upcoming work behind the list, folded
-const bought = new Set(); // To buy: lines ticked as bought (lineKey), until a receipt is saved
-const lineKey = (x) => `${x.kind}:${x.part.id}:${x.unitId ?? ''}`;
 let showKits = false; // Stock: the service kits, folded by default
 
 const activeParts = () => partsList.filter((p) => !p.archived)
@@ -2069,7 +2067,12 @@ function renderParts() {
   const work = fleetWork();
   const list = shoppingList(partsList, work, stock);
   const counts = { buy: list.length, stock: activeParts().length, receipts: receipts.length };
+  // The buyer's job is the list and the receipts; counting the shelf and the
+  // kits are admin's (Admin → Parts).
+  const buyer = roleOfTab(currentTab()) === 'inventory';
+  if (buyer && partsSide === 'stock') partsSide = 'buy';
   for (const b of document.querySelectorAll('#parts-side button')) {
+    b.hidden = buyer && b.dataset.side === 'stock';
     const on = b.dataset.side === partsSide;
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
@@ -2091,33 +2094,19 @@ function partsBuy(list, work, stock) {
   }
   if (!list.length) out.push(el('p', 'parts-empty parts-good', t('nothingToBuy')));
   // One line per part per truck: "Fuel filter kit for VIN …" and Copy VIN.
-  // Tick what was bought, then "Make receipt": one receipt for all of it.
-  const keys = new Set(list.map(lineKey));
-  for (const k of [...bought]) if (!keys.has(k)) bought.delete(k);
+  // Bought parts come off the list once their receipt is uploaded and read.
   const lines = el('div', 'buy-lines');
   for (const x of list) {
-    const key = lineKey(x);
-    const row = el('div', `buy-line line-${x.kind}${bought.has(key) ? ' bought' : ''}`);
+    const row = el('div', `buy-line line-${x.kind}`);
     const vin = x.kind === 'unit' ? unitVin(x.unitId, x.trailer) : null;
-    const check = el('label', 'buy-check');
-    const box = Object.assign(el('input'), { type: 'checkbox', checked: bought.has(key) });
-    box.setAttribute('aria-label', `${t('boughtTick')}: ${shoppingLineText(x)}`);
-    box.addEventListener('change', () => { if (box.checked) bought.add(key); else bought.delete(key); renderParts(); });
     const text = el('span', 'buy-text');
     if (vin) text.append(el('strong', null, lineWhat(x)), ` ${t('forVin')} `, el('span', 'buy-vin', vin), el('span', 'buy-unit', ` · ${x.unitName}`));
     else text.append(el('strong', null, shoppingLineText(x)));
-    check.append(box, text);
-    row.append(check);
+    row.append(text);
     if (vin) row.append(copyVinButton(vin, 'vin-chip'));
     lines.append(row);
   }
   if (list.length) out.push(lines);
-  const picked = list.filter((x) => bought.has(lineKey(x)));
-  if (picked.length) {
-    const make = Object.assign(el('button', 'btn parts-copy make-receipt', t('makeReceipt', picked.length)), { type: 'button' });
-    make.addEventListener('click', () => openReceipt(null, { lines: receiptLinesFor(picked), onSaved: () => { bought.clear(); renderParts(); } }));
-    out.push(make);
-  }
   if (list.length) {
     const copy = Object.assign(el('button', 'btn parts-copy', t('copyList')), { type: 'button' });
     copy.addEventListener('click', async () => {
@@ -2238,25 +2227,124 @@ function kitCards() {
   return out;
 }
 
-// Receipts: newest first.
+// Receipts: one button to upload photos (each becomes a receipt that the
+// "Read receipts" GitHub Action fills in), then the history, newest first,
+// each with its photo. Admin can also type a receipt by hand.
 function partsReceipts() {
-  const add = Object.assign(el('button', 'btn parts-add', t('newReceipt')), { type: 'button' });
-  add.addEventListener('click', () => openReceipt(null));
-  const out = [el('h2', 'parts-title', t('receiptsTitle')), el('p', 'parts-intro', t('receiptsIntro')), add];
-  const list = [...receipts].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || b.createdMs - a.createdMs);
+  const admin = roleOfTab(currentTab()) === 'admin';
+  const picker = Object.assign(el('input'), { type: 'file', accept: 'image/*', multiple: true, hidden: true });
+  const upload = Object.assign(el('button', 'btn parts-add upload-receipts', t('uploadReceipts')), { type: 'button' });
+  upload.addEventListener('click', () => picker.click());
+  picker.addEventListener('change', async () => {
+    const files = [...(picker.files ?? [])];
+    if (!files.length) return;
+    upload.disabled = true;
+    upload.textContent = t('uploading', files.length);
+    try {
+      await uploadReceipts(files);
+      showUndo(t('uploaded', files.length), null);
+    } catch (err) {
+      showAppError(t('couldNotSave', err.message));
+    } finally {
+      upload.disabled = false;
+      upload.textContent = t('uploadReceipts');
+      picker.value = '';
+    }
+  });
+  const out = [el('h2', 'parts-title', t('receiptsTitle')), el('p', 'parts-intro', t('receiptsIntro')), upload, picker];
+  if (admin) {
+    const typed = Object.assign(el('button', 'link-btn type-receipt', t('typeReceipt')), { type: 'button' });
+    typed.addEventListener('click', () => openReceipt(null));
+    out.push(typed);
+  }
+  // Newest upload first, so a receipt just uploaded is always on top.
+  const list = [...receipts].sort((a, b) => b.createdMs - a.createdMs || (b.date ?? '').localeCompare(a.date ?? ''));
   if (!list.length) out.push(el('p', 'parts-empty', t('noReceipts')));
   for (const r of list) {
+    const status = r.status ?? 'read';
+    const card = el('div', `receipt-card status-${status}`);
     const row = el('button', 'receipt-row');
     row.type = 'button';
     row.append(
       el('span', 'receipt-vendor', r.vendor || t('noVendor')),
       el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
-      el('span', 'receipt-meta', [dateText(r.date), t('lineCount', r.lines?.length ?? 0), r.hasPhoto ? t('photo') : null, r.boughtBy].filter(Boolean).join(' · ')),
+      el('span', 'receipt-status', t('receiptStatus')[status] ?? status),
+      el('span', 'receipt-meta', [dateText(r.date), r.lines?.length ? t('lineCount', r.lines.length) : null, r.uploadedBy ?? r.boughtBy].filter(Boolean).join(' · ')),
     );
-    row.addEventListener('click', () => openReceipt(r.id));
-    out.push(row);
+    // Admin fixes and sorts lines; the buyer sees what was read.
+    row.addEventListener('click', () => (admin ? openReceipt(r.id) : viewReceipt(r.id)));
+    card.append(row);
+    if (r.hasPhoto) {
+      const photo = Object.assign(el('button', 'receipt-photo-link', t('seePhoto')), { type: 'button' });
+      photo.addEventListener('click', () => showReceiptPhoto(r));
+      card.append(photo);
+    }
+    out.push(card);
   }
   return out;
+}
+
+// Each photo becomes a receipt "waiting to be read".
+async function uploadReceipts(files) {
+  const today = new Date().toLocaleDateString('en-CA');
+  for (const file of files) {
+    const photo = await shrinkPhoto(file);
+    const ref = doc(collection(db, 'receipts'));
+    const batch = writeBatch(db);
+    batch.set(ref, {
+      id: ref.id, status: 'waiting', date: today, vendor: '', lines: [], tax: null, total: null,
+      hasPhoto: true, uploadedBy: rememberedName() || null, createdAt: serverTimestamp(),
+    });
+    batch.set(doc(db, 'receiptPhotos', ref.id), { data: photo });
+    await batch.commit();
+  }
+}
+
+// The receipt photo, full width in a popup (pinch to zoom on a phone).
+async function showReceiptPhoto(r) {
+  const body = partsDialog(r.vendor || t('receipt'), dateText(r.date));
+  const img = Object.assign(el('img', 'receipt-full'), { alt: t('receipt') });
+  body.append(el('p', 'muted', t('loadingPhoto')));
+  const snap = await getDoc(doc(db, 'receiptPhotos', r.id));
+  body.replaceChildren(snap.exists() ? Object.assign(img, { src: snap.data().data }) : el('p', 'muted', t('noPhoto')));
+}
+
+// The buyer's view of a receipt: what was read, and what still waits for admin.
+function viewReceipt(id) {
+  const r = receipts.find((x) => x.id === id);
+  if (!r) return;
+  const status = r.status ?? 'read';
+  const body = partsDialog(r.vendor || t('receipt'), [dateText(r.date), t('receiptStatus')[status]].filter(Boolean).join(' · '));
+  if (status === 'waiting') body.append(el('p', 'parts-hint', t('waitingHint')));
+  if (status === 'unreadable' || status === 'error') body.append(el('p', 'need-missing', `${t('unreadableHint')} ${(r.problems ?? []).concat(r.readError ?? []).join(' ')}`));
+  for (const p of r.problems ?? []) if (status === 'review') body.append(el('p', 'need-missing', p));
+  const lines = el('div', 'buy-lines receipt-view');
+  for (const l of r.lines ?? []) {
+    const row = el('div', `buy-line ${l.part || l.to ? '' : 'line-restock'}`);
+    const name = l.part ? partById(l.part)?.name ?? l.text : l.text;
+    const where = l.to === 'truck' ? vehicles.find((v) => v.id === l.vehicleId)?.name : l.to === 'shop' ? t('forShop') : l.part ? null : t('waitingAdmin');
+    row.append(el('span', 'buy-text', `${qtyText(l.qty)} × ${name}${where ? ` · ${where}` : ''}`), el('strong', null, l.price != null ? money(l.price) : ''));
+    lines.append(row);
+  }
+  if (r.lines?.length) body.append(lines);
+  if (r.total != null) body.append(el('div', 'receipt-sum', t('receiptTotal', money(r.total))));
+  if (r.hasPhoto) {
+    const photo = Object.assign(el('button', 'btn parts-copy', t('seePhoto')), { type: 'button' });
+    photo.addEventListener('click', () => showReceiptPhoto(r));
+    body.append(photo);
+  }
+  // A photo that couldn't be read can be thrown away and uploaded again.
+  if (status === 'unreadable' || status === 'error') {
+    const del = Object.assign(el('button', 'btn btn-ghost btn-delete', t('deleteReceipt')), { type: 'button' });
+    del.addEventListener('click', async () => {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'receipts', r.id));
+      batch.delete(doc(db, 'receiptPhotos', r.id));
+      await batch.commit();
+      $('pdlg').close();
+    });
+    body.append(del);
+  }
 }
 
 // ---- Parts popups: a part, a kit, a receipt -------------------------------------
@@ -2438,8 +2526,9 @@ const savedVendors = () => {
 
 // A receipt: photo, store, date, and its lines. A line is a stocked part
 // (goes on the shelf) or anything else, charged to a truck or the shop.
-// `prefill` (from the shopping list): { lines, onSaved }.
-function openReceipt(id, prefill = null) {
+// Lines the reader couldn't place show what it read and why; they stay on
+// the receipt (adding nothing to stock) until someone picks where they go.
+function openReceipt(id) {
   const r = id ? receipts.find((x) => x.id === id) : null;
   const body = partsDialog(r ? (r.vendor || t('receipt')) : t('newReceipt'), r ? dateText(r.date) : null);
   const form = pform();
@@ -2447,8 +2536,7 @@ function openReceipt(id, prefill = null) {
   const state = {
     photo: null, // new photo (data URL)
     vendor: r?.vendor ?? '',
-    lines: prefill?.lines.map((l) => ({ ...l, price: '' }))
-      ?? (r?.lines ?? [{ part: '', qty: '', price: '' }]).map((l) => ({ ...l, packSize: 1, packQty: l.qty })),
+    lines: (r?.lines ?? [{ part: '', qty: '', price: '' }]).map((l) => ({ ...l, packSize: 1, packQty: l.qty })),
   };
 
   // Photo: take one now, or see the saved one.
@@ -2529,8 +2617,15 @@ function openReceipt(id, prefill = null) {
       rm.addEventListener('click', () => { state.lines.splice(i, 1); drawLines(); updateTotal(); });
       const nums = el('div', 'receipt-nums');
       nums.append(qty, pack, price, rm);
+      // What the reader saw, and why it's waiting (until a choice is made).
+      const undecided = !l.part && !l.to;
+      if (l.flags?.length && undecided) {
+        row.classList.add('needs-choice');
+        row.prepend(el('p', 'line-read', `${t('readAs')}: ${l.text}${l.partNumber ? ` (${l.partNumber})` : ''}`));
+        row.append(el('p', 'need-missing', l.flags.map((f) => t('lineFlags')[f] ?? f).join(' · ')));
+        if (l.suggestedPart && partById(l.suggestedPart)) row.append(el('p', 'line-for', t('maybePart', partById(l.suggestedPart).name)));
+      }
       row.append(what, text, nums);
-      // Bought for several trucks: which ones (the parts go on the shelf).
       if (l.for?.length) row.append(el('p', 'line-for', t('forTrucks', l.for.map((u) => u.name).join(', '))));
       return row;
     }));
@@ -2559,11 +2654,13 @@ function openReceipt(id, prefill = null) {
   body.append(form);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const lines = state.lines.filter((l) => l.part || l.to);
-    if (!lines.length) return fail(t('errNoLines'));
-    const bad = lines.find((l) => !(Number(l.qty) > 0));
+    // Decided lines need a quantity; read lines still undecided are kept.
+    const lines = state.lines.filter((l) => l.part || l.to || l.flags?.length);
+    const decided = lines.filter((l) => l.part || l.to);
+    if (!lines.length && r?.status !== 'waiting') return fail(t('errNoLines'));
+    const bad = decided.find((l) => !(Number(l.qty) > 0));
     if (bad) return fail(t('errLineQty'));
-    if (lines.some((l) => !l.part && !(l.text ?? '').trim())) return fail(t('errLineText'));
+    if (decided.some((l) => !l.part && !(l.text ?? '').trim())) return fail(t('errLineText'));
     save.disabled = true;
     const total = lines.reduce((s, l) => s + (Number(l.price) || 0), 0) + (Number(tax.value) || 0);
     const by = who.value();
@@ -2573,15 +2670,24 @@ function openReceipt(id, prefill = null) {
       id: ref.id,
       date: date.value,
       vendor: state.vendor.trim() ? canonicalName(state.vendor, savedVendors()) : '',
-      lines: lines.map((l) => ({
-        part: l.part || null,
-        text: l.part ? partById(l.part)?.name ?? '' : l.text.trim(),
-        qty: Number(l.qty),
-        price: l.price === '' || l.price == null ? null : Number(l.price),
-        to: l.part ? 'stock' : l.to,
-        vehicleId: l.to === 'truck' ? l.vehicleId : null,
-        for: l.for?.length ? l.for : null,
-      })),
+      lines: lines.map((l) => {
+        const placed = Boolean(l.part || l.to);
+        return {
+          part: l.part || null,
+          // The receipt's own wording is kept for lines the reader filled in.
+          text: (l.part && !l.flags ? partById(l.part)?.name : l.text?.trim()) || partById(l.part)?.name || '',
+          partNumber: l.partNumber ?? null,
+          qty: Number(l.qty) || 0,
+          price: l.price === '' || l.price == null ? null : Number(l.price),
+          to: l.part ? 'stock' : l.to ?? null,
+          vehicleId: l.to === 'truck' ? l.vehicleId : null,
+          for: l.for?.length ? l.for : null,
+          flags: placed ? [] : l.flags ?? [],
+          suggestedPart: placed ? null : l.suggestedPart ?? null,
+        };
+      }),
+      // Still waiting for a person while any read line has nowhere to go.
+      status: r?.status === 'waiting' && !lines.length ? 'waiting' : lines.some((l) => !l.part && !l.to) ? 'review' : 'read',
       tax: tax.value === '' ? null : Number(tax.value),
       total: Math.round(total * 100) / 100,
       boughtBy: by || null,
@@ -2594,7 +2700,6 @@ function openReceipt(id, prefill = null) {
     if (state.photo) batch.set(doc(db, 'receiptPhotos', ref.id), { data: state.photo });
     try {
       await batch.commit();
-      prefill?.onSaved?.();
       $('pdlg').close();
     } catch (err) {
       save.disabled = false;
@@ -3001,6 +3106,7 @@ function buildTrailerWork() {
 
 // A message bar with an Undo button that disappears after 10 seconds.
 let undoTimer;
+// A message at the bottom of the screen, with Undo when `undo` is given.
 function showUndo(message, undo) {
   const bar = $('toast');
   clearTimeout(undoTimer);
@@ -3016,7 +3122,7 @@ function showUndo(message, undo) {
       showAppError(`Could not undo: ${err.message}`);
     }
   });
-  bar.replaceChildren(el('span', null, message), btn);
+  bar.replaceChildren(el('span', null, message), ...(undo ? [btn] : []));
   // An open popup sits above the page, so the bar goes inside it.
   const host = [$('pdlg'), $('work'), $('truck'), $('schedule')].find((d) => d.open) ?? document.body;
   if (bar.parentElement !== host) host.append(bar);
