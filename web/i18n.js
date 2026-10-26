@@ -242,6 +242,10 @@ const TEXT = {
     fromShelf: 'Parts from the shelf',
     fromShelfHint: 'Taken off the stock count when you save. Change them if you used something different.',
     shelfLeft: (n) => `${n} left`,
+    forUnits: 'For',
+    copyVin: 'Copy VIN',
+    copiedVin: 'Copied ✓',
+    noVin: 'no VIN',
   },
   es: {
     shopTitle: 'Camiones que necesitan servicio',
@@ -483,6 +487,10 @@ const TEXT = {
     fromShelf: 'Partes del estante',
     fromShelfHint: 'Se descuentan del inventario al guardar. Cámbialas si usaste algo diferente.',
     shelfLeft: (n) => `quedan ${n}`,
+    forUnits: 'Para',
+    copyVin: 'Copiar VIN',
+    copiedVin: 'Copiado ✓',
+    noVin: 'sin VIN',
   },
 };
 

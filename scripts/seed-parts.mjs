@@ -17,14 +17,15 @@ import { commit, listDocs, mergeWrite, setWrite } from './firestore-rest.mjs';
 
 export const STARTER_PARTS = [
   { id: 'engine-oil', name: 'Engine oil', group: 'oil', unit: 'gal', packs: [{ name: 'Drum', size: 55 }] },
-  { id: 'oil-filter-a4721800109', name: 'Oil filter · DD15 pre-Gen 5, DD13', number: 'A4721800109 · LF17511 · P551005', group: 'filter', unit: 'each' },
+  { id: 'oil-filter-a4721800109', name: 'Oil filter · DD15 pre-Gen 5 / DD13', number: 'A4721800109 · LF17511 · P551005', group: 'filter', unit: 'each' },
   { id: 'oil-filter-a4711800209', name: 'Oil filter · DD15 Gen 5', number: 'A4711800209 · LF17800 · P582506', group: 'filter', unit: 'each' },
   { id: 'fuel-kit-a4720900451', name: 'Fuel filter kit · DD15 pre-Gen 5', number: 'A4720900451 · FK13850NN · P551063', group: 'filter', unit: 'each' },
   { id: 'fuel-kit-a4720921705', name: 'Fuel filter kit · DD15 Gen 5', number: 'A4720921705 · P582831', group: 'filter', unit: 'each' },
-  { id: 'oil-filter-lf14000nn', name: 'Oil filter · X15 2017–19', number: 'LF14000NN', group: 'filter', unit: 'each' },
-  { id: 'oil-filter-lf14001nn', name: 'Oil filter · X15 2020+', number: 'LF14001NN', group: 'filter', unit: 'each' },
+  // One oil filter for every X15: Cummins prefers LF14001NN from 2020 on and it
+  // is the newer version of the 2018 truck's LF14000NN (confirm the fit on T-08).
+  { id: 'oil-filter-lf14001nn', name: 'Oil filter · X15', number: 'LF14001NN', group: 'filter', unit: 'each' },
   { id: 'fuel-filter-ff5825nn', name: 'Fuel filter (pressure) · X15', number: 'FF5825NN', group: 'filter', unit: 'each' },
-  { id: 'fuel-filter-fs20172', name: 'Fuel filter (suction) · X15 PACCAR', number: 'FS20172 · K37-1029', group: 'filter', unit: 'each' },
+  { id: 'fuel-filter-fs20172', name: 'Fuel filter (suction) · X15', number: 'FS20172 · K37-1029', group: 'filter', unit: 'each' },
   { id: 'tire-steer', name: 'Steer tire', group: 'tire', unit: 'each', autoUse: 'steerTire' },
   { id: 'tire-drive', name: 'Drive tire', group: 'tire', unit: 'each', autoUse: 'driveTire' },
   { id: 'tire-trailer', name: 'Trailer tire', group: 'tire', unit: 'each', autoUse: 'trailerTire' },
@@ -42,7 +43,7 @@ export const STARTER_KITS = {
   'detroit-dd15-gen5-longhaul': dd15Gen5,
   'detroit-dd13-epa10-longhaul': { oil: [{ part: 'engine-oil', qty: 10 }, { part: 'oil-filter-a4721800109', qty: 1 }] },
   'cummins-x15-epa2017-normal': {
-    oil: [{ part: 'engine-oil', qty: 11.5 }, { part: 'oil-filter-lf14000nn', qty: 1 }],
+    oil: x15.oil,
     fuelFilters: [{ part: 'fuel-filter-ff5825nn', qty: 1 }, { part: 'fuel-filter-fs20172', qty: 1 }],
   },
   'cummins-x15-2020-normal': x15,

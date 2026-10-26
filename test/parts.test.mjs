@@ -74,6 +74,8 @@ test('upcoming work and the shopping list', () => {
   assert.deepEqual(byId.oil.packs, [{ name: 'Drum', size: 55, count: 1 }, { name: 'Case', size: 6, count: 1 }]);
   assert.equal(byId.of, undefined); // 1 + 2 minimum <= 4 on hand
   assert.equal(byId.ff.buy, 1);
+  // Each part says which trucks it's for.
+  assert.deepEqual(byId.oil.units, [{ unitId: 't1', unitName: 'T-01', trailer: false, qty: 11 }]);
   assert.equal(byId.steer, undefined);
 });
 

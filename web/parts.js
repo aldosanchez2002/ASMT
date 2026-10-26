@@ -136,12 +136,22 @@ export function upcomingWork(trucks, trailers, kits, schedules, parts) {
 /**
  * The shopping list: for each part, what upcoming work needs plus the
  * part's minimum on hand, minus what's on the shelf.
- * @returns [{ part, need, min, have, buy, packs: [{ name, size, count }] }]
- *   only parts with something to buy, biggest shortfall first
+ * @returns [{ part, need, min, have, buy, packs: [{ name, size, count }],
+ *   units: [{ unitId, unitName, trailer, qty }] }] (the trucks / trailers it's
+ *   for) — only parts with something to buy, biggest shortfall first
  */
 export function shoppingList(parts, work, stock) {
   const need = {};
-  for (const w of work) for (const [id, qty] of Object.entries(w.parts)) add(need, id, qty);
+  const units = {};
+  for (const w of work) {
+    for (const [id, qty] of Object.entries(w.parts)) {
+      add(need, id, qty);
+      const list = (units[id] ??= []);
+      const u = list.find((x) => x.unitId === w.unitId);
+      if (u) u.qty = round(u.qty + qty);
+      else list.push({ unitId: w.unitId, unitName: w.unitName, trailer: Boolean(w.trailer), qty });
+    }
+  }
   const list = [];
   for (const part of parts) {
     if (part.archived) continue;
@@ -150,7 +160,7 @@ export function shoppingList(parts, work, stock) {
     const have = stock[part.id] ?? 0;
     const buy = round(Math.max(0, n + min - Math.max(have, 0)));
     if (buy <= 0) continue;
-    list.push({ part, need: n, min, have, buy, packs: packsFor(part, buy) });
+    list.push({ part, need: n, min, have, buy, packs: packsFor(part, buy), units: units[part.id] ?? [] });
   }
   return list.sort((a, b) => (a.part.group ?? '').localeCompare(b.part.group ?? '') || b.buy - a.buy);
 }

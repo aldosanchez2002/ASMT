@@ -1032,27 +1032,37 @@ function dueText(r) {
 
 
 // "VIN 1FUJ… [Copy VIN]": copies the VIN for parts orders, insurance, etc.
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Older browsers / no permission: copy through a hidden text box.
+    const box = Object.assign(document.createElement('textarea'), { value: text });
+    box.style.position = 'fixed';
+    box.style.opacity = '0';
+    document.body.append(box);
+    box.select();
+    document.execCommand('copy');
+    box.remove();
+  }
+}
+
+// A "Copy VIN" button that says "Copied ✓" for a moment.
+function copyVinButton(vin, className = 'btn btn-ghost vin-copy') {
+  const btn = el('button', className, t('copyVin'));
+  btn.type = 'button';
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await copyText(vin);
+    btn.textContent = t('copiedVin');
+    setTimeout(() => { btn.textContent = t('copyVin'); }, 2000);
+  });
+  return btn;
+}
+
 function vinRow(vin) {
   const row = el('div', 'vin-row');
-  const btn = el('button', 'btn btn-ghost vin-copy', 'Copy VIN');
-  btn.type = 'button';
-  btn.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(vin);
-    } catch {
-      // Older browsers / no permission: copy through a hidden text box.
-      const box = Object.assign(document.createElement('textarea'), { value: vin });
-      box.style.position = 'fixed';
-      box.style.opacity = '0';
-      document.body.append(box);
-      box.select();
-      document.execCommand('copy');
-      box.remove();
-    }
-    btn.textContent = 'Copied ✓';
-    setTimeout(() => { btn.textContent = 'Copy VIN'; }, 2000);
-  });
-  row.append(el('span', 'vin-text', `VIN ${vin}`), btn);
+  row.append(el('span', 'vin-text', `VIN ${vin}`), copyVinButton(vin));
   return row;
 }
 
@@ -2023,6 +2033,17 @@ function fleetWork() {
       || String(a.unitName).localeCompare(String(b.unitName), undefined, { numeric: true }));
 }
 
+// VINs (trucks only: Samsara has none for the trailers).
+const unitVin = (id, trailer) => (trailer ? null : vehicles.find((v) => v.id === id)?.vin || null);
+function unitVinLine(id, name, trailer, qty) {
+  const line = el('div', 'unit-vin');
+  const vin = unitVin(id, trailer);
+  line.append(el('span', 'unit-name', name), el('span', 'unit-qty', qty));
+  if (vin) line.append(el('span', 'vin-text', vin), copyVinButton(vin, 'vin-chip'));
+  else line.append(el('span', 'vin-text muted', trailer ? t('trailer') : t('noVin')));
+  return line;
+}
+
 function setPartsSide(side) {
   partsSide = PARTS_SIDES.includes(side) ? side : 'receipts';
   try { localStorage.setItem(PARTS_SIDE_KEY, partsSide); } catch { /* not remembered */ }
@@ -2059,6 +2080,7 @@ function partsBuy(list, work, stock) {
   }
   if (!list.length) out.push(el('p', 'parts-empty parts-good', t('nothingToBuy')));
   for (const x of list) {
+    const card = el('div', 'buy-card');
     const row = el('button', 'buy-row');
     row.type = 'button';
     const name = el('span', 'buy-name', x.part.name);
@@ -2068,12 +2090,23 @@ function partsBuy(list, work, stock) {
     const why = el('span', 'buy-why', t('buyWhy', amountText(x.part, x.need), x.min ? amountText(x.part, x.min) : null, amountText(x.part, x.have)));
     row.append(name, amount, meta, ...(packs ? [packs] : []), why);
     row.addEventListener('click', () => openPart(x.part.id));
-    out.push(row);
+    card.append(row);
+    // The trucks it's for, with the VIN for the parts counter.
+    if (x.units.length) {
+      const box = el('div', 'buy-for');
+      box.append(el('span', 'buy-for-title', t('forUnits')));
+      for (const u of x.units) box.append(unitVinLine(u.unitId, u.unitName, u.trailer, `${x.part.unit === 'gal' ? '' : '× '}${amountText(x.part, u.qty)}`));
+      card.append(box);
+    }
+    out.push(card);
   }
   if (list.length) {
     const copy = Object.assign(el('button', 'btn parts-copy', t('copyList')), { type: 'button' });
     copy.addEventListener('click', async () => {
-      const text = [t('toBuyTitle'), ...list.map((x) => `• ${x.part.name}${x.part.number ? ` (${x.part.number})` : ''}: ${amountText(x.part, x.buy)}${x.packs.length ? ` = ${x.packs.map((p) => `${p.count} ${p.name.toLowerCase()}`).join(` ${t('or')} `)}` : ''}`)].join('\n');
+      const text = [t('toBuyTitle'), ...list.map((x) => [
+        `• ${x.part.name}${x.part.number ? ` (${x.part.number})` : ''}: ${amountText(x.part, x.buy)}${x.packs.length ? ` = ${x.packs.map((p) => `${p.count} ${p.name.toLowerCase()}`).join(` ${t('or')} `)}` : ''}`,
+        ...x.units.map((u) => `   ${t('forUnits')} ${u.unitName}${unitVin(u.unitId, u.trailer) ? ` · VIN ${unitVin(u.unitId, u.trailer)}` : ''}`),
+      ].join('\n'))].join('\n');
       try {
         if (navigator.share) await navigator.share({ text });
         else { await navigator.clipboard.writeText(text); copy.textContent = t('copied'); setTimeout(() => { copy.textContent = t('copyList'); }, 2000); }
@@ -2097,6 +2130,12 @@ function partsBuy(list, work, stock) {
         ? t('needTires', w.tires.length)
         : w.tags.map((tag) => t('kitTags')[tag] ?? tag).join(' + ');
       row.append(el('span', 'need-unit', w.unitName), el('span', 'need-what', `${what} · ${t(w.status)}`));
+      const vin = unitVin(w.unitId, w.trailer);
+      if (vin) {
+        const line = el('span', 'need-vin');
+        line.append(el('span', 'vin-text', `VIN ${vin}`), copyVinButton(vin, 'vin-chip'));
+        row.append(line);
+      }
       const used = Object.entries(w.parts).map(([id, qty]) => `${amountText(partById(id), qty)} ${partById(id)?.name ?? id}`);
       if (used.length) row.append(el('span', 'need-parts', used.join(' · ')));
       if (w.missing.length) row.append(el('span', 'need-missing', t('kitMissing', w.missing.map((tag) => t('kitTags')[tag] ?? tag).join(', '))));
