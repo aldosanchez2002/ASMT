@@ -29,13 +29,6 @@ test('engine tags use the engine kit, the rest the chassis kit', () => {
   assert.equal(kitKey(truck, 'airFilter', schedules), 't680');
 });
 
-test('the DD15 GHG17 schedule splits its kits at 2021 builds (Gen 5 filters)', () => {
-  const s = new Map([['detroit-dd15-ghg17-longhaul', { category: 'engine', items: [] }]]);
-  const v = (year) => ({ year, scheduleIds: ['detroit-dd15-ghg17-longhaul'] });
-  assert.equal(kitKey(v(2019), 'oil', s), 'detroit-dd15-ghg17-longhaul');
-  assert.equal(kitKey(v(2021), 'fuelFilters', s), 'detroit-dd15-ghg17-longhaul@2021');
-});
-
 test('item keys and jobs map to service tags', () => {
   assert.deepEqual(tagsForKeys(['dd15__oil', 'dd15__fuel-filter-engine']), ['oil', 'fuelFilters']);
   assert.deepEqual(tagsForJobs(['oilChange', 'airFilter']), ['oil', 'fuelFilters', 'airFilter']);

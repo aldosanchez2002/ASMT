@@ -18,20 +18,10 @@ export const kitCategory = (tag) => (ENGINE_TAGS.includes(tag) ? 'engine' : 'cha
 // Parts the work log uses without a kit: tires by position, batteries.
 export const AUTO_USES = ['steerTire', 'driveTire', 'trailerTire', 'battery'];
 
-// Filter changeovers that don't line up with a maintenance schedule: Detroit's
-// Gen 5 DD15 (new oil filter and fuel filter kit) started with 2021 builds,
-// while the GHG17 schedule runs to 2024.
-export const KIT_SPLITS = {
-  'detroit-dd15-ghg17-longhaul': { fromYear: 2021, key: 'detroit-dd15-ghg17-longhaul@2021', label: 'Detroit DD15 (Gen 5 filters)' },
-};
-
-// The kit (an engine or chassis schedule, split by model year where the
-// filters changed) a tag uses on this truck.
+// The kit a tag uses on this truck: its engine or chassis schedule.
 export function kitKey(vehicle, tag, schedules) {
   const category = kitCategory(tag);
-  const id = (vehicle.scheduleIds ?? []).find((x) => schedules.get(x)?.category === category) ?? null;
-  const split = KIT_SPLITS[id];
-  return split && Number(vehicle.year) >= split.fromYear ? split.key : id;
+  return (vehicle.scheduleIds ?? []).find((x) => schedules.get(x)?.category === category) ?? null;
 }
 
 // Tags covered by schedule item keys ("{scheduleId}__{itemId}").

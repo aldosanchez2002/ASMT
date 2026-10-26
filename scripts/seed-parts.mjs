@@ -17,10 +17,10 @@ import { commit, listDocs, mergeWrite, setWrite } from './firestore-rest.mjs';
 
 export const STARTER_PARTS = [
   { id: 'engine-oil', name: 'Engine oil', group: 'oil', unit: 'gal', packs: [{ name: 'Drum', size: 55 }] },
-  { id: 'oil-filter-a4721800109', name: 'Oil filter · DD15 2016–20, DD13', number: 'A4721800109 · LF17511 · P551005', group: 'filter', unit: 'each' },
-  { id: 'oil-filter-a4711800209', name: 'Oil filter · DD15 Gen 5 (2021+)', number: 'A4711800209 · LF17800 · P582506', group: 'filter', unit: 'each' },
-  { id: 'fuel-kit-a4720900451', name: 'Fuel filter kit · DD15 2016–20', number: 'A4720900451 · FK13850NN · P551063', group: 'filter', unit: 'each' },
-  { id: 'fuel-kit-a4720921705', name: 'Fuel filter kit · DD15 Gen 5 (2021+)', number: 'A4720921705 · P582831', group: 'filter', unit: 'each' },
+  { id: 'oil-filter-a4721800109', name: 'Oil filter · DD15 pre-Gen 5, DD13', number: 'A4721800109 · LF17511 · P551005', group: 'filter', unit: 'each' },
+  { id: 'oil-filter-a4711800209', name: 'Oil filter · DD15 Gen 5', number: 'A4711800209 · LF17800 · P582506', group: 'filter', unit: 'each' },
+  { id: 'fuel-kit-a4720900451', name: 'Fuel filter kit · DD15 pre-Gen 5', number: 'A4720900451 · FK13850NN · P551063', group: 'filter', unit: 'each' },
+  { id: 'fuel-kit-a4720921705', name: 'Fuel filter kit · DD15 Gen 5', number: 'A4720921705 · P582831', group: 'filter', unit: 'each' },
   { id: 'oil-filter-lf14000nn', name: 'Oil filter · X15 2017–19', number: 'LF14000NN', group: 'filter', unit: 'each' },
   { id: 'oil-filter-lf14001nn', name: 'Oil filter · X15 2020+', number: 'LF14001NN', group: 'filter', unit: 'each' },
   { id: 'fuel-filter-ff5825nn', name: 'Fuel filter (pressure) · X15', number: 'FF5825NN', group: 'filter', unit: 'each' },
@@ -39,7 +39,6 @@ const x15 = { oil: [{ part: 'engine-oil', qty: 11.5 }, { part: 'oil-filter-lf140
 export const STARTER_KITS = {
   'detroit-dd15-ghg14-longhaul': dd15,
   'detroit-dd15-ghg17-longhaul': dd15,
-  'detroit-dd15-ghg17-longhaul@2021': dd15Gen5,
   'detroit-dd15-gen5-longhaul': dd15Gen5,
   'detroit-dd13-epa10-longhaul': { oil: [{ part: 'engine-oil', qty: 10 }, { part: 'oil-filter-a4721800109', qty: 1 }] },
   'cummins-x15-epa2017-normal': {

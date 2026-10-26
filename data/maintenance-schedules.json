@@ -1949,19 +1949,20 @@
         "make": "FREIGHTLINER",
         "model": "CASCADIA",
         "yearMin": 2018,
-        "yearMax": 2024
+        "yearMax": 2021
       },
       "schedules": [
         "detroit-dd15-ghg17-longhaul",
         "freightliner-new-cascadia-schedule2",
         "dot-annual"
-      ]
+      ],
+      "notes": "Detroit's DD15 Gen 5 started with January 2021 builds, so a 2021 truck built from then on has the Gen 5 engine; check the build date on the door label"
     },
     {
       "match": {
         "make": "FREIGHTLINER",
         "model": "CASCADIA",
-        "yearMin": 2025,
+        "yearMin": 2022,
         "yearMax": 2027
       },
       "schedules": [
@@ -1969,7 +1970,7 @@
         "freightliner-new-cascadia-schedule2",
         "dot-annual"
       ],
-      "notes": "VIN decode: DD15 Gen 5 (TCO). Confirm whether 2027 engines have a newer schedule"
+      "notes": "DD15 Gen 5 (Detroit: Cascadia builds from January 2021 on). Confirm whether 2027 engines have a newer schedule"
     },
     {
       "match": {

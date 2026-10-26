@@ -654,7 +654,6 @@ details.setup > .company { padding: 10px 16px 14px; margin: 0; }
   border: none; background: var(--surface); color: var(--muted); cursor: pointer;
 }
 .lang button.active { background: var(--accent); color: var(--accent-text); }
-.admin-link { font-size: 14px; color: var(--muted); }
 .shop-title { margin: 8px 0 2px; font-size: 20px; text-transform: none; letter-spacing: 0; }
 #shop-count { margin: 0 0 12px; }
 .shop-cards { display: grid; gap: 10px; }
@@ -775,7 +774,6 @@ header.top { background: #111; color: #fff; border-bottom: none; padding-top: 10
 body.shop-mode .lang { border: 2px solid #fff; border-radius: 0; }
 body.shop-mode .lang button { font: 800 15px var(--cond); letter-spacing: .05em; background: transparent; color: #fff; min-height: 38px; min-width: 46px; }
 body.shop-mode .lang button.active { background: var(--floor-yellow); color: #111; }
-.top .admin-link { color: #bbb; font: 600 15px var(--cond); letter-spacing: .04em; text-transform: uppercase; }
 
 body.shop-mode .shop-title {
   font: 800 34px/1 var(--cond); text-transform: uppercase; letter-spacing: .01em; margin: 14px 0 4px;
@@ -1279,3 +1277,23 @@ dialog#pdlg::backdrop { background: rgba(0, 0, 0, .45); }
 .parts-side button { gap: 6px; padding: 0 6px; }
 body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 18px; letter-spacing: .04em; white-space: nowrap; }
 .kit-row.empty .kit-parts { color: var(--floor-muted); font-weight: 600; }
+
+/* Role switch (top right): Mechanic · Inventory · Admin. Three buttons on a
+   wide screen; on a phone, one button that opens them as a menu. */
+.role-switch { position: relative; }
+.role-current, .role-menu button { font: 800 15px var(--cond); letter-spacing: .05em; text-transform: uppercase; color: #fff; background: transparent; cursor: pointer; }
+.role-current { display: none; min-height: 42px; padding: 0 10px; border: 2px solid #fff; border-radius: 0; white-space: nowrap; }
+.role-current::after { content: ' ▾'; }
+.role-menu { display: inline-flex; border: 2px solid #fff; }
+.role-menu button { min-height: 38px; padding: 0 12px; border: none; border-radius: 0; }
+.role-menu button + button { border-left: 2px solid #fff; }
+.role-menu button.active { background: var(--floor-yellow); color: #111; }
+@media (max-width: 699px) {
+  .role-current { display: block; }
+  .role-menu { display: none; position: absolute; z-index: 30; right: 0; top: calc(100% + 8px); flex-direction: column; min-width: 180px; background: #111; box-shadow: 0 8px 20px rgba(0, 0, 0, .35); }
+  .role-switch.open .role-menu { display: flex; }
+  .role-menu button { min-height: 50px; padding: 0 16px; text-align: left; font-size: 17px; }
+  .role-menu button + button { border-left: none; border-top: 1px solid #444; }
+  .top .shop-top { gap: 8px; }
+  body.shop-mode .lang button { min-width: 40px; }
+}

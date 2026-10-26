@@ -26,8 +26,14 @@
         <button type="button" data-lang="en">EN</button>
         <button type="button" data-lang="es">ES</button>
       </div>
-      <a id="admin-link" class="admin-link" href="#trucks">Admin</a>
-      <a id="shop-link" class="admin-link" href="#" hidden>← Shop</a>
+      <div id="role-switch" class="role-switch">
+        <button id="role-current" class="role-current" type="button" aria-haspopup="true" aria-expanded="false"></button>
+        <div id="role-menu" class="role-menu" role="group" aria-label="Role">
+          <button type="button" data-role="mechanic"></button>
+          <button type="button" data-role="inventory"></button>
+          <button type="button" data-role="admin"></button>
+        </div>
+      </div>
     </div>
     <div id="user-box" class="user-box" hidden>
       <span id="user-email"></span>

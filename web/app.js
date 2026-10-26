@@ -20,7 +20,7 @@ import {
 } from './truck-tires.js';
 import { itemName } from './item-names.js';
 import {
-  AUTO_USES, KIT_SPLITS, KIT_TAGS, batteryParts, kitCategory, kitKey, kitParts, onHand, shoppingList, tagsForJobs,
+  AUTO_USES, KIT_TAGS, batteryParts, kitCategory, kitKey, kitParts, onHand, shoppingList, tagsForJobs,
   tagsForKeys, tireParts, upcomingWork,
 } from './parts.js';
 import {
@@ -500,9 +500,10 @@ function renderLog() {
 // ---- Schedules tab ---------------------------------------------------------
 
 // The shop view is the main page; the rest is the admin side.
-const TABS = ['shop', 'trucks', 'trailers', 'parts', 'schedules', 'log', 'settings'];
-// Open without the admin password: the shop floor and the buyer's Parts page.
-const OPEN_TABS = ['shop', 'parts'];
+const TABS = ['shop', 'inventory', 'trucks', 'trailers', 'parts', 'schedules', 'log', 'settings'];
+// The inventory person's page is the admin Parts tab, in the shop look.
+const viewOf = (tab) => (tab === 'inventory' ? 'parts' : tab);
+const VIEWS = TABS.filter((x) => x !== 'inventory');
 
 // ---- Popups and the Back button ---------------------------------------------
 // Each popup adds a history step, so the phone's Back button closes the top
@@ -531,17 +532,28 @@ addEventListener('popstate', () => {
   closingFromBack = false;
 });
 
-// ---- Admin password ----------------------------------------------------------
-// Not real security (anyone can read it here): it only keeps the shop view
-// from wandering into the admin pages. Each device remembers once it's typed.
-const ADMIN_PASSWORD = 'Covington';
-const ADMIN_KEY = 'aslog.admin';
-function adminUnlocked() {
-  try { return localStorage.getItem(ADMIN_KEY) === 'yes'; } catch { return false; }
-}
-function askAdminPassword() {
+// ---- Roles: Mechanic, Inventory, Admin ------------------------------------------
+// The switch at the top right. Mechanic is open; Inventory and Admin each
+// have a password (any capitals). Not real security (anyone can read them
+// here): it only keeps each person on their own pages. Each device remembers
+// a password once it's typed, and the admin one opens Inventory too.
+const ROLES = ['mechanic', 'inventory', 'admin'];
+const ROLE_HOME = { mechanic: '#', inventory: '#inventory', admin: '#trucks' };
+const ROLE_LOCKS = {
+  inventory: { password: 'antonio', key: 'aslog.inventory' },
+  admin: { password: 'Covington', key: 'aslog.admin' },
+};
+const remembered = (key) => { try { return localStorage.getItem(key) === 'yes'; } catch { return false; } };
+const adminUnlocked = () => remembered(ROLE_LOCKS.admin.key);
+const roleUnlocked = (role) => role === 'mechanic' || adminUnlocked() || (role === 'inventory' && remembered(ROLE_LOCKS.inventory.key));
+const roleOfTab = (tab) => (tab === 'shop' ? 'mechanic' : tab === 'inventory' ? 'inventory' : 'admin');
+let lockRole = null; // the role the password popup is for
+let lastAllowedHash = ''; // where Cancel goes back to
+
+function askPassword(role) {
+  lockRole = role;
   const dlg = $('admin-lock');
-  $('admin-lock-title').textContent = t('adminLockTitle');
+  $('admin-lock-title').textContent = t('lockTitle', t('roles')[role]);
   $('admin-pass').placeholder = t('adminPassword');
   $('admin-pass-error').hidden = true;
   $('admin-pass-error').textContent = t('adminWrong');
@@ -555,22 +567,38 @@ function askAdminPassword() {
 function currentTab() {
   const tab = location.hash.slice(1);
   if (!TABS.includes(tab)) return 'shop';
-  return OPEN_TABS.includes(tab) || adminUnlocked() ? tab : 'shop';
+  // Locked: stay on the last page this device could open (behind the password box).
+  return roleUnlocked(roleOfTab(tab)) ? tab : lastAllowedHash.slice(1) || 'shop';
+}
+
+// The role switch: three buttons on a wide screen, a menu on a phone.
+function renderRoleSwitch() {
+  const role = roleOfTab(currentTab());
+  $('role-current').textContent = t('roles')[role];
+  for (const b of document.querySelectorAll('#role-menu button')) {
+    b.textContent = t('roles')[b.dataset.role];
+    b.classList.toggle('active', b.dataset.role === role);
+    b.setAttribute('aria-pressed', String(b.dataset.role === role));
+  }
+}
+function pickRole(role) {
+  $('role-switch').classList.remove('open');
+  $('role-current').setAttribute('aria-expanded', 'false');
+  if (role === roleOfTab(currentTab())) return;
+  location.hash = ROLE_HOME[role];
 }
 
 function showTab() {
   const tab = currentTab();
-  for (const x of TABS) $(`${x}-view`).hidden = x !== tab;
-  // The buyer opens Parts without the admin password: it then looks and
-  // reads like the shop view (EN/ES, no admin tabs). Admin sees it as a tab.
-  const shop = tab === 'shop' || (tab === 'parts' && !adminUnlocked());
+  for (const x of VIEWS) $(`${x}-view`).hidden = x !== viewOf(tab);
+  // Mechanic and Inventory: the shop look, EN/ES. Admin: English, admin tabs.
+  const shop = roleOfTab(tab) !== 'admin';
   useEnglish(!shop);
   document.body.classList.toggle('shop-mode', shop);
   $('admin-nav').hidden = shop;
-  // Top right: EN/ES and "Admin" in the shop view; "← Shop" in admin.
   $('lang').hidden = !shop;
-  $('admin-link').hidden = !shop;
-  $('shop-link').hidden = shop;
+  lastAllowedHash = tab === 'shop' ? '' : `#${tab}`;
+  renderRoleSwitch();
   for (const a of document.querySelectorAll('.tabs a')) {
     a.classList.toggle('active', a.dataset.tab === tab);
     a.setAttribute('aria-current', a.dataset.tab === tab ? 'page' : 'false');
@@ -1196,7 +1224,6 @@ const trailerInYard = (c) => atShop({ lat: c.latitude, lon: c.longitude, speedMp
 function renderShop() {
   if (currentTab() !== 'shop') return;
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
-  $('admin-link').textContent = t('admin');
   // Sections, in the shop's order:
   //   1. in the yard and needs service   2. no GPS signal lately
   //   3. in the yard, nothing needed     4. needs service, not in the yard
@@ -2004,9 +2031,8 @@ function setPartsSide(side) {
 }
 
 function renderParts() {
-  if (currentTab() !== 'parts') return;
+  if (viewOf(currentTab()) !== 'parts') return;
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
-  $('admin-link').textContent = t('admin');
   const stock = stockNow();
   const work = fleetWork();
   const list = shoppingList(partsList, work, stock);
@@ -2114,18 +2140,13 @@ function kitGroups() {
     for (const tag of ['oil', 'airFilter']) {
       const key = kitKey(v, tag, schedules);
       if (!key) continue;
-      const g = groups.get(key) ?? { key, category: kitCategory(tag), scheduleId: key.split('@')[0], trucks: [] };
+      const g = groups.get(key) ?? { key, category: kitCategory(tag), trucks: [] };
       g.trucks.push(v);
       groups.set(key, g);
     }
   }
   for (const g of groups.values()) {
-    const name = schedules.get(g.scheduleId)?.name ?? g.scheduleId;
-    // Split kits say which model years they cover.
-    const split = Object.values(KIT_SPLITS).find((x) => x.key === g.key);
-    const years = g.trucks.map((v) => Number(v.year)).filter(Boolean);
-    const range = years.length ? ` · ${yearRange(Math.min(...years), Math.max(...years))}` : '';
-    g.label = split ? `${split.label}${range}` : KIT_SPLITS[g.key] ? `${name}${range}` : name;
+    g.label = schedules.get(g.key)?.name ?? g.key;
     g.trucks.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
   }
   return [...groups.values()];
@@ -3071,32 +3092,43 @@ $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
 addEventListener('hashchange', () => {
   const tab = location.hash.slice(1);
-  if (TABS.includes(tab) && !OPEN_TABS.includes(tab) && !adminUnlocked()) askAdminPassword();
+  if (TABS.includes(tab) && !roleUnlocked(roleOfTab(tab))) askPassword(roleOfTab(tab));
   showTab();
   render();
 });
 $('admin-lock').addEventListener('submit', (e) => {
   e.preventDefault();
-  if ($('admin-pass').value.trim().toLowerCase() !== ADMIN_PASSWORD.toLowerCase()) {
+  const lock = ROLE_LOCKS[lockRole];
+  if (!lock || $('admin-pass').value.trim().toLowerCase() !== lock.password.toLowerCase()) {
     $('admin-pass-error').hidden = false;
     $('admin-pass').select();
     return;
   }
-  try { localStorage.setItem(ADMIN_KEY, 'yes'); } catch { /* asked again next time */ }
+  try { localStorage.setItem(lock.key, 'yes'); } catch { /* asked again next time */ }
   $('admin-lock').close('ok');
   showTab();
   render();
 });
 $('admin-pass-cancel').addEventListener('click', () => $('admin-lock').close());
-// Closed without the password (Cancel or Esc): back to the shop view.
+// Closed without the password (Cancel or Esc): back to where they were.
 $('admin-lock').addEventListener('close', () => {
-  if (!adminUnlocked()) history.replaceState(null, '', location.pathname + location.search);
+  if (!roleUnlocked(lockRole)) history.replaceState(null, '', location.pathname + location.search + lastAllowedHash);
+  lockRole = null;
   showTab();
   render();
 });
 for (const b of document.querySelectorAll('#lang button')) {
-  b.addEventListener('click', () => { setLang(b.dataset.lang); render(); });
+  b.addEventListener('click', () => { setLang(b.dataset.lang); renderRoleSwitch(); render(); });
 }
+$('role-current').addEventListener('click', () => {
+  const open = $('role-switch').classList.toggle('open');
+  $('role-current').setAttribute('aria-expanded', String(open));
+});
+for (const b of document.querySelectorAll('#role-menu button')) b.addEventListener('click', () => pickRole(b.dataset.role));
+// A tap anywhere else closes the phone menu.
+document.addEventListener('click', (e) => {
+  if (!$('role-switch').contains(e.target)) { $('role-switch').classList.remove('open'); $('role-current').setAttribute('aria-expanded', 'false'); }
+});
 $('tr-search').addEventListener('input', renderTrailers);
 for (const th of document.querySelectorAll('th[data-trsort]')) {
   th.addEventListener('click', () => {
@@ -3154,7 +3186,7 @@ $('tires-form').addEventListener('submit', async (e) => {
   }
 });
 applyLogPeriod();
-if (TABS.includes(location.hash.slice(1)) && !OPEN_TABS.includes(location.hash.slice(1)) && !adminUnlocked()) askAdminPassword();
+if (TABS.includes(location.hash.slice(1)) && !roleUnlocked(roleOfTab(location.hash.slice(1)))) askPassword(roleOfTab(location.hash.slice(1)));
 showTab();
 $('t-close').addEventListener('click', () => $('truck').close());
 $('s-close').addEventListener('click', () => $('schedule').close());
