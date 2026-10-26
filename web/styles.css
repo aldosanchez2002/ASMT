@@ -1309,3 +1309,10 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 .vin-chip { min-height: 40px; padding: 0 10px; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); font: 800 13px var(--cond); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; cursor: pointer; }
 .need-vin { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
 .need-vin .vin-text { font-size: 13px; }
+/* Shopping list: tick what was bought, then one receipt */
+.buy-check { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; }
+.buy-check input { flex: none; width: 26px; height: 26px; margin: 0; accent-color: #111; }
+.buy-line.bought { background: var(--floor-track); }
+.buy-line.bought .buy-text { text-decoration: line-through; text-decoration-thickness: 2px; }
+.make-receipt { position: sticky; bottom: 10px; z-index: 2; margin-top: 10px; box-shadow: 0 6px 16px rgba(0, 0, 0, .25); }
+.line-for { margin: 0; font-size: 13px; font-weight: 700; color: var(--floor-muted); }

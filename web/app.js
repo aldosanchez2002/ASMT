@@ -20,7 +20,7 @@ import {
 } from './truck-tires.js';
 import { itemName } from './item-names.js';
 import {
-  AUTO_USES, KIT_TAGS, batteryParts, kitCategory, kitKey, kitParts, onHand, shoppingList, tagsForJobs,
+  AUTO_USES, KIT_TAGS, batteryParts, kitCategory, kitKey, kitParts, onHand, receiptLinesFor, shoppingList, tagsForJobs,
   tagsForKeys, tireParts, upcomingWork,
 } from './parts.js';
 import {
@@ -2013,6 +2013,8 @@ let partsSide = (() => {
   try { const s = localStorage.getItem(PARTS_SIDE_KEY); return PARTS_SIDES.includes(s) ? s : 'receipts'; } catch { return 'receipts'; }
 })();
 let showAllWork = false; // To buy: the upcoming work behind the list, folded
+const bought = new Set(); // To buy: lines ticked as bought (lineKey), until a receipt is saved
+const lineKey = (x) => `${x.kind}:${x.part.id}:${x.unitId ?? ''}`;
 let showKits = false; // Stock: the service kits, folded by default
 
 const activeParts = () => partsList.filter((p) => !p.archived)
@@ -2089,21 +2091,33 @@ function partsBuy(list, work, stock) {
   }
   if (!list.length) out.push(el('p', 'parts-empty parts-good', t('nothingToBuy')));
   // One line per part per truck: "Fuel filter kit for VIN …" and Copy VIN.
+  // Tick what was bought, then "Make receipt": one receipt for all of it.
+  const keys = new Set(list.map(lineKey));
+  for (const k of [...bought]) if (!keys.has(k)) bought.delete(k);
   const lines = el('div', 'buy-lines');
   for (const x of list) {
-    const row = el('div', `buy-line line-${x.kind}`);
+    const key = lineKey(x);
+    const row = el('div', `buy-line line-${x.kind}${bought.has(key) ? ' bought' : ''}`);
     const vin = x.kind === 'unit' ? unitVin(x.unitId, x.trailer) : null;
+    const check = el('label', 'buy-check');
+    const box = Object.assign(el('input'), { type: 'checkbox', checked: bought.has(key) });
+    box.setAttribute('aria-label', `${t('boughtTick')}: ${shoppingLineText(x)}`);
+    box.addEventListener('change', () => { if (box.checked) bought.add(key); else bought.delete(key); renderParts(); });
     const text = el('span', 'buy-text');
-    if (vin) {
-      text.append(el('strong', null, lineWhat(x)), ` ${t('forVin')} `, el('span', 'buy-vin', vin), el('span', 'buy-unit', ` · ${x.unitName}`));
-      row.append(text, copyVinButton(vin, 'vin-chip'));
-    } else {
-      text.append(el('strong', null, shoppingLineText(x)));
-      row.append(text);
-    }
+    if (vin) text.append(el('strong', null, lineWhat(x)), ` ${t('forVin')} `, el('span', 'buy-vin', vin), el('span', 'buy-unit', ` · ${x.unitName}`));
+    else text.append(el('strong', null, shoppingLineText(x)));
+    check.append(box, text);
+    row.append(check);
+    if (vin) row.append(copyVinButton(vin, 'vin-chip'));
     lines.append(row);
   }
   if (list.length) out.push(lines);
+  const picked = list.filter((x) => bought.has(lineKey(x)));
+  if (picked.length) {
+    const make = Object.assign(el('button', 'btn parts-copy make-receipt', t('makeReceipt', picked.length)), { type: 'button' });
+    make.addEventListener('click', () => openReceipt(null, { lines: receiptLinesFor(picked), onSaved: () => { bought.clear(); renderParts(); } }));
+    out.push(make);
+  }
   if (list.length) {
     const copy = Object.assign(el('button', 'btn parts-copy', t('copyList')), { type: 'button' });
     copy.addEventListener('click', async () => {
@@ -2424,7 +2438,8 @@ const savedVendors = () => {
 
 // A receipt: photo, store, date, and its lines. A line is a stocked part
 // (goes on the shelf) or anything else, charged to a truck or the shop.
-function openReceipt(id) {
+// `prefill` (from the shopping list): { lines, onSaved }.
+function openReceipt(id, prefill = null) {
   const r = id ? receipts.find((x) => x.id === id) : null;
   const body = partsDialog(r ? (r.vendor || t('receipt')) : t('newReceipt'), r ? dateText(r.date) : null);
   const form = pform();
@@ -2432,7 +2447,8 @@ function openReceipt(id) {
   const state = {
     photo: null, // new photo (data URL)
     vendor: r?.vendor ?? '',
-    lines: (r?.lines ?? [{ part: '', qty: '', price: '' }]).map((l) => ({ ...l, packSize: 1, packQty: l.qty })),
+    lines: prefill?.lines.map((l) => ({ ...l, price: '' }))
+      ?? (r?.lines ?? [{ part: '', qty: '', price: '' }]).map((l) => ({ ...l, packSize: 1, packQty: l.qty })),
   };
 
   // Photo: take one now, or see the saved one.
@@ -2514,6 +2530,8 @@ function openReceipt(id) {
       const nums = el('div', 'receipt-nums');
       nums.append(qty, pack, price, rm);
       row.append(what, text, nums);
+      // Bought for several trucks: which ones (the parts go on the shelf).
+      if (l.for?.length) row.append(el('p', 'line-for', t('forTrucks', l.for.map((u) => u.name).join(', '))));
       return row;
     }));
     const addLine = Object.assign(el('button', 'link-btn', t('addLine')), { type: 'button' });
@@ -2562,6 +2580,7 @@ function openReceipt(id) {
         price: l.price === '' || l.price == null ? null : Number(l.price),
         to: l.part ? 'stock' : l.to,
         vehicleId: l.to === 'truck' ? l.vehicleId : null,
+        for: l.for?.length ? l.for : null,
       })),
       tax: tax.value === '' ? null : Number(tax.value),
       total: Math.round(total * 100) / 100,
@@ -2575,6 +2594,7 @@ function openReceipt(id) {
     if (state.photo) batch.set(doc(db, 'receiptPhotos', ref.id), { data: state.photo });
     try {
       await batch.commit();
+      prefill?.onSaved?.();
       $('pdlg').close();
     } catch (err) {
       save.disabled = false;
