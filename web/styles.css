@@ -1199,17 +1199,15 @@ body.shop-mode .today-meta { font: 700 13px var(--mono); color: var(--floor-mute
 .parts-group { margin-top: 18px; }
 #parts-view .section-toggle { width: 100%; border: none; background: none; padding: 0; font: inherit; cursor: pointer; text-align: left; }
 
-.buy-row, .stock-row, .receipt-row, .work-need {
+.stock-row, .receipt-row, .work-need {
   display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: baseline; width: 100%;
   margin-top: 8px; padding: 10px 12px; border: 2px solid var(--floor-line); border-radius: 0;
   background: var(--floor-paper); color: var(--floor-ink); font: inherit; text-align: left; cursor: pointer;
 }
-.buy-row { border-left: 8px solid var(--floor-yellow); }
-.buy-name, .stock-name, .receipt-vendor { font-weight: 700; font-size: 17px; line-height: 1.2; }
-.buy-amount, .stock-qty, .receipt-total { font: 800 22px/1 var(--cond); justify-self: end; white-space: nowrap; }
-.buy-meta, .buy-packs, .buy-why, .stock-meta, .receipt-meta { grid-column: 1 / -1; font-size: 13px; color: var(--floor-muted); }
-.buy-meta, .stock-meta { font-family: var(--mono); font-size: 12px; }
-.buy-packs { font-weight: 700; color: var(--floor-ink); font-size: 14px; }
+.stock-name, .receipt-vendor { font-weight: 700; font-size: 17px; line-height: 1.2; }
+.stock-qty, .receipt-total { font: 800 22px/1 var(--cond); justify-self: end; white-space: nowrap; }
+.stock-meta, .receipt-meta { grid-column: 1 / -1; font-size: 13px; color: var(--floor-muted); }
+.stock-meta { font-family: var(--mono); font-size: 12px; }
 .stock-row.low { border-left: 8px solid var(--floor-yellow); }
 .stock-row.negative { border-left: 8px solid var(--floor-red); }
 .stock-row.negative .stock-qty { color: var(--floor-red); }
@@ -1298,17 +1296,16 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
   body.shop-mode .lang button { min-width: 40px; }
 }
 
-/* Shopping list: the trucks each part is for, with VIN and Copy */
-.buy-card { margin-top: 8px; }
-.buy-card .buy-row { margin-top: 0; }
-.buy-for { display: grid; padding: 4px 12px 6px; border: 2px solid var(--floor-line); border-top: none; border-left: 8px solid var(--floor-yellow); background: var(--floor-paper); }
-.buy-for-title { padding-top: 4px; font: 800 12px var(--cond); text-transform: uppercase; letter-spacing: .06em; color: var(--floor-muted); }
-.unit-vin { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "name qty chip" "vin vin chip"; align-items: center; gap: 0 10px; padding: 6px 0; border-top: 1px solid var(--floor-track); }
-.buy-for-title + .unit-vin { border-top: none; }
-.unit-name { grid-area: name; font: 800 20px/1.1 var(--cond); }
-.unit-qty { grid-area: qty; font-size: 13px; color: var(--floor-muted); }
-.unit-vin .vin-text { grid-area: vin; font-size: 13px; }
-.unit-vin .vin-chip { grid-area: chip; }
+/* Shopping list: one line per part per truck, "Fuel filter kit for VIN …" */
+.buy-lines { display: grid; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.buy-line .vin-chip { flex: none; }
+.buy-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 56px; padding: 8px 12px; border-left: 8px solid var(--floor-yellow); }
+.buy-line + .buy-line { border-top: 1px solid var(--floor-track); }
+.buy-text { flex: 1; min-width: 0; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
+.buy-vin { font: 700 14px var(--mono); letter-spacing: .02em; white-space: nowrap; }
+.buy-unit { font-size: 13px; color: var(--floor-muted); white-space: nowrap; }
+.buy-line.line-restock, .buy-line.line-bulk { border-left-color: var(--floor-track); }
+.vin-chip { grid-area: chip; }
 .vin-chip { min-height: 40px; padding: 0 10px; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); font: 800 13px var(--cond); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; cursor: pointer; }
 .need-vin { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
 .need-vin .vin-text { font-size: 13px; }

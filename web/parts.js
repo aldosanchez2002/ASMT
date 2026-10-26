@@ -134,35 +134,44 @@ export function upcomingWork(trucks, trailers, kits, schedules, parts) {
 }
 
 /**
- * The shopping list: for each part, what upcoming work needs plus the
- * part's minimum on hand, minus what's on the shelf.
- * @returns [{ part, need, min, have, buy, packs: [{ name, size, count }],
- *   units: [{ unitId, unitName, trailer, qty }] }] (the trucks / trailers it's
- *   for) — only parts with something to buy, biggest shortfall first
+ * The shopping list, one line per part per truck ("Oil filter for VIN …").
+ * What's on the shelf goes to the trucks first, in the order of `work`
+ * (most urgent first), so a line only appears for what's still missing.
+ * Then:
+ *   - bulk parts (counted in gallons: oil) are one line for the whole fleet,
+ *     since they're bought by the drum, not per truck;
+ *   - a part below its minimum gets a "keep on the shelf" line with no truck.
+ * @returns [{ part, qty, unitId?, unitName?, trailer?, kind: 'unit'|'restock'|'bulk',
+ *   packs? }] — truck lines (in truck order), then restock, then bulk
  */
 export function shoppingList(parts, work, stock) {
-  const need = {};
-  const units = {};
-  for (const w of work) {
-    for (const [id, qty] of Object.entries(w.parts)) {
-      add(need, id, qty);
-      const list = (units[id] ??= []);
-      const u = list.find((x) => x.unitId === w.unitId);
-      if (u) u.qty = round(u.qty + qty);
-      else list.push({ unitId: w.unitId, unitName: w.unitName, trailer: Boolean(w.trailer), qty });
-    }
-  }
-  const list = [];
+  const unitLines = [];
+  const restock = [];
+  const bulk = [];
   for (const part of parts) {
     if (part.archived) continue;
-    const n = need[part.id] ?? 0;
     const min = Number(part.min) || 0;
-    const have = stock[part.id] ?? 0;
-    const buy = round(Math.max(0, n + min - Math.max(have, 0)));
-    if (buy <= 0) continue;
-    list.push({ part, need: n, min, have, buy, packs: packsFor(part, buy), units: units[part.id] ?? [] });
+    let shelf = Math.max(stock[part.id] ?? 0, 0);
+    if (part.unit === 'gal') {
+      const need = work.reduce((n, w) => n + (w.parts[part.id] ?? 0), 0);
+      const qty = round(Math.max(0, need + min - shelf));
+      if (qty > 0) bulk.push({ part, qty, kind: 'bulk', packs: packsFor(part, qty) });
+      continue;
+    }
+    for (const w of work) {
+      const want = w.parts[part.id] ?? 0;
+      if (!want) continue;
+      const fromShelf = Math.min(shelf, want);
+      shelf -= fromShelf;
+      const qty = round(want - fromShelf);
+      if (qty > 0) unitLines.push({ part, qty, kind: 'unit', unitId: w.unitId, unitName: w.unitName, trailer: Boolean(w.trailer), order: unitLines.length });
+    }
+    if (min > shelf) restock.push({ part, qty: round(min - shelf), kind: 'restock' });
   }
-  return list.sort((a, b) => (a.part.group ?? '').localeCompare(b.part.group ?? '') || b.buy - a.buy);
+  // Group a truck's lines together, trucks in work order.
+  const unitOrder = new Map(work.map((w, i) => [w.unitId, i]).reverse());
+  unitLines.sort((a, b) => unitOrder.get(a.unitId) - unitOrder.get(b.unitId) || a.order - b.order);
+  return [...unitLines.map(({ order, ...x }) => x), ...restock, ...bulk];
 }
 
 // How many of each pack (drum, case…) covers a quantity.

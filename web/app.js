@@ -2012,7 +2012,7 @@ const PARTS_SIDE_KEY = 'aslog.partsSide';
 let partsSide = (() => {
   try { const s = localStorage.getItem(PARTS_SIDE_KEY); return PARTS_SIDES.includes(s) ? s : 'receipts'; } catch { return 'receipts'; }
 })();
-let showAllWork = true; // To buy: the upcoming work list (open until folded)
+let showAllWork = false; // To buy: the upcoming work behind the list, folded
 let showKits = false; // Stock: the service kits, folded by default
 
 const activeParts = () => partsList.filter((p) => !p.archived)
@@ -2035,13 +2035,22 @@ function fleetWork() {
 
 // VINs (trucks only: Samsara has none for the trailers).
 const unitVin = (id, trailer) => (trailer ? null : vehicles.find((v) => v.id === id)?.vin || null);
-function unitVinLine(id, name, trailer, qty) {
-  const line = el('div', 'unit-vin');
-  const vin = unitVin(id, trailer);
-  line.append(el('span', 'unit-name', name), el('span', 'unit-qty', qty));
-  if (vin) line.append(el('span', 'vin-text', vin), copyVinButton(vin, 'vin-chip'));
-  else line.append(el('span', 'vin-text muted', trailer ? t('trailer') : t('noVin')));
-  return line;
+
+// "Oil filter · DD15 Gen 5" -> "Oil filter": the VIN tells the counter which one.
+const shortPartName = (part) => String(part.name ?? '').split(' · ')[0];
+const packsText = (packs) => packs.map((p) => `${p.count} ${p.name.toLowerCase()}${p.count === 1 ? '' : 's'}`).join(` ${t('or')} `);
+
+// "Fuel filter kit", or "2 × Steer tire". Lines with no truck (keep on the
+// shelf, oil) have no VIN, so they use the full name ("Oil filter · DD15 Gen 5").
+const lineWhat = (x) => `${x.kind !== 'bulk' && x.qty !== 1 ? `${qtyText(x.qty)} × ` : ''}${x.kind === 'unit' ? shortPartName(x.part) : x.part.name}`;
+
+// One shopping list line as text: "Fuel filter kit for VIN 3AKJ…".
+function shoppingLineText(x) {
+  const what = lineWhat(x);
+  if (x.kind === 'bulk') return `${what}: ${amountText(x.part, x.qty)}${x.packs.length ? ` (${packsText(x.packs)})` : ''}`;
+  if (x.kind === 'restock') return t('keepOnShelf', what);
+  const vin = unitVin(x.unitId, x.trailer);
+  return vin ? t('lineForVin', what, vin) : t('lineForUnit', what, x.trailer ? `${t('trailer')} ${x.unitName}` : x.unitName);
 }
 
 function setPartsSide(side) {
@@ -2079,34 +2088,26 @@ function partsBuy(list, work, stock) {
     return out;
   }
   if (!list.length) out.push(el('p', 'parts-empty parts-good', t('nothingToBuy')));
+  // One line per part per truck: "Fuel filter kit for VIN …" and Copy VIN.
+  const lines = el('div', 'buy-lines');
   for (const x of list) {
-    const card = el('div', 'buy-card');
-    const row = el('button', 'buy-row');
-    row.type = 'button';
-    const name = el('span', 'buy-name', x.part.name);
-    const meta = el('span', 'buy-meta', [x.part.number, x.part.countAt ? null : t('notCounted')].filter(Boolean).join(' · '));
-    const amount = el('span', 'buy-amount', amountText(x.part, x.buy));
-    const packs = x.packs.length ? el('span', 'buy-packs', `= ${x.packs.map((p) => `${p.count} ${p.name.toLowerCase()}${p.count === 1 ? '' : 's'}`).join(` ${t('or')} `)}`) : null;
-    const why = el('span', 'buy-why', t('buyWhy', amountText(x.part, x.need), x.min ? amountText(x.part, x.min) : null, amountText(x.part, x.have)));
-    row.append(name, amount, meta, ...(packs ? [packs] : []), why);
-    row.addEventListener('click', () => openPart(x.part.id));
-    card.append(row);
-    // The trucks it's for, with the VIN for the parts counter.
-    if (x.units.length) {
-      const box = el('div', 'buy-for');
-      box.append(el('span', 'buy-for-title', t('forUnits')));
-      for (const u of x.units) box.append(unitVinLine(u.unitId, u.unitName, u.trailer, `${x.part.unit === 'gal' ? '' : '× '}${amountText(x.part, u.qty)}`));
-      card.append(box);
+    const row = el('div', `buy-line line-${x.kind}`);
+    const vin = x.kind === 'unit' ? unitVin(x.unitId, x.trailer) : null;
+    const text = el('span', 'buy-text');
+    if (vin) {
+      text.append(el('strong', null, lineWhat(x)), ` ${t('forVin')} `, el('span', 'buy-vin', vin), el('span', 'buy-unit', ` · ${x.unitName}`));
+      row.append(text, copyVinButton(vin, 'vin-chip'));
+    } else {
+      text.append(el('strong', null, shoppingLineText(x)));
+      row.append(text);
     }
-    out.push(card);
+    lines.append(row);
   }
+  if (list.length) out.push(lines);
   if (list.length) {
     const copy = Object.assign(el('button', 'btn parts-copy', t('copyList')), { type: 'button' });
     copy.addEventListener('click', async () => {
-      const text = [t('toBuyTitle'), ...list.map((x) => [
-        `• ${x.part.name}${x.part.number ? ` (${x.part.number})` : ''}: ${amountText(x.part, x.buy)}${x.packs.length ? ` = ${x.packs.map((p) => `${p.count} ${p.name.toLowerCase()}`).join(` ${t('or')} `)}` : ''}`,
-        ...x.units.map((u) => `   ${t('forUnits')} ${u.unitName}${unitVin(u.unitId, u.trailer) ? ` · VIN ${unitVin(u.unitId, u.trailer)}` : ''}`),
-      ].join('\n'))].join('\n');
+      const text = [t('toBuyTitle'), ...list.map(shoppingLineText)].join('\n');
       try {
         if (navigator.share) await navigator.share({ text });
         else { await navigator.clipboard.writeText(text); copy.textContent = t('copied'); setTimeout(() => { copy.textContent = t('copyList'); }, 2000); }
