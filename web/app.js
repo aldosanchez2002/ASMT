@@ -2093,17 +2093,20 @@ function partsBuy(list, work, stock) {
     return out;
   }
   if (!list.length) out.push(el('p', 'parts-empty parts-good', t('nothingToBuy')));
-  // One line per part per truck: "Fuel filter kit for VIN …" and Copy VIN.
-  // Bought parts come off the list once their receipt is uploaded and read.
+  // One line per part per truck: "Fuel filter kit for VIN …", the VIN in
+  // large type to read out at the parts counter. Bought parts come off the
+  // list once their receipt is uploaded and read.
   const lines = el('div', 'buy-lines');
   for (const x of list) {
     const row = el('div', `buy-line line-${x.kind}`);
     const vin = x.kind === 'unit' ? unitVin(x.unitId, x.trailer) : null;
     const text = el('span', 'buy-text');
-    if (vin) text.append(el('strong', null, lineWhat(x)), ` ${t('forVin')} `, el('span', 'buy-vin', vin), el('span', 'buy-unit', ` · ${x.unitName}`));
-    else text.append(el('strong', null, shoppingLineText(x)));
+    if (vin) {
+      const vinLine = el('span', 'buy-vin', vin);
+      vinLine.append(el('span', 'buy-unit', ` · ${x.unitName}`));
+      text.append(el('strong', null, lineWhat(x)), ` ${t('forVin')}`, vinLine);
+    } else text.append(el('strong', null, shoppingLineText(x)));
     row.append(text);
-    if (vin) row.append(copyVinButton(vin, 'vin-chip'));
     lines.append(row);
   }
   if (list.length) out.push(lines);
@@ -2135,11 +2138,7 @@ function partsBuy(list, work, stock) {
         : w.tags.map((tag) => t('kitTags')[tag] ?? tag).join(' + ');
       row.append(el('span', 'need-unit', w.unitName), el('span', 'need-what', `${what} · ${t(w.status)}`));
       const vin = unitVin(w.unitId, w.trailer);
-      if (vin) {
-        const line = el('span', 'need-vin');
-        line.append(el('span', 'vin-text', `VIN ${vin}`), copyVinButton(vin, 'vin-chip'));
-        row.append(line);
-      }
+      if (vin) row.append(el('span', 'need-vin vin-text', `VIN ${vin}`));
       const used = Object.entries(w.parts).map(([id, qty]) => `${amountText(partById(id), qty)} ${partById(id)?.name ?? id}`);
       if (used.length) row.append(el('span', 'need-parts', used.join(' · ')));
       if (w.missing.length) row.append(el('span', 'need-missing', t('kitMissing', w.missing.map((tag) => t('kitTags')[tag] ?? tag).join(', '))));

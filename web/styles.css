@@ -1302,13 +1302,12 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 .buy-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 56px; padding: 8px 12px; border-left: 8px solid var(--floor-yellow); }
 .buy-line + .buy-line { border-top: 1px solid var(--floor-track); }
 .buy-text { flex: 1; min-width: 0; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
-.buy-vin { font: 700 14px var(--mono); letter-spacing: .02em; white-space: nowrap; }
+.buy-vin { display: block; margin-top: 2px; font: 700 19px var(--mono); letter-spacing: .04em; overflow-wrap: anywhere; }
 .buy-unit { font-size: 13px; color: var(--floor-muted); white-space: nowrap; }
 .buy-line.line-restock, .buy-line.line-bulk { border-left-color: var(--floor-track); }
 .vin-chip { grid-area: chip; }
 .vin-chip { min-height: 40px; padding: 0 10px; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); font: 800 13px var(--cond); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; cursor: pointer; }
-.need-vin { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
-.need-vin .vin-text { font-size: 13px; }
+.need-vin { grid-column: 1 / -1; margin-top: 4px; font-size: 16px; }
 .line-for { margin: 0; font-size: 13px; font-weight: 700; color: var(--floor-muted); }
 
 /* Receipts: upload, and the history with each photo */
