@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "Twilio Functions (copied into Twilio by hand; see README.md). CommonJS, like the Twilio Functions runtime.",
+  "type": "commonjs"
+}
