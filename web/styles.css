@@ -1336,6 +1336,25 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 .receipt-line.needs-choice { border-color: var(--floor-yellow); border-width: 3px; }
 .line-read { margin: 0; font: 700 13px var(--mono); overflow-wrap: anywhere; }
 .receipt-tax { margin: 0; text-align: right; font-size: 14px; color: var(--floor-muted); }
+/* Admin's Parts tab, styled like the rest of admin: square black-bordered
+   tabs (black with yellow when picked) and condensed uppercase headings. */
+body:not(.shop-mode) #parts-view .shop-side { border: 2px solid var(--floor-line); border-radius: 0; }
+body:not(.shop-mode) #parts-view .shop-side button {
+  background: var(--floor-paper); color: var(--floor-ink); font: 800 16px var(--cond); letter-spacing: .05em; text-transform: uppercase;
+}
+body:not(.shop-mode) #parts-view .shop-side button + button { border-left: 2px solid var(--floor-line); }
+body:not(.shop-mode) #parts-view .shop-side button.active { background: #111; color: var(--floor-yellow); }
+body:not(.shop-mode) #parts-view .side-count { font: 700 14px var(--mono); border-radius: 0; background: var(--floor-track); color: var(--floor-ink); letter-spacing: 0; }
+body:not(.shop-mode) #parts-view .shop-side button.active .side-count { background: var(--floor-yellow); color: #111; }
+body:not(.shop-mode) #parts-view .shop-group {
+  font: 800 16px var(--cond); text-transform: uppercase; letter-spacing: .08em;
+  margin: 22px 0 8px; display: flex; align-items: center; gap: 8px; color: var(--floor-ink);
+}
+body:not(.shop-mode) #parts-view .shop-group::before { content: ''; width: 14px; height: 14px; background: var(--floor-ink); flex: none; }
+body:not(.shop-mode) #parts-view .shop-group.section-toggle { margin: 10px 0 0; padding: 14px 0; border-bottom: 2px solid var(--floor-line); }
+body:not(.shop-mode) #parts-view .shop-group.section-toggle.open { margin-bottom: 10px; }
+body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); border-radius: 0; background: var(--floor-track); color: var(--floor-ink); }
+
 /* Admin's Parts tabs: four in a row */
 .parts-side.many button { font-size: 15px !important; letter-spacing: .02em !important; padding: 0 4px; gap: 4px; }
 .type-receipt-link { display: block; margin-top: 6px; }
