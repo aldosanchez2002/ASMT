@@ -56,5 +56,7 @@ the join code again after a few days without messages.
 - The buyer starts every conversation, so replies are free-form and Meta
   charges nothing for them; Twilio charges a small fee per message (see
   Twilio's WhatsApp pricing).
-- WhatsApp shrinks photos. If small print comes out blurry, send the photo
-  with WhatsApp's **HD** option, or attach it as a document.
+- Send receipts as a **photo** (+ → Photos, or the camera), not as a
+  document: an iPhone photo sent as a document is a .heic file, which can't
+  be read, and the reply says so. If small print comes out blurry, turn on
+  WhatsApp's **HD** option before sending.

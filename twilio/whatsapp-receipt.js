@@ -17,6 +17,10 @@
 
 const MAX_PHOTO_CHARS = 700000; // a Firestore document holds up to ~1 MB
 const TIME_ZONE = 'America/Denver'; // El Paso
+// Photo types the app and the reader can open. iPhone files sent as a
+// document arrive as HEIC, which they can't; sent as a photo, WhatsApp makes
+// them JPEG.
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 // "Maria:+19155551234,Aldo:+19155550000" -> Map(+19155551234 => "Maria")
 function parseSenders(value = '') {
@@ -100,9 +104,14 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   }
   let saved = 0;
   let skipped = 0;
+  let wrongType = 0;
   for (let i = 0; i < count; i += 1) {
     const type = event[`MediaContentType${i}`] ?? '';
-    if (!type.startsWith('image/')) { skipped += 1; continue; }
+    if (!PHOTO_TYPES.includes(type)) {
+      if (type.startsWith('image/')) wrongType += 1;
+      else skipped += 1;
+      continue;
+    }
     try {
       // Twilio's media links may require the account's credentials.
       const auth = Buffer.from(`${context.ACCOUNT_SID}:${context.AUTH_TOKEN}`).toString('base64');
@@ -117,9 +126,10 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
     }
   }
   const what = saved === 1 ? '1 receipt' : `${saved} receipts`;
-  twiml.message(saved
-    ? `Got it: ${what}${truck ? ` for ${truck}` : ''}. It will be read automatically.${skipped ? ` ${skipped} could not be saved; please send it again.` : ''}`
-    : 'That photo could not be saved. Please send it again.');
+  const notes = [];
+  if (wrongType) notes.push(`${saved ? `${wrongType} ${wrongType === 1 ? 'was a file' : 'were files'}` : 'That was sent as a file'} (like .heic) that can't be read. Send it as a photo instead: tap + then Photos, not Document.`);
+  if (skipped) notes.push(saved || wrongType ? `${skipped} could not be saved; please send it again.` : 'That photo could not be saved. Please send it again.');
+  twiml.message([saved ? `Got it: ${what}${truck ? ` for ${truck}` : ''}. It will be read automatically.` : '', ...notes].filter(Boolean).join(' '));
   return callback(null, twiml);
 };
 

@@ -61,6 +61,19 @@ test('several photos become several receipts; non-images are skipped', async () 
   assert.match(twiml.messages[0], /^Got it: 2 receipts\. .* 1 could not be saved/);
 });
 
+test('an iPhone .heic file is not saved, and the reply says to send it as a photo', async () => {
+  const heic = await run({ From: 'whatsapp:+19155551234', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/heic' });
+  assert.equal(heic.writes.length, 0);
+  assert.deepEqual(heic.twiml.messages, ["That was sent as a file (like .heic) that can't be read. Send it as a photo instead: tap + then Photos, not Document."]);
+  const mixed = await run({
+    From: 'whatsapp:+19155551234', NumMedia: '2',
+    MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg',
+    MediaUrl1: 'https://media/2', MediaContentType1: 'image/heic',
+  });
+  assert.equal(mixed.writes.length, 1);
+  assert.match(mixed.twiml.messages[0], /^Got it: 1 receipt\. .* 1 was a file \(like \.heic\)/);
+});
+
 test('strangers get no answer; a text without a photo gets a hint', async () => {
   const stranger = await run({ From: 'whatsapp:+12125550000', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg' });
   assert.deepEqual([stranger.writes.length, stranger.twiml.messages.length], [0, 0]);
