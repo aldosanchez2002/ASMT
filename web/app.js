@@ -2347,13 +2347,14 @@ function viewReceipt(id) {
   if (!r) return;
   const status = shownStatus(r, false);
   const body = partsDialog(r.vendor || t('receipt'), [dateText(r.date), t('receiptStatus')[status]].filter(Boolean).join(' · '));
+  if (r.note) body.append(el('p', 'receipt-note', t('buyerNote', r.note)));
   if (status === 'waiting') body.append(el('p', 'parts-hint', t('waitingHint')));
   if (status === 'unreadable' || status === 'error') body.append(el('p', 'need-missing', `${t('unreadableHint')} ${(r.problems ?? []).concat(r.readError ?? []).join(' ')}`));
   const lines = el('div', 'buy-lines receipt-view');
   for (const l of r.lines ?? []) {
     const row = el('div', 'buy-line');
     const name = l.part ? partById(l.part)?.name ?? l.text : l.text;
-    const truck = l.to === 'truck' ? vehicles.find((v) => v.id === l.vehicleId)?.name : null;
+    const truck = l.to === 'truck' ? vehicles.find((v) => v.id === l.vehicleId)?.name : l.for?.map((u) => u.name).join(', ');
     row.append(el('span', 'buy-text', `${qtyText(l.qty)} × ${name}${truck ? ` · ${truck}` : ''}`), el('strong', null, l.price != null ? money(l.price) : ''));
     lines.append(row);
   }
@@ -2563,6 +2564,7 @@ const savedVendors = () => {
 function openReceipt(id) {
   const r = id ? receipts.find((x) => x.id === id) : null;
   const body = partsDialog(r ? (r.vendor || t('receipt')) : t('newReceipt'), r ? dateText(r.date) : null);
+  if (r?.note) body.append(el('p', 'receipt-note', t('buyerNote', r.note)));
   const form = pform();
   const today = new Date().toLocaleDateString('en-CA');
   const state = {
@@ -2637,6 +2639,7 @@ function openReceipt(id) {
         const [kind, ref] = what.value.split(':');
         Object.assign(l, kind === 'part' ? { part: ref, to: 'stock', vehicleId: null } : kind === 'truck' ? { part: null, to: 'truck', vehicleId: ref } : kind === 'other' ? { part: null, to: 'shop', vehicleId: null } : { part: null, to: null, vehicleId: null });
         l.packSize = 1;
+        l.truckFrom = null;
         sync();
         drawLines();
       });
@@ -2656,6 +2659,17 @@ function openReceipt(id) {
         row.prepend(el('p', 'line-read', `${t('readAs')}: ${l.text}${l.partNumber ? ` (${l.partNumber})` : ''}`));
         row.append(el('p', 'need-missing', l.flags.map((f) => t('lineFlags')[f] ?? f).join(' · ')));
         if (l.suggestedPart && partById(l.suggestedPart)) row.append(el('p', 'line-for', t('maybePart', partById(l.suggestedPart).name)));
+        // The trucks the buyer's note named: one tap puts the line on one.
+        const choices = (l.truckChoices ?? []).map((id) => vehicles.find((v) => v.id === id)).filter(Boolean);
+        if (choices.length) {
+          const pick = el('div', 'truck-choices');
+          for (const v of choices) {
+            const b = Object.assign(el('button', 'btn btn-ghost', v.name), { type: 'button' });
+            b.addEventListener('click', () => { Object.assign(l, { part: null, to: 'truck', vehicleId: v.id, truckFrom: null }); drawLines(); });
+            pick.append(b);
+          }
+          row.append(pick);
+        }
       }
       row.append(what, text, nums);
       if (l.for?.length) row.append(el('p', 'line-for', t('forTrucks', l.for.map((u) => u.name).join(', '))));
@@ -2714,8 +2728,10 @@ function openReceipt(id) {
           to: l.part ? 'stock' : l.to ?? null,
           vehicleId: l.to === 'truck' ? l.vehicleId : null,
           for: l.for?.length ? l.for : null,
+          truckFrom: l.to === 'truck' || l.for?.length ? l.truckFrom ?? null : null,
           flags: placed ? [] : l.flags ?? [],
           suggestedPart: placed ? null : l.suggestedPart ?? null,
+          truckChoices: placed ? null : l.truckChoices ?? null,
         };
       }),
       // Still waiting for a person while any read line has nowhere to go.

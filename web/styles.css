@@ -1326,6 +1326,9 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 .receipt-photo-link { display: block; width: 100%; min-height: 44px; border: 2px solid var(--floor-line); border-top: none; background: var(--floor-paper); color: var(--floor-ink); font: 800 14px var(--cond); letter-spacing: .05em; text-transform: uppercase; text-align: left; padding: 0 12px; cursor: pointer; }
 .receipt-full { display: block; width: 100%; height: auto; margin-bottom: 14px; border: 2px solid var(--floor-line); background: #fff; }
 .receipt-view { margin: 8px 0; }
+.receipt-note { margin: 4px 0 8px; font-size: 15px; font-style: italic; color: var(--floor-muted); }
+.truck-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.truck-choices .btn { min-width: 72px; }
 .receipt-line.needs-choice { border-color: var(--floor-yellow); border-width: 3px; }
 .line-read { margin: 0; font: 700 13px var(--mono); overflow-wrap: anywhere; }
 .receipt-tax { margin: 0; text-align: right; font-size: 14px; color: var(--floor-muted); }

@@ -30,10 +30,13 @@ const run = (event) => {
 
 test('senders and truck numbers are read from settings and messages', () => {
   assert.deepEqual([...fn.parseSenders(context.ALLOWED_SENDERS)], [['+19155551234', 'Maria'], ['+19155550000', 'Aldo']]);
-  assert.equal(fn.truckFrom('for t28 please'), 'T-28');
-  assert.equal(fn.truckFrom('Truck 7'), 'T-07');
-  assert.equal(fn.truckFrom('T-104'), 'T-104');
-  assert.equal(fn.truckFrom('two filters'), null);
+  assert.deepEqual(fn.trucksFrom('for t28 please'), ['T-28']);
+  assert.deepEqual(fn.trucksFrom('Truck 7'), ['T-07']);
+  assert.deepEqual(fn.trucksFrom('T-104'), ['T-104']);
+  assert.deepEqual(fn.trucksFrom('T-28 drums, t31 headlight, T28 seal'), ['T-28', 'T-31']);
+  assert.deepEqual(fn.trucksFrom('balatas camión 9 y unidad 12'), ['T-09', 'T-12']);
+  assert.deepEqual(fn.trucksFrom('two filters, 28 y 31'), []);
+  assert.deepEqual(fn.trucksFrom('cat 5w-40 tt2'), []);
 });
 
 test('a photo from the buyer becomes a waiting receipt, with the truck', async () => {
@@ -44,10 +47,20 @@ test('a photo from the buyer becomes a waiting receipt, with the truck', async (
   const [receipt, photo] = writes[0];
   assert.match(receipt.update.name, /receipts\/\w{20}$/);
   const f = receipt.update.fields;
-  assert.deepEqual([f.status.stringValue, f.uploadedBy.stringValue, f.truckHint.stringValue, f.source.stringValue, f.hasPhoto.booleanValue], ['waiting', 'Maria', 'T-28', 'whatsapp', true]);
+  assert.deepEqual([f.status.stringValue, f.uploadedBy.stringValue, f.note.stringValue, f.source.stringValue, f.hasPhoto.booleanValue], ['waiting', 'Maria', 'T-28', 'whatsapp', true]);
+  assert.deepEqual(f.trucks.arrayValue.values, [{ stringValue: 'T-28' }]);
   assert.deepEqual(receipt.updateTransforms, [{ fieldPath: 'createdAt', setToServerValue: 'REQUEST_TIME' }]);
   assert.equal(photo.update.fields.data.stringValue, `data:image/jpeg;base64,${Buffer.from('jpegbytes').toString('base64')}`);
   assert.deepEqual(twiml.messages, ['Got it: 1 receipt for T-28. It will be read automatically.']);
+});
+
+test('a note naming several trucks is saved whole, and the reply names them', async () => {
+  const { twiml, writes } = await run({
+    From: 'whatsapp:+19155551234', Body: ' T-28 drums, T-31 headlight ', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg',
+  });
+  const f = writes[0][0].update.fields;
+  assert.equal(f.note.stringValue, 'T-28 drums, T-31 headlight');
+  assert.deepEqual(twiml.messages, ['Got it: 1 receipt for T-28 and T-31. It will be read automatically.']);
 });
 
 test('several photos become several receipts; non-images are skipped', async () => {

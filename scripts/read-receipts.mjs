@@ -54,17 +54,21 @@ async function main() {
 
   const [parts, vehicles] = await Promise.all([listDocs('parts'), listDocs('vehicles')]).then((x) => x.map(Object.values));
   const client = new Anthropic();
-  const context = contextText(parts, vehicles);
 
   let done = 0;
   for (const r of receipts) {
-    console.log(`Receipt ${r.id} (uploaded ${r.date ?? '?'})`);
+    console.log(`Receipt ${r.id} (uploaded ${r.date ?? '?'}${r.note ? `, note "${r.note}"` : ''})`);
     try {
       const photo = (await getDoc(`receiptPhotos/${r.id}`))?.data;
       if (!photo) throw new Error('No photo saved for this receipt');
-      const result = receiptFromReading(await readPhoto(client, photo, context), parts, vehicles, { uploadedDate: r.date });
+      const reading = await readPhoto(client, photo, contextText(parts, vehicles, r.note));
+      const result = receiptFromReading(reading, parts, vehicles, { uploadedDate: r.date, trucks: r.trucks ?? [] });
       console.log(`  ${result.status}: ${result.vendor || 'no store'} · ${result.lines.length} item(s) · total ${result.total ?? '?'}${result.problems.length ? ` · ${result.problems.join('; ')}` : ''}`);
-      for (const l of result.lines) console.log(`    ${l.text} x${l.qty} ${l.price ?? '?'} -> ${l.part ?? l.suggestedPart ?? l.to ?? '?'}${l.flags.length ? ` [${l.flags.join(', ')}]` : ''}`);
+      const truckName = (id) => vehicles.find((v) => v.id === id)?.name ?? id;
+      for (const l of result.lines) {
+        const where = l.part ? `${l.part}${l.for ? ` for ${l.for[0].name}` : ''}` : l.to === 'truck' ? truckName(l.vehicleId) : l.suggestedPart ?? '?';
+        console.log(`    ${l.text} x${l.qty} ${l.price ?? '?'} -> ${where}${l.truckFrom ? ` (${l.truckFrom})` : ''}${l.flags.length ? ` [${l.flags.join(', ')}${l.truckChoices ? `: ${l.truckChoices.map(truckName).join('/')}` : ''}]` : ''}`);
+      }
       if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...result, readAt: new Date().toISOString(), readError: null })]);
       done += 1;
     } catch (err) {

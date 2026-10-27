@@ -1,8 +1,9 @@
 // Twilio Function: receipts sent by WhatsApp.
 //
-// The buyer sends a photo of a receipt to the company's WhatsApp number
-// (optionally with the truck, like "T-28"). This saves each photo as a
-// receipt "waiting to be read", the same as "Upload receipts" in the app, and
+// The buyer sends a photo of a receipt to the company's WhatsApp number,
+// optionally with a note saying which truck(s) it's for ("T-28", or
+// "T-28 drums, T-31 headlight"). This saves each photo as a receipt "waiting
+// to be read", with the note, the same as "Upload receipts" in the app, and
 // replies so the buyer knows it arrived. The "Read receipts" GitHub Action
 // reads it from there.
 //
@@ -33,11 +34,15 @@ function parseSenders(value = '') {
   return map;
 }
 
-// "t28", "T-28", "truck 28" in the message -> "T-28"
-function truckFrom(text = '') {
-  const m = text.match(/\b(?:t|truck)\s*-?\s*(\d{1,3})\b/i);
-  return m ? `T-${m[1].padStart(2, '0')}` : null;
+// The trucks a note names: "t28", "T-28", "truck 28", "camión 28", "unidad 28"
+// -> ["T-28"]. Bare numbers ("28 y 31") are left to the reader, which sees
+// them next to the receipt.
+function trucksFrom(text = '') {
+  const found = [...text.matchAll(/(?:^|[^\p{L}\d])(?:t|truck|cami[oó]n|unidad)\s*-?\s*(\d{1,3})(?!\d)/giu)];
+  return [...new Set(found.map((m) => `T-${m[1].padStart(2, '0')}`))];
 }
+
+const listText = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0] ?? '');
 
 // Firestore REST value format (same as scripts/firestore-rest.mjs).
 function toValue(v) {
@@ -68,12 +73,12 @@ async function photoDataUrl(buffer, contentType) {
 }
 
 // One receipt and its photo, written together.
-async function saveReceipt(context, { photo, uploadedBy, truck, fetchFn }) {
+async function saveReceipt(context, { photo, uploadedBy, note, trucks, fetchFn }) {
   const id = newId();
   const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
   const receipt = {
     id, status: 'waiting', date: new Date().toLocaleDateString('en-CA', { timeZone: TIME_ZONE }),
-    vendor: '', lines: [], tax: null, total: null, hasPhoto: true, uploadedBy, truckHint: truck, source: 'whatsapp',
+    vendor: '', lines: [], tax: null, total: null, hasPhoto: true, uploadedBy, note, trucks, source: 'whatsapp',
   };
   const res = await fetchFn(`https://firestore.googleapis.com/v1/${docs}:commit?key=${context.FIREBASE_API_KEY}`, {
     method: 'POST',
@@ -97,9 +102,10 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   if (!senders.has(from)) return callback(null, new Twilio.twiml.MessagingResponse());
 
   const count = Number(event.NumMedia ?? 0);
-  const truck = truckFrom(event.Body);
+  const note = String(event.Body ?? '').trim().slice(0, 500) || null;
+  const trucks = trucksFrom(note ?? '');
   if (!count) {
-    twiml.message('Send a photo of the receipt. If the parts were for one truck, add its number, like T-28.');
+    twiml.message('Send a photo of the receipt. Add which truck the parts are for, like T-28, or for several: T-28 drums, T-31 headlight. You can also write the truck next to each item on the receipt.');
     return callback(null, twiml);
   }
   let saved = 0;
@@ -118,7 +124,7 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
       const media = await fetchFn(event[`MediaUrl${i}`], { headers: { Authorization: `Basic ${auth}` } });
       if (!media.ok) throw new Error(`media ${media.status}`);
       const photo = await photoDataUrl(Buffer.from(await media.arrayBuffer()), type);
-      await saveReceipt(context, { photo, uploadedBy: senders.get(from), truck, fetchFn });
+      await saveReceipt(context, { photo, uploadedBy: senders.get(from), note, trucks, fetchFn });
       saved += 1;
     } catch (err) {
       console.error(`receipt ${i + 1}: ${err.message}`);
@@ -129,10 +135,10 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   const notes = [];
   if (wrongType) notes.push(`${saved ? `${wrongType} ${wrongType === 1 ? 'was a file' : 'were files'}` : 'That was sent as a file'} (like .heic) that can't be read. Send it as a photo instead: tap + then Photos, not Document.`);
   if (skipped) notes.push(saved || wrongType ? `${skipped} could not be saved; please send it again.` : 'That photo could not be saved. Please send it again.');
-  twiml.message([saved ? `Got it: ${what}${truck ? ` for ${truck}` : ''}. It will be read automatically.` : '', ...notes].filter(Boolean).join(' '));
+  twiml.message([saved ? `Got it: ${what}${trucks.length ? ` for ${listText(trucks)}` : ''}. It will be read automatically.` : '', ...notes].filter(Boolean).join(' '));
   return callback(null, twiml);
 };
 
 // For the tests (twilio/whatsapp-receipt.test.mjs); Twilio only calls handler.
 exports.parseSenders = parseSenders;
-exports.truckFrom = truckFrom;
+exports.trucksFrom = trucksFrom;

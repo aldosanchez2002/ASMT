@@ -6,17 +6,19 @@ const parts = [
   { id: 'of5', name: 'Oil filter · DD15 Gen 5', number: 'A4711800209 · LF17800', unit: 'each' },
   { id: 'oil', name: 'Engine oil', unit: 'gal', packs: [{ name: 'Drum', size: 55 }] },
 ];
-const vehicles = [{ id: 'v24', name: 'T-24', vin: '3AKJHHDR0PSNK0497' }];
+const vehicles = [{ id: 'v24', name: 'T-24', vin: '3AKJHHDR0PSNK0497' }, { id: 'v31', name: 'T-31' }];
 const line = (over) => ({
-  printed: 'X', partNumber: null, quantity: 1, unitPrice: null, lineTotal: 10, matchPartId: null, matchSure: false, matchReason: '', stockQuantity: null, truck: null, ...over,
+  printed: 'X', partNumber: null, quantity: 1, unitPrice: null, lineTotal: 10, matchPartId: null, matchSure: false, matchReason: '', stockQuantity: null, truck: null, truckSource: null, ...over,
 });
-const reading = (lines, over = {}) => ({ readable: true, problem: null, vendor: 'FleetPride', date: '2026-10-27', invoiceNumber: '448213', lines, tax: null, total: null, ...over });
+const reading = (lines, over = {}) => ({ readable: true, problem: null, vendor: 'FleetPride', date: '2026-10-27', invoiceNumber: '448213', noteTrucks: [], lines, tax: null, total: null, ...over });
 
 test('the prompt lists the stock (with numbers and packs) and the trucks', () => {
   const text = contextText(parts, vehicles);
   assert.match(text, /id of5: Oil filter · DD15 Gen 5 \| numbers: A4711800209 · LF17800 \| counted in pieces/);
   assert.match(text, /id oil: Engine oil \| counted in gallons \| sold as Drum = 55 gal/);
   assert.match(text, /- T-24 VIN 3AKJHHDR0PSNK0497/);
+  assert.doesNotMatch(text, /note/);
+  assert.match(contextText(parts, vehicles, 'T-24 drums,\n31 headlight'), /The buyer's note sent with the photo: "T-24 drums, 31 headlight"/);
 });
 
 test('sure matches go on the shelf; oil counts in gallons; a clean receipt is read', () => {
@@ -42,9 +44,40 @@ test('unsure matches and items off the stock list wait for a person', () => {
 });
 
 test('a truck printed on the receipt charges that line to the truck', () => {
-  const r = receiptFromReading(reading([line({ printed: 'WIPER BLADE', truck: 't-24' })]), parts, vehicles);
-  assert.deepEqual([r.lines[0].to, r.lines[0].vehicleId, r.lines[0].flags], ['truck', 'v24', []]);
+  const r = receiptFromReading(reading([line({ printed: 'WIPER BLADE', truck: 't-24', truckSource: 'printed' })]), parts, vehicles);
+  assert.deepEqual([r.lines[0].to, r.lines[0].vehicleId, r.lines[0].truckFrom, r.lines[0].flags], ['truck', 'v24', 'printed', []]);
   assert.equal(r.status, 'read');
+});
+
+test('a note naming one truck puts every item on it; stock parts go on the shelf "for" it', () => {
+  const r = receiptFromReading(reading([
+    line({ printed: 'DRUM-BRAKE 16.5X5' }),
+    line({ printed: 'DDE OIL FLTR', matchPartId: 'of5', matchSure: true }),
+  ]), parts, vehicles, { trucks: ['T-24'] });
+  assert.deepEqual(r.lines.map((l) => [l.to, l.vehicleId, l.for?.[0].name ?? null, l.truckFrom, l.flags]), [
+    ['truck', 'v24', null, 'note', []],
+    ['stock', null, 'T-24', 'note', []],
+  ]);
+  assert.equal(r.status, 'read');
+});
+
+test('a note naming several trucks: items it ties go to them, the rest ask "which truck" with only those', () => {
+  const r = receiptFromReading(reading([
+    line({ printed: 'DRUM-BRAKE', truck: 'T-24', truckSource: 'note' }),
+    line({ printed: 'HEADLAMP', truck: 'T-31', truckSource: 'handwritten' }),
+    line({ printed: 'BRAKE CLEANER' }),
+  ], { noteTrucks: ['T-31'] }), parts, vehicles, { trucks: ['T-24'] });
+  assert.deepEqual(r.lines.map((l) => [l.vehicleId, l.truckFrom, l.flags, l.truckChoices]), [
+    ['v24', 'note', [], null],
+    ['v31', 'handwritten', [], null],
+    [null, null, ['whichTruck'], ['v24', 'v31']],
+  ]);
+  assert.equal(r.status, 'review');
+});
+
+test('a truck name not in the list is ignored', () => {
+  const r = receiptFromReading(reading([line({ printed: 'WIPER', truck: 'T-99', truckSource: 'handwritten' })]), parts, vehicles);
+  assert.deepEqual([r.lines[0].to, r.lines[0].truckFrom, r.lines[0].flags], [null, null, ['notOnList']]);
 });
 
 test('a total that does not add up, or oil with no gallons, is flagged', () => {
