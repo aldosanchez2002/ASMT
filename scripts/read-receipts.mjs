@@ -9,7 +9,7 @@
 
 import { writeFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
-import { commit, getDoc, listDocs, mergeWrite } from './firestore-rest.mjs';
+import { commit, getDoc, listDocs, mergeWrite, queryDocs } from './firestore-rest.mjs';
 import { memoryText } from './ai-memory.mjs';
 import { RECEIPT_SCHEMA, SYSTEM_PROMPT, contextText, receiptFromReading } from './receipt-reader.mjs';
 
@@ -45,8 +45,8 @@ export async function readPhoto(client, photo, context) {
 
 async function main() {
   const dryRun = process.argv.includes('--dry-run');
-  const all = Object.entries(await listDocs('receipts')).map(([id, r]) => ({ ...r, id }));
-  const receipts = all.filter((r) => r.status === 'waiting');
+  // Only the waiting receipts: one read when there are none (most runs).
+  const receipts = await queryDocs('receipts', [['status', '==', 'waiting']]);
   if (!receipts.length) {
     console.log('No receipts waiting to be read.');
     return;
@@ -56,11 +56,14 @@ async function main() {
     return;
   }
 
-  const [parts, vehicles, corrections] = await Promise.all([listDocs('parts'), listDocs('vehicles'), listDocs('corrections')]).then((x) => x.map(Object.values));
+  const [parts, vehicles] = await Promise.all([listDocs('parts'), listDocs('vehicles')]).then((x) => x.map(Object.values));
+  // The memory only uses the latest corrections.
+  const corrections = await queryDocs('corrections', [], { orderBy: ['at', 'DESCENDING'], limit: 60 });
   const memory = memoryText('reading', await getDoc('meta/aiMemory'), corrections, parts);
   const client = new Anthropic();
-  // Receipts already read, to catch the same invoice uploaded twice.
-  const others = all.filter((r) => r.status === 'read' || r.status === 'review');
+  // Receipts read in the last year, to catch the same invoice uploaded twice.
+  const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const others = (await queryDocs('receipts', [['date', '>=', yearAgo]])).filter((r) => r.status === 'read' || r.status === 'review');
 
   let done = 0;
   const readNow = [];

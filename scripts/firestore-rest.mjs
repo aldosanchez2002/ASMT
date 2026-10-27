@@ -116,3 +116,39 @@ export async function listDocs(collection) {
   } while (pageToken);
   return docs;
 }
+
+// A filter value in Firestore's REST format: Dates become timestamps.
+const filterValue = (v) => (v instanceof Date ? { timestampValue: v.toISOString() } : toValue(v));
+const OPS = { '==': 'EQUAL', '>': 'GREATER_THAN', '>=': 'GREATER_THAN_OR_EQUAL', '<': 'LESS_THAN', '<=': 'LESS_THAN_OR_EQUAL', in: 'IN' };
+
+/**
+ * The body of a runQuery request: `filters` are [field, op, value] (ANDed),
+ * `orderBy` is [field, 'ASCENDING'|'DESCENDING'].
+ */
+export function structuredQuery(collection, filters = [], { orderBy, limit } = {}) {
+  const where = filters.map(([field, op, value]) => ({
+    fieldFilter: { field: { fieldPath: field }, op: OPS[op], value: op === 'in' ? { arrayValue: { values: value.map(filterValue) } } : filterValue(value) },
+  }));
+  const query = { from: [{ collectionId: collection }] };
+  if (where.length === 1) [query.where] = where;
+  else if (where.length > 1) query.where = { compositeFilter: { op: 'AND', filters: where } };
+  if (orderBy) query.orderBy = [{ field: { fieldPath: orderBy[0] }, direction: orderBy[1] ?? 'ASCENDING' }];
+  if (limit) query.limit = limit;
+  return { structuredQuery: query };
+}
+
+// Reads only the documents that match, as [{ ...data, id }]. Firestore
+// counts one read per document returned (one for an empty answer), so this
+// is how the scripts avoid reading whole collections.
+export async function queryDocs(collection, filters = [], options = {}) {
+  const res = await fetch(`https://firestore.googleapis.com/v1/${docsPath}:runQuery?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(structuredQuery(collection, filters, options)),
+  });
+  if (!res.ok) throw new Error(`Firestore query of ${collection} failed: ${res.status} ${await res.text()}`);
+  const rows = await res.json();
+  return rows.filter((row) => row.document).map(({ document: d }) => ({
+    ...fromValue({ mapValue: { fields: d.fields ?? {} } }), id: d.name.split('/').pop(),
+  }));
+}
