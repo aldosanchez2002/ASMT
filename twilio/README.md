@@ -51,6 +51,16 @@ the join code again after a few days without messages.
 3. On the new sender, set the incoming message webhook to the same Function URL.
 4. Save the number as a contact on the buyer's phone.
 
+## Text messages (MMS) instead
+
+The same Function takes receipt photos texted to the Twilio number. In
+Phone Numbers → Active numbers → the number → Messaging configuration, set
+**A message comes in** to the Function URL (HTTP POST). Incoming texts work
+right away; replies need the number registered for US texting (A2P 10DLC,
+"Sole Proprietor" works without a business). Until then the Function saves
+texted receipts without answering; once it's registered, add the environment
+variable `SMS_REPLIES` = `yes`.
+
 ## Costs and limits
 
 - The buyer starts every conversation, so replies are free-form and Meta

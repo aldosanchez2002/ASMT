@@ -87,6 +87,18 @@ test('an iPhone .heic file is not saved, and the reply says to send it as a phot
   assert.match(mixed.twiml.messages[0], /^Got it: 1 receipt\. .* 1 was a file \(like \.heic\)/);
 });
 
+test('a text (MMS) is saved the same way; it gets a reply only once texting is registered', async () => {
+  const text = await run({ From: '+19155551234', Body: 'T-28', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg' });
+  assert.equal(text.writes.length, 1);
+  const f = text.writes[0][0].update.fields;
+  assert.deepEqual([f.source.stringValue, f.uploadedBy.stringValue, f.note.stringValue], ['sms', 'Maria', 'T-28']);
+  assert.deepEqual(text.twiml.messages, []);
+  const registered = await new Promise((resolve) => {
+    fn.handler({ ...context, SMS_REPLIES: 'yes' }, { From: '+19155551234', NumMedia: '0' }, (err, twiml) => resolve(twiml), { fetchFn: async () => ({ ok: true }) });
+  });
+  assert.match(registered.messages[0], /Send a photo of the receipt/);
+});
+
 test('strangers get no answer; a text without a photo gets a hint', async () => {
   const stranger = await run({ From: 'whatsapp:+12125550000', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg' });
   assert.deepEqual([stranger.writes.length, stranger.twiml.messages.length], [0, 0]);
