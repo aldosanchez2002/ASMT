@@ -31,9 +31,10 @@ import {
 } from './signals.js';
 import { downloadLog, downloadTruckRecord } from './records.js';
 import {
-  POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, daysBetween, inWindow, isRepair, itemKey, landedCosts, lineKind,
-  openItems, receiptItems, repairText, spending,
+  POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isRepair, itemKey, landedCosts,
+  lineKind, openItems, receiptItems, repairText, spending,
 } from './items.js';
+import { periodsBack, unitBreakdown, workKind } from './analytics.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -276,6 +277,7 @@ function render() {
   renderTrailers();
   renderShop();
   renderParts();
+  renderAnalytics();
 }
 
 // ---- Trailers tab --------------------------------------------------------
@@ -506,7 +508,7 @@ function renderLog() {
 // ---- Schedules tab ---------------------------------------------------------
 
 // The shop view is the main page; the rest is the admin side.
-const TABS = ['shop', 'inventory', 'trucks', 'trailers', 'parts', 'schedules', 'log', 'settings'];
+const TABS = ['shop', 'inventory', 'trucks', 'trailers', 'parts', 'analytics', 'schedules', 'log', 'settings'];
 // The inventory person's page is the admin Parts tab, in the shop look.
 const viewOf = (tab) => (tab === 'inventory' ? 'parts' : tab);
 const VIEWS = TABS.filter((x) => x !== 'inventory');
@@ -2777,6 +2779,205 @@ function aiNotesBox() {
   return [box];
 }
 
+// ---- Analytics: one truck or trailer, month by month or week by week ------------
+// What it cost (shelf parts its work used, plus the repair parts tied to it),
+// how far it drove (Samsara's daily odometer), and what work it had. Admin
+// picks the unit and the period; each period opens to what was in it.
+
+const AN_COUNTS = { month: [6, 12, 24], week: [8, 12, 26] };
+const AN_KEY = 'aslog.analytics';
+let anSettings = (() => { try { return JSON.parse(localStorage.getItem(AN_KEY)) ?? {}; } catch { return {}; } })();
+const anDays = {}; // vehicleId -> odometerDaily days ({} when none)
+const anLoading = new Set();
+let anOpenPeriod = null; // the period card shown open
+
+function saveAnSettings(change) {
+  anSettings = { ...anSettings, ...change };
+  try { localStorage.setItem(AN_KEY, JSON.stringify(anSettings)); } catch { /* not remembered */ }
+  anOpenPeriod = null;
+  renderAnalytics();
+}
+
+function anUnits() {
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true });
+  return [
+    ...vehicles.filter((v) => v.name).sort(byName).map((v) => ({ id: v.id, name: v.name, trailer: false })),
+    ...trailers.filter((c) => c.name).sort(byName).map((c) => ({ id: c.id, name: c.name, trailer: true })),
+  ];
+}
+
+// Samsara's daily odometer readings for a truck, loaded once.
+async function loadAnDays(id) {
+  if (anLoading.has(id) || id in anDays) return;
+  anLoading.add(id);
+  try {
+    const snap = await getDoc(doc(db, 'odometerDaily', id));
+    anDays[id] = snap.exists() ? snap.data().days ?? {} : {};
+  } catch {
+    anDays[id] = {};
+  }
+  anLoading.delete(id);
+  renderAnalytics();
+}
+
+// Chart ticks: a clean top value (0 / half / top) and compact money ($1.5K).
+function niceTop(max) {
+  if (!(max > 0)) return 100;
+  const step = 10 ** Math.floor(Math.log10(max));
+  return [1, 2, 2.5, 5, 10].map((m) => m * step).find((v) => v >= max);
+}
+const compactMoney = (n) => (n >= 1000 ? `$${Number((n / 1000).toFixed(n >= 10000 ? 0 : 1))}K` : `$${Math.round(n)}`);
+const anPeriodName = (p, view) => (view === 'week'
+  ? `Week of ${niceDate(p.from).replace(/, \d{4}$/, '')}`
+  : new Date(`${p.from}T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+const workText = (r) => [r.service && plural(r.service, 'service'), r.repair && plural(r.repair, 'repair'), r.tires && `${fmt.format(r.tires)} tire change${r.tires === 1 ? '' : 's'}`, r.batteries && `${fmt.format(r.batteries)} battery change${r.batteries === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || 'No work logged';
+const milesText = (r) => (r.miles == null ? null : `${fmt.format(r.miles)} mi${r.perMile != null ? ` · $${r.perMile.toFixed(2)}/mi` : ''}`);
+
+function renderAnalytics() {
+  if (currentTab() !== 'analytics') return;
+  const units = anUnits();
+  const unitSel = $('an-unit');
+  const options = units.map((u) => [u.id, u.trailer ? `Trailer ${u.name}` : u.name]);
+  if ([...unitSel.options].map((o) => o.value).join() !== options.map(([v]) => v).join()) {
+    unitSel.replaceChildren(...options.map(([v, label]) => Object.assign(el('option', null, label), { value: v })));
+  }
+  const body = $('an-body');
+  const unit = units.find((u) => u.id === anSettings.unit) ?? units[0];
+  if (!unit) { body.replaceChildren(el('p', 'muted', 'No trucks yet.')); return; }
+  unitSel.value = unit.id;
+  const view = anSettings.view === 'week' ? 'week' : 'month';
+  $('an-view').value = view;
+  const counts = AN_COUNTS[view];
+  const count = counts.includes(anSettings.count) ? anSettings.count : counts[0];
+  const countSel = $('an-count');
+  countSel.replaceChildren(...counts.map((n) => Object.assign(el('option', null, `Last ${n} ${view}s`), { value: n })));
+  countSel.value = count;
+
+  let days = null;
+  if (!unit.trailer) {
+    if (!(unit.id in anDays)) loadAnDays(unit.id);
+    days = anDays[unit.id] ?? null;
+  }
+  const periods = periodsBack(todayIso(), view, count);
+  const events = costEvents({ receipts, uses: itemUses, log: serviceLog });
+  const { rows, totals } = unitBreakdown({ unitId: unit.id, periods, events, log: serviceLog, days });
+  body.replaceChildren(anTiles(totals, unit), anChart(rows, view), ...anCards(rows, unit, view, events));
+}
+
+// The totals for the whole range: spent, miles, cost per mile, work.
+function anTiles(totals, unit) {
+  const tiles = el('div', 'an-tiles');
+  const tile = (label, value, note) => {
+    const t2 = el('div', 'an-tile');
+    t2.append(el('span', 'an-tile-label', label), el('span', 'an-tile-value', value));
+    if (note) t2.append(el('span', 'an-tile-note', note));
+    return t2;
+  };
+  tiles.append(
+    tile('Spent', money(totals.total), `Shelf parts ${money(totals.shelf)} · repair parts ${money(totals.items)}`),
+    tile('Miles', totals.miles == null ? '—' : fmt.format(totals.miles), unit.trailer ? 'Trailers have no odometer in Samsara' : totals.miles == null ? 'Loading Samsara readings…' : null),
+    tile('Cost per mile', totals.perMile == null ? '—' : `$${totals.perMile.toFixed(2)}`),
+    tile('Work', fmt.format(totals.service + totals.repair + totals.tires + totals.batteries), workText(totals)),
+  );
+  return tiles;
+}
+
+// Spent per period: one column each, oldest on the left. Hover or focus a
+// column for its numbers; tap it to open that period below.
+function anChart(rows, view) {
+  const wrap = el('section', 'an-chart');
+  wrap.append(el('h3', 'an-title', `Spent per ${view}`));
+  const top = niceTop(Math.max(...rows.map((r) => r.total), 0));
+  const plot = el('div', 'an-plot');
+  for (const f of [1, 0.5, 0]) {
+    const line = el('div', 'an-grid');
+    line.style.bottom = `${f * 100}%`;
+    line.append(el('span', 'an-tick', compactMoney(top * f)));
+    plot.append(line);
+  }
+  const cols = el('div', 'an-cols');
+  const tip = el('div', 'an-tip');
+  tip.hidden = true;
+  const maxRow = rows.reduce((m, r) => (r.total > (m?.total ?? 0) ? r : m), null);
+  const every = Math.ceil(rows.length / 8);
+  rows.forEach((r, i) => {
+    const col = el('button', `an-col${anOpenPeriod === r.key ? ' open' : ''}`);
+    col.type = 'button';
+    col.setAttribute('aria-label', `${anPeriodName(r, view)}: ${money(r.total)}`);
+    const bar = el('span', 'an-bar');
+    bar.style.height = `${(r.total / top) * 100}%`;
+    if (r === maxRow) bar.append(el('span', 'an-cap', compactMoney(r.total)));
+    col.append(bar, el('span', 'an-x', i % every === 0 || i === rows.length - 1 ? r.label : ''));
+    const show = () => {
+      tip.replaceChildren(el('strong', null, money(r.total)), el('span', null, anPeriodName(r, view)),
+        el('span', null, `Shelf ${money(r.shelf)} · repairs ${money(r.items)}`), ...(milesText(r) ? [el('span', null, milesText(r))] : []));
+      tip.hidden = false;
+      // Centered over the column, kept inside the chart.
+      const half = tip.offsetWidth / 2;
+      const left = col.offsetLeft + col.offsetWidth / 2;
+      tip.style.left = `${Math.min(Math.max(left, half), cols.offsetWidth - half)}px`;
+    };
+    col.addEventListener('pointerenter', show);
+    col.addEventListener('focus', show);
+    col.addEventListener('pointerleave', () => { tip.hidden = true; });
+    col.addEventListener('blur', () => { tip.hidden = true; });
+    col.addEventListener('click', () => {
+      anOpenPeriod = anOpenPeriod === r.key ? null : r.key;
+      renderAnalytics();
+      document.querySelector('.an-card.open')?.scrollIntoView({ block: 'nearest' });
+    });
+    cols.append(col);
+  });
+  plot.append(cols, tip);
+  wrap.append(plot);
+  return wrap;
+}
+
+// One card per period, newest first; open shows what was in it.
+function anCards(rows, unit, view, events) {
+  const out = [el('h3', 'an-title', `By ${view}`)];
+  for (const r of [...rows].reverse()) {
+    const open = anOpenPeriod === r.key;
+    const card = el('div', `an-card${open ? ' open' : ''}`);
+    const head = el('button', 'an-card-head');
+    head.type = 'button';
+    head.setAttribute('aria-expanded', String(open));
+    head.append(el('span', 'an-card-name', anPeriodName(r, view)), el('span', 'an-card-total', money(r.total)));
+    head.addEventListener('click', () => { anOpenPeriod = open ? null : r.key; renderAnalytics(); });
+    card.append(head, el('p', 'an-card-line', [milesText(r), workText(r)].filter(Boolean).join(' · ')));
+    if (r.total) card.append(el('p', 'an-card-line', `Shelf parts ${money(r.shelf)} · repair parts ${money(r.items)}`));
+    if (open) card.append(anDetails(r, unit, events));
+    out.push(card);
+  }
+  return out;
+}
+
+// What a period held: the work logged and what each cost.
+function anDetails(r, unit, events) {
+  const box = el('div', 'an-details');
+  const inP = (d) => d && d >= r.from && d <= r.to;
+  const work = serviceLog.filter((e) => e.vehicleId === unit.id && inP(e.date) && workKind(e))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const costs = events.filter((ev) => ev.unitId === unit.id && inP(ev.date) && (ev.kind === 'shelf' || ev.kind === 'items'))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  box.append(el('div', 'an-sub', 'Work'));
+  if (!work.length) box.append(el('p', 'muted', 'No work logged.'));
+  for (const e of work) {
+    const row = el('div', 'an-row');
+    row.append(el('span', 'an-row-date', dateText(e.date)), el('span', 'an-row-text', `${e.type === 'repair' ? 'Repair: ' : ''}${repairText(e) || e.itemName || ''}`));
+    box.append(row);
+  }
+  box.append(el('div', 'an-sub', 'Costs'));
+  if (!costs.length) box.append(el('p', 'muted', 'No costs.'));
+  for (const ev of costs) {
+    const row = el('div', 'an-row');
+    const what = ev.kind === 'shelf' ? `${partById(ev.text)?.name ?? ev.text} (shelf)` : ev.text;
+    row.append(el('span', 'an-row-date', dateText(ev.date)), el('span', 'an-row-text', what), el('strong', 'an-row-amount', money(ev.amount)));
+    box.append(row);
+  }
+  return box;
+}
+
 // ---- Parts popups: a part, a kit, a receipt -------------------------------------
 
 function partsDialog(title, sub) {
@@ -3646,6 +3847,7 @@ function watchFleet() {
     onSnapshot(collection(db, 'trailers'), (snap) => {
       trailers = snap.docs.map((d) => d.data());
       renderTrailers();
+      renderAnalytics();
       renderShop();
       if (openTrailerId) renderTrailer();
     }, (err) => console.error(err)),
@@ -3698,10 +3900,12 @@ function watchFleet() {
         return { ...r, id: d.id, createdMs: r.createdAt?.toMillis?.() ?? 0 };
       });
       renderParts();
+      renderAnalytics();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'itemUses'), (snap) => {
       itemUses = snap.docs.map((d) => ({ ...d.data({ serverTimestamps: 'estimate' }), id: d.id }));
       renderParts();
+      renderAnalytics();
     }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'aiMemory'), (snap) => {
       aiMemory = snap.data() ?? {};
@@ -3795,6 +3999,9 @@ for (const th of document.querySelectorAll('th[data-trsort]')) {
   });
 }
 $('log-period').addEventListener('change', () => { applyLogPeriod(); renderLog(); });
+$('an-unit').addEventListener('change', () => saveAnSettings({ unit: $('an-unit').value }));
+$('an-view').addEventListener('change', () => saveAnSettings({ view: $('an-view').value }));
+$('an-count').addEventListener('change', () => saveAnSettings({ count: Number($('an-count').value) }));
 for (const id of ['log-from', 'log-to']) {
   $(id).addEventListener('change', () => { $('log-period').value = 'custom'; renderLog(); });
 }

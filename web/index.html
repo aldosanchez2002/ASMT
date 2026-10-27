@@ -83,6 +83,7 @@
         <a href="#trucks" data-tab="trucks">Trucks</a>
         <a href="#trailers" data-tab="trailers">Trailers</a>
         <a href="#parts" data-tab="parts">Parts</a>
+        <a href="#analytics" data-tab="analytics">Analytics</a>
         <a href="#log" data-tab="log"><span class="hide-sm">Service log</span><span class="show-sm-inline">Log</span></a>
         <a href="#settings" data-tab="settings">Settings</a>
         <a href="#schedules" data-tab="schedules">Schedules</a>
@@ -181,6 +182,27 @@
           </table>
         </div>
         <p id="log-empty" class="muted center" hidden></p>
+      </div>
+
+      <div id="analytics-view" hidden>
+        <div class="toolbar an-filters">
+          <label class="field">
+            <span>Truck or trailer</span>
+            <select id="an-unit"></select>
+          </label>
+          <label class="field">
+            <span>By</span>
+            <select id="an-view">
+              <option value="month">Month</option>
+              <option value="week">Week</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Show</span>
+            <select id="an-count"></select>
+          </label>
+        </div>
+        <div id="an-body"></div>
       </div>
 
       <div id="parts-view" hidden>

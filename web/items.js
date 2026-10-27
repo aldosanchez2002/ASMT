@@ -172,50 +172,38 @@ export function accuracy(uses, month) {
 }
 
 /**
- * What each truck and trailer cost from `from` to `to` (dates, inclusive),
- * and what the shop spent on supplies and tools:
- *   - shelf parts the work log used (kits, tires, batteries), at their
- *     average real cost, on the work's date
- *   - repair parts, labor and cores tied to the work (counted uses), on the
- *     work's date; tied to a truck with no repair, on the purchase date
- *   - items bought for a truck that aren't tied to a repair yet, on the
- *     purchase date
- * @returns { units: [{ unitId, name, assetType, total, shelf, items }],
- *   shop: { supplies, tools, total }, open }  — open: pool items not yet
- *   tied to anything (not in any total)
+ * Every cost, dated, with what it's for:
+ *   shelf     shelf parts the work log used (kits, tires, batteries), at
+ *             their average real cost, on the work's date
+ *   items     repair parts, labor and cores tied to work (counted uses), on
+ *             the work's date; tied to a truck with no repair, or bought for
+ *             a truck and not tied to a repair yet, on the purchase date
+ *   supplies / tools   shop costs (and returns not tied to a truck), on the
+ *             purchase date
+ *   open      pool items not tied to anything yet (no unit)
+ * @returns [{ date, kind, amount, unitId, unitName, assetType, text, logId }]
  */
-export function spending({ receipts, uses, log, parts, from, to }) {
-  const inRange = (d) => d && d >= from && d <= to;
-  const units = new Map();
-  const unit = (id, name, assetType) => {
-    if (!units.has(id)) units.set(id, { unitId: id, name: name ?? id, assetType: assetType ?? 'truck', total: 0, shelf: 0, items: 0 });
-    const u = units.get(id);
-    if (name && u.name === id) u.name = name;
-    return u;
-  };
+export function costEvents({ receipts, uses, log }) {
+  const out = [];
   const costOf = new Map();
   const partCost = (id) => {
     if (!costOf.has(id)) costOf.set(id, averageCost(id, receipts));
     return costOf.get(id);
   };
+  const assetOf = (e) => (e?.assetType === 'trailer' ? 'trailer' : 'truck');
   for (const e of log) {
-    if (!inRange(e.date) || !e.partsUsed) continue;
+    if (!e.partsUsed) continue;
     for (const [id, qty] of Object.entries(e.partsUsed)) {
       const c = partCost(id);
       if (c == null) continue;
-      const u = unit(e.vehicleId, e.vehicleName, e.assetType === 'trailer' ? 'trailer' : 'truck');
-      u.shelf = round2(u.shelf + c * Number(qty));
+      out.push({ date: e.date, kind: 'shelf', amount: round2(c * Number(qty)), unitId: e.vehicleId, unitName: e.vehicleName ?? null, assetType: assetOf(e), text: id, logId: e.id ?? null });
     }
   }
   const entryById = new Map(log.map((e) => [e.id, e]));
-  const shop = { supplies: 0, tools: 0, total: 0 };
-  let open = 0;
   for (const it of receiptItems(receipts)) {
     if (it.unitCost == null) continue;
     if (SHOP_KINDS.includes(it.kind) || (it.kind === 'credit' && !it.vehicleId)) {
-      if (!inRange(it.date)) continue;
-      const k = it.kind === 'tool' ? 'tools' : 'supplies';
-      shop[k] = round2(shop[k] + it.cost);
+      out.push({ date: it.date, kind: it.kind === 'tool' ? 'tools' : 'supplies', amount: round2(it.cost), unitId: null, text: it.text });
       continue;
     }
     let left = it.qty;
@@ -223,19 +211,39 @@ export function spending({ receipts, uses, log, parts, from, to }) {
       const qty = Math.min(Number(u.qty) || 0, left);
       left -= qty;
       const entry = u.logId ? entryById.get(u.logId) : null;
-      const date = entry?.date ?? it.date;
-      if (!inRange(date)) continue;
-      if (u.shop) { shop.supplies = round2(shop.supplies + it.unitCost * qty); continue; }
-      const id = u.vehicleId ?? entry?.vehicleId;
-      if (!id) continue;
-      const target = unit(id, u.vehicleName ?? entry?.vehicleName, u.assetType ?? (entry?.assetType === 'trailer' ? 'trailer' : 'truck'));
-      target.items = round2(target.items + it.unitCost * qty);
+      const amount = round2(it.unitCost * qty);
+      if (u.shop) { out.push({ date: entry?.date ?? it.date, kind: 'supplies', amount, unitId: null, text: it.text }); continue; }
+      const unitId = u.vehicleId ?? entry?.vehicleId;
+      if (!unitId) continue;
+      out.push({ date: entry?.date ?? it.date, kind: 'items', amount, unitId, unitName: u.vehicleName ?? entry?.vehicleName ?? null, assetType: u.assetType ?? assetOf(entry), text: it.text, logId: entry?.id ?? null });
     }
-    if (left <= 0 || !inRange(it.date)) continue;
-    if (it.vehicleId) {
-      const target = unit(it.vehicleId);
-      target.items = round2(target.items + it.unitCost * left);
-    } else if (POOL_KINDS.includes(it.kind)) open = round2(open + it.unitCost * left);
+    if (left <= 0) continue;
+    const amount = round2(it.unitCost * left);
+    if (it.vehicleId) out.push({ date: it.date, kind: 'items', amount, unitId: it.vehicleId, unitName: null, assetType: 'truck', text: it.text, logId: null });
+    else if (POOL_KINDS.includes(it.kind)) out.push({ date: it.date, kind: 'open', amount, unitId: null, text: it.text });
+  }
+  return out;
+}
+
+/**
+ * What each truck and trailer cost from `from` to `to` (dates, inclusive),
+ * and what the shop spent on supplies and tools (costEvents, added up).
+ * @returns { units: [{ unitId, name, assetType, total, shelf, items }],
+ *   shop: { supplies, tools, total }, open }  — open: pool items not yet
+ *   tied to anything (not in any total)
+ */
+export function spending({ receipts, uses, log, from, to }) {
+  const units = new Map();
+  const shop = { supplies: 0, tools: 0, total: 0 };
+  let open = 0;
+  for (const ev of costEvents({ receipts, uses, log })) {
+    if (!ev.date || ev.date < from || ev.date > to) continue;
+    if (ev.kind === 'open') { open = round2(open + ev.amount); continue; }
+    if (ev.kind === 'supplies' || ev.kind === 'tools') { shop[ev.kind] = round2(shop[ev.kind] + ev.amount); continue; }
+    if (!units.has(ev.unitId)) units.set(ev.unitId, { unitId: ev.unitId, name: ev.unitName ?? ev.unitId, assetType: ev.assetType ?? 'truck', total: 0, shelf: 0, items: 0 });
+    const u = units.get(ev.unitId);
+    if (ev.unitName && u.name === ev.unitId) u.name = ev.unitName;
+    u[ev.kind] = round2(u[ev.kind] + ev.amount);
   }
   for (const u of units.values()) u.total = round2(u.shelf + u.items);
   shop.total = round2(shop.supplies + shop.tools);

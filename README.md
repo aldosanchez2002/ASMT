@@ -179,6 +179,10 @@ The due-date logic lives in `web/maintenance.js` and is covered by `npm test`.
 | `corrections/{id}` | `type` (`reading`/`match`), what the AI said and what admin changed it to |
 | `meta/aiMemory` | `notes`: what admin tells the AI |
 
+## Analytics (admin)
+
+**Admin → Analytics** shows one truck or trailer month by month (last 6, 12 or 24 months) or week by week (last 8, 12 or 26 weeks): what it cost (shelf parts its work used at their average real cost, plus the repair parts, labor and cores tied to it; `costEvents` in `web/items.js`), miles driven from Samsara's daily odometer (`odometerDaily`; trailers have none), cost per mile, and the work logged. A chart shows spending per period; tap a period to see the work and each cost in it. The math is in `web/analytics.js` (`periodsBack`, `milesIn`, `unitBreakdown`) and covered by `npm test`.
+
 ## Paper work log import
 
 `scripts/seed-work-log.mjs` loads a typed-up paper work log (JSON; format at the top of `scripts/work-log.mjs`). **Keep the file out of this repo**: it's fleet data, and `.gitignore` blocks `work-log*.json` and backups.

@@ -1392,3 +1392,38 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .ai-notes textarea { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 10px; border: 2px solid var(--floor-line); border-radius: 0; font: 15px/1.4 var(--mono); background: var(--floor-paper); color: var(--floor-ink); }
 .ai-notes .btn { min-height: 44px; border-radius: 0; }
 #parts-view select { max-width: 100%; }
+
+/* Analytics: one truck, month by month or week by week (admin) */
+:root { --series-1: #2a78d6; }
+@media (prefers-color-scheme: dark) { :root { --series-1: #3987e5; } }
+.an-filters { display: grid; grid-template-columns: 2fr 1fr 1.4fr; gap: 10px; }
+.an-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 12px 0 4px; }
+.an-tile { display: grid; gap: 2px; padding: 10px 12px; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.an-tile-label { font: 800 14px var(--cond); text-transform: uppercase; letter-spacing: .06em; color: var(--floor-muted); }
+.an-tile-value { font: 800 30px/1.05 var(--cond); color: var(--floor-ink); }
+.an-tile-note { font-size: 13px; color: var(--floor-muted); }
+.an-title { display: flex; align-items: center; gap: 8px; margin: 22px 0 8px; font: 800 16px var(--cond); text-transform: uppercase; letter-spacing: .08em; color: var(--floor-ink); }
+.an-title::before { content: ''; width: 14px; height: 14px; background: var(--floor-ink); flex: none; }
+.an-plot { position: relative; height: 190px; margin: 0 0 28px 44px; }
+.an-grid { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--floor-track); }
+.an-tick { position: absolute; right: calc(100% + 6px); top: -8px; font: 600 12px 'Barlow', sans-serif; color: var(--floor-muted); white-space: nowrap; }
+.an-cols { position: absolute; inset: 0; display: flex; align-items: stretch; gap: 2px; }
+.an-col { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 0; border: none; background: none; cursor: pointer; }
+.an-col:hover, .an-col:focus-visible, .an-col.open { background: var(--floor-track); outline: none; }
+.an-bar { position: relative; width: 100%; max-width: 24px; min-height: 0; background: var(--series-1); border-radius: 4px 4px 0 0; }
+.an-cap { position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); font: 800 13px var(--cond); color: var(--floor-ink); white-space: nowrap; }
+.an-x { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); font: 600 12px 'Barlow', sans-serif; color: var(--floor-muted); white-space: nowrap; }
+.an-tip { position: absolute; top: 0; transform: translateX(-50%); display: grid; gap: 2px; padding: 8px 10px; background: var(--floor-paper); border: 2px solid var(--floor-line); font-size: 13px; color: var(--floor-ink); pointer-events: none; white-space: nowrap; z-index: 2; }
+.an-tip strong { font: 800 18px var(--cond); }
+.an-card { margin-top: 8px; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.an-card.open { border-left: 8px solid var(--series-1); }
+.an-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; width: 100%; padding: 10px 12px 2px; border: none; background: none; color: var(--floor-ink); font: inherit; text-align: left; cursor: pointer; }
+.an-card-name { font-weight: 700; font-size: 17px; }
+.an-card-total { font: 800 22px var(--cond); white-space: nowrap; }
+.an-card-line { margin: 0; padding: 0 12px 6px; font-size: 13px; color: var(--floor-muted); }
+.an-details { padding: 4px 12px 12px; border-top: 1px solid var(--floor-track); }
+.an-sub { margin: 10px 0 4px; font: 800 13px var(--cond); text-transform: uppercase; letter-spacing: .06em; color: var(--floor-muted); }
+.an-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; padding: 4px 0; font-size: 14px; border-bottom: 1px solid var(--floor-track); }
+.an-row-date { color: var(--floor-muted); }
+.an-row-text { overflow-wrap: anywhere; }
+@media (max-width: 560px) { .an-filters { grid-template-columns: 1fr 1fr; } .an-filters .field:first-child { grid-column: 1 / -1; } }
