@@ -30,6 +30,10 @@ import {
   QUIET_DAYS, atShop, codeId, codeText, faultSummary, quietDays,
 } from './signals.js';
 import { downloadLog, downloadTruckRecord } from './records.js';
+import {
+  POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, daysBetween, inWindow, isRepair, itemKey, landedCosts, lineKind,
+  openItems, receiptItems, repairText, spending,
+} from './items.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -72,6 +76,8 @@ let sortDir = 1;
 let partsList = []; // parts docs: the shelf (oil, filters, tires, batteries…)
 let kits = {}; // meta/kits doc: { [kitKey]: { [tag]: [{ part, qty }] } }
 let receipts = []; // receipts docs (createdMs from createdAt)
+let itemUses = []; // itemUses docs: which repair each bought item went into (items.js)
+let aiMemory = {}; // meta/aiMemory doc: { notes } admin writes for the AI
 let unsubscribers = [];
 
 function show(section) {
@@ -2002,12 +2008,14 @@ function buildWork() {
 }
 
 // ---- Parts: the buyer's page ---------------------------------------------------
-// Three tabs: Receipts, To buy (what upcoming work needs minus what's on the
-// shelf) and Stock (every part, its count, and the service kits). The buyer
-// opens it at aslog.dev/#parts; admin has it as a tab too.
+// Tabs: Receipts, To buy (what upcoming work needs minus what's on the
+// shelf), To check (receipts the reader wasn't sure of), Matches (admin:
+// which repair each bought part went into) and Stock (admin: every part,
+// its count, and the service kits). The buyer opens it at aslog.dev/#inventory;
+// admin has it as a tab too.
 
 const PART_GROUPS = ['oil', 'filter', 'tire', 'battery', 'fluid', 'other'];
-const PARTS_SIDES = ['receipts', 'buy', 'check', 'stock'];
+const PARTS_SIDES = ['receipts', 'buy', 'check', 'matches', 'stock'];
 const PARTS_SIDE_KEY = 'aslog.partsSide';
 let partsSide = (() => {
   try { const s = localStorage.getItem(PARTS_SIDE_KEY); return PARTS_SIDES.includes(s) ? s : 'receipts'; } catch { return 'receipts'; }
@@ -2066,15 +2074,21 @@ function renderParts() {
   const stock = stockNow();
   const work = fleetWork();
   const list = shoppingList(partsList, work, stock);
-  const counts = { buy: list.length, check: toCheck().length, stock: activeParts().length, receipts: receipts.length };
+  const queue = matchQueue();
+  const counts = {
+    buy: list.length, check: toCheck().length, stock: activeParts().length, receipts: receipts.length,
+    matches: queue.doubts.length + queue.noWork.length + queue.noParts.length,
+  };
   // The buyer's job is the list, the receipts and checking what the reader
-  // wasn't sure of; counting the shelf and the kits are admin's (Admin → Parts).
+  // wasn't sure of; the matches, the shelf count and the kits are admin's
+  // (Admin → Parts).
   const buyer = roleOfTab(currentTab()) === 'inventory';
-  if (buyer && partsSide === 'stock') partsSide = 'buy';
+  const adminOnly = ['stock', 'matches'];
+  if (buyer && adminOnly.includes(partsSide)) partsSide = 'buy';
   const tabs = document.querySelectorAll('#parts-side button');
   $('parts-side').classList.toggle('many', !buyer);
   for (const b of tabs) {
-    b.hidden = buyer && b.dataset.side === 'stock';
+    b.hidden = buyer && adminOnly.includes(b.dataset.side);
     const on = b.dataset.side === partsSide;
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
@@ -2085,6 +2099,7 @@ function renderParts() {
   if (partsSide === 'stock') body.replaceChildren(...partsStock(stock));
   else if (partsSide === 'receipts') body.replaceChildren(...partsReceipts());
   else if (partsSide === 'check') body.replaceChildren(...partsCheck());
+  else if (partsSide === 'matches') body.replaceChildren(...partsMatches(queue));
   else body.replaceChildren(...partsBuy(list, work, stock));
 }
 
@@ -2298,7 +2313,7 @@ function partsCheck() {
   const list = toCheck();
   if (!list.length) out.push(el('p', 'parts-empty parts-good', t('nothingToCheck')));
   for (const r of list) {
-    const open = (r.lines ?? []).filter((l) => !l.part && !l.to).length;
+    const open = (r.lines ?? []).filter((l) => !linePlaced(l)).length;
     const card = el('div', 'receipt-card status-review');
     const row = el('button', 'receipt-row');
     row.type = 'button';
@@ -2358,8 +2373,9 @@ function viewReceipt(id) {
     row.append(el('span', 'buy-text', `${qtyText(l.qty)} × ${name}${truck ? ` · ${truck}` : ''}`), el('strong', null, l.price != null ? money(l.price) : ''));
     lines.append(row);
   }
-  if (r.tax != null && r.lines?.length) body.append(lines, el('p', 'receipt-tax', `${t('taxWord')} ${money(r.tax)}`));
-  else if (r.lines?.length) body.append(lines);
+  if (r.lines?.length) body.append(lines);
+  if (r.tax != null && r.lines?.length) body.append(el('p', 'receipt-tax', `${t('taxWord')} ${money(r.tax)}`));
+  for (const f of r.fees ?? []) body.append(el('p', 'receipt-tax', `${f.label} ${money(f.amount)}`));
   if (r.total != null) body.append(el('div', 'receipt-sum', t('receiptTotal', money(r.total))));
   if (r.hasPhoto) {
     const photo = Object.assign(el('button', 'btn parts-copy', t('seePhoto')), { type: 'button' });
@@ -2378,6 +2394,327 @@ function viewReceipt(id) {
     });
     body.append(del);
   }
+}
+
+// ---- Matches: which repair each bought part went into (admin) -------------------
+// The matcher (scripts/match-items.mjs) ties the repair parts, labor and
+// cores from the receipts to the repairs in the work log. Admin checks the
+// ones it wasn't sure of, spot-checks the rest, and sorts out parts no work
+// explains and repairs with no parts. Every change is saved in the
+// corrections collection, which the AI reads before its next run.
+
+const todayIso = () => new Date().toLocaleDateString('en-CA');
+const matchQueue = () => auditQueue({ items: receiptItems(receipts), uses: itemUses, log: serviceLog, today: todayIso() });
+const unitName = (id) => vehicles.find((v) => v.id === id)?.name ?? trailers.find((c) => c.id === id)?.name ?? id;
+const SPEND_PERIODS = ['month', 'd90', 'year'];
+let spendPeriod = 'month';
+let showRecent = false; // Matches: the AI's own matches of the last 2 weeks, folded
+
+// A repair in one line: "T-07 · Oct 19 · Disco delantero copiloto".
+const repairLine = (e) => [e.vehicleName ?? unitName(e.vehicleId), dateText(e.date), repairText(e)].filter(Boolean).join(' · ');
+const itemLine = (item, qty) => `${qtyText(qty ?? item.qty)} × ${item.text || t('receipt')}`;
+const receiptOf = (item) => receipts.find((r) => r.id === item.receiptId);
+
+function partsMatches(queue) {
+  const out = [el('h2', 'parts-title', t('matchesTitle')), el('p', 'parts-intro', t('matchesIntro'))];
+  const month = todayIso().slice(0, 7);
+  const score = accuracy(itemUses, month);
+  if (score.made) out.push(el('p', 'match-score', t('accuracyLine', score)));
+
+  const section = (title, hint, rows, empty) => {
+    out.push(el('h3', 'shop-group parts-group', `${title}${rows.length ? ` · ${rows.length}` : ''}`), el('p', 'parts-hint', hint));
+    if (!rows.length && empty) out.push(el('p', 'parts-empty parts-good', empty));
+    out.push(...rows);
+  };
+  section(t('secDoubts'), t('secDoubtsHint'), queue.doubts.map((x) => matchCard(x)), t('nothingToCheck'));
+  section(t('secNoWork'), t('secNoWorkHint'), queue.noWork.map(noWorkCard), t('nothingToCheck'));
+  section(t('secNoParts'), t('secNoPartsHint'), queue.noParts.map(noPartsCard), t('nothingToCheck'));
+
+  // The AI's own matches, folded: a spot check.
+  const head = el('button', `shop-group section-toggle parts-work-head${showRecent ? ' open' : ''}`);
+  head.type = 'button';
+  head.setAttribute('aria-expanded', String(showRecent));
+  head.append(el('span', 'section-label', t('secRecent')), el('span', 'section-count', String(queue.recent.length)), el('span', 'section-chevron', showRecent ? '▾' : '▸'));
+  head.addEventListener('click', () => { showRecent = !showRecent; renderParts(); });
+  out.push(head);
+  if (showRecent) out.push(...(queue.recent.length ? queue.recent.map((x) => matchCard(x)) : [el('p', 'muted', t('noRecentMatches'))]));
+
+  out.push(...spendBox(), ...aiNotesBox());
+  return out;
+}
+
+// A match the AI made: the item, the repair, how sure it was and why.
+function matchCard({ use, item, entry }) {
+  const card = el('div', `match-card match-${use.status}`);
+  const cost = item.unitCost != null ? money(item.unitCost * use.qty) : '';
+  card.append(
+    el('p', 'match-item', itemLine(item, use.qty)),
+    el('p', 'match-cost', cost),
+    el('p', 'match-meta', [item.vendor, dateText(item.date), item.partNumber].filter(Boolean).join(' · ')),
+    el('p', 'match-arrow', `→ ${entry ? repairLine(entry) : t('truckOnly', use.vehicleName ?? unitName(use.vehicleId))}`),
+  );
+  if (use.reason) card.append(el('p', 'match-why', t('aiSure', use.confidence ?? 0, use.reason)));
+  const right = Object.assign(el('button', 'btn match-right', t('right')), { type: 'button' });
+  right.addEventListener('click', () => confirmUse(use));
+  const change = Object.assign(el('button', 'btn btn-ghost', t('change')), { type: 'button' });
+  change.addEventListener('click', () => pickForItem(item, use));
+  const actions = el('div', 'match-actions');
+  actions.append(right, change, receiptLink(item));
+  card.append(actions);
+  return card;
+}
+
+function receiptLink(item) {
+  const r = receiptOf(item);
+  const b = Object.assign(el('button', 'link-btn', t('seeReceipt')), { type: 'button' });
+  b.hidden = !r?.hasPhoto;
+  b.addEventListener('click', () => r && showReceiptPhoto(r));
+  return b;
+}
+
+// A part bought 2+ weeks ago that no work explains.
+function noWorkCard(item) {
+  const card = el('div', 'match-card match-nowork');
+  card.append(
+    el('p', 'match-item', itemLine(item, item.remaining)),
+    el('p', 'match-cost', item.unitCost != null ? money(item.unitCost * item.remaining) : ''),
+    el('p', 'match-meta', [item.vendor, dateText(item.date), item.partNumber].filter(Boolean).join(' · ')),
+    el('p', 'match-arrow', [item.vehicleId ? t('boughtFor', unitName(item.vehicleId)) : null, t('daysNoWork', daysBetween(item.date, todayIso()))].filter(Boolean).join(' · ')),
+  );
+  const pick = Object.assign(el('button', 'btn match-right', t('pickRepair')), { type: 'button' });
+  pick.addEventListener('click', () => pickForItem(item, null));
+  const shelf = Object.assign(el('button', 'btn btn-ghost', t('stillOnShelf')), { type: 'button' });
+  shelf.addEventListener('click', () => snoozeItem(item, null));
+  const actions = el('div', 'match-actions');
+  actions.append(pick, shelf, receiptLink(item));
+  card.append(actions);
+  return card;
+}
+
+// A repair a week or more old with no bought part tied to it.
+function noPartsCard(entry) {
+  const card = el('div', 'match-card match-noparts');
+  card.append(el('p', 'match-item', repairLine(entry)), el('p', 'match-meta', t('noPartsFound')));
+  const pick = Object.assign(el('button', 'btn match-right', t('pickParts')), { type: 'button' });
+  pick.addEventListener('click', () => pickForRepair(entry));
+  const none = Object.assign(el('button', 'btn btn-ghost', t('noPartsNeeded')), { type: 'button' });
+  none.addEventListener('click', async () => {
+    none.disabled = true;
+    try {
+      await setDoc(doc(db, 'serviceLog', entry.id), { noParts: true }, { merge: true });
+    } catch (err) {
+      none.disabled = false;
+      showAppError(t('couldNotSave', err.message));
+    }
+  });
+  const actions = el('div', 'match-actions');
+  actions.append(pick, none);
+  card.append(actions);
+  return card;
+}
+
+const useRef = (id) => (id ? doc(db, 'itemUses', id) : doc(collection(db, 'itemUses')));
+const correctionRef = () => doc(collection(db, 'corrections'));
+const repairOf = (id) => serviceLog.find((e) => e.id === id) ?? null;
+const placeOf = (use) => {
+  if (!use) return null;
+  const e = use.logId ? repairOf(use.logId) : null;
+  if (e) return { repair: repairText(e), truck: e.vehicleName ?? unitName(e.vehicleId), date: e.date ?? null };
+  return { truck: use.vehicleName ?? unitName(use.vehicleId) };
+};
+
+async function confirmUse(use) {
+  try {
+    await setDoc(useRef(use.id), { status: 'confirmed', checkedAt: serverTimestamp() }, { merge: true });
+  } catch (err) {
+    showAppError(t('couldNotSave', err.message));
+  }
+}
+
+// Admin's choice for an item: a repair, a truck with no repair, or nothing
+// yet. Replaces the AI's match (if any) and records the correction.
+async function placeItem(item, fromUse, choice) {
+  const batch = writeBatch(db);
+  // Picking the same repair the AI picked just confirms it.
+  if (fromUse && choice.entry && fromUse.logId === choice.entry.id && choice.qty === fromUse.qty) {
+    batch.set(useRef(fromUse.id), { status: 'confirmed', checkedAt: serverTimestamp() }, { merge: true });
+    return batch.commit();
+  }
+  if (fromUse) batch.set(useRef(fromUse.id), { status: 'rejected', checkedAt: serverTimestamp() }, { merge: true });
+  const e = choice.entry;
+  const unitId = e?.vehicleId ?? choice.unitId;
+  if (unitId) {
+    const ref = useRef(null);
+    const trailer = e ? e.assetType === 'trailer' : trailers.some((c) => c.id === unitId);
+    batch.set(ref, {
+      id: ref.id, receiptId: item.receiptId, lineId: item.lineId, qty: choice.qty, logId: e?.id ?? null,
+      vehicleId: unitId, vehicleName: e?.vehicleName ?? unitName(unitId), assetType: trailer ? 'trailer' : 'truck',
+      shop: false, by: 'admin', status: 'confirmed', itemText: item.text, createdAt: serverTimestamp(),
+    });
+  }
+  if (choice.shelf) {
+    const ref = useRef(null);
+    batch.set(ref, {
+      id: ref.id, receiptId: item.receiptId, lineId: item.lineId, qty: 0, status: 'snooze', by: 'admin',
+      until: new Date(Date.now() + 30 * DAY_MS).toLocaleDateString('en-CA'), itemText: item.text, createdAt: serverTimestamp(),
+    });
+  }
+  // What the AI said and what admin said instead: the AI reads these.
+  if (fromUse || choice.teach) {
+    batch.set(correctionRef(), {
+      type: 'match', at: new Date().toISOString(), itemText: item.text, partNumber: item.partNumber ?? null,
+      vendor: item.vendor ?? null, itemDate: item.date ?? null,
+      ai: fromUse ? { ...placeOf(fromUse), confidence: fromUse.confidence ?? null } : null,
+      admin: choice.shelf ? { shelf: true } : e ? { repair: repairText(e), truck: e.vehicleName ?? unitName(e.vehicleId), date: e.date } : { truck: unitName(unitId) },
+    });
+  }
+  return batch.commit();
+}
+
+const snoozeItem = (item, fromUse) => placeItem(item, fromUse, { shelf: true, qty: 0 }).catch((err) => showAppError(t('couldNotSave', err.message)));
+
+// Not a repair part after all: the receipt line becomes shop supplies, which
+// is a reading correction (the reader called it a part).
+async function shopItem(item, fromUse) {
+  const r = receiptOf(item);
+  if (!r) return;
+  const batch = writeBatch(db);
+  const lines = (r.lines ?? []).map((l, i) => ((l.id ?? `i${i}`) === item.lineId ? { ...l, id: item.lineId, kind: 'supplies', to: 'shop', vehicleId: null } : l));
+  batch.set(doc(db, 'receipts', r.id), { lines }, { merge: true });
+  if (fromUse) batch.set(useRef(fromUse.id), { status: 'rejected', checkedAt: serverTimestamp() }, { merge: true });
+  batch.set(correctionRef(), {
+    type: 'reading', at: new Date().toISOString(), vendor: r.vendor ?? null, text: item.text, partNumber: item.partNumber ?? null,
+    before: { part: null, kind: item.kind, truck: item.vehicleId ? unitName(item.vehicleId) : null, qty: item.qty, price: null },
+    after: { part: null, kind: 'supplies', truck: null, qty: item.qty, price: null },
+  });
+  if (fromUse) {
+    batch.set(correctionRef(), {
+      type: 'match', at: new Date().toISOString(), itemText: item.text, partNumber: item.partNumber ?? null,
+      vendor: item.vendor ?? null, itemDate: item.date ?? null, ai: { ...placeOf(fromUse), confidence: fromUse.confidence ?? null }, admin: { shop: true },
+    });
+  }
+  await batch.commit();
+}
+
+// Pick where an item went: the repairs around its date (its trucks first),
+// a truck with no repair recorded, shop supplies, or still on the shelf.
+function pickForItem(item, fromUse) {
+  const left = item.qty - itemUses.filter((u) => itemKey(u.receiptId, u.lineId) === item.key && ['auto', 'doubt', 'confirmed'].includes(u.status) && u.id !== fromUse?.id)
+    .reduce((s, u) => s + (Number(u.qty) || 0), 0);
+  const body = partsDialog(item.text || t('receipt'), [item.vendor, dateText(item.date), money(item.cost ?? 0)].filter(Boolean).join(' · '));
+  let qty = fromUse?.qty ?? Math.max(left, 1);
+  if (left > 1) {
+    const qtyPick = selectOf(Array.from({ length: Math.floor(left) }, (_, i) => [i + 1, String(i + 1)]), qty);
+    qtyPick.addEventListener('change', () => { qty = Number(qtyPick.value); });
+    const field = el('label', 'field');
+    field.append(el('span', null, t('howMany')), qtyPick);
+    body.append(field);
+  }
+  const done = (p) => p.then(() => $('pdlg').close()).catch((err) => showAppError(t('couldNotSave', err.message)));
+  const allowed = item.vehicleId ? [item.vehicleId] : item.truckChoices ?? [];
+  // The AI's pick first, then the item's trucks, then the closest dates.
+  const around = serviceLog.filter((e) => isRepair(e) && inWindow(item, e))
+    .sort((a, b) => Number(b.id === fromUse?.logId) - Number(a.id === fromUse?.logId)
+      || Number(allowed.includes(b.vehicleId)) - Number(allowed.includes(a.vehicleId))
+      || Math.abs(daysBetween(item.date, a.date)) - Math.abs(daysBetween(item.date, b.date)));
+  body.append(el('div', 'section-title', t('repairsAround')));
+  if (!around.length) body.append(el('p', 'muted', t('noRepairsAround')));
+  const list = el('div', 'pick-list');
+  for (const e of around) {
+    const b = Object.assign(el('button', `pick-row${fromUse?.logId === e.id ? ' current' : ''}`), { type: 'button' });
+    b.append(el('span', 'pick-main', repairLine(e)));
+    if (fromUse?.logId === e.id) b.append(el('span', 'pick-tag', t('aiPick')));
+    b.addEventListener('click', () => done(placeItem(item, fromUse, { entry: e, qty, teach: true })));
+    list.append(b);
+  }
+  body.append(list);
+
+  // Bought for a truck, but no repair was recorded for it.
+  body.append(el('div', 'section-title', t('truckNoRepair')));
+  const units = [...vehicles, ...trailers].filter((v) => v.name).sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+  const unit = selectOf([['', t('choosePart')], ...units.map((v) => [v.id, v.name])], allowed[0] ?? '');
+  const unitGo = Object.assign(el('button', 'btn btn-ghost', t('save')), { type: 'button' });
+  unitGo.addEventListener('click', () => { if (unit.value) done(placeItem(item, fromUse, { unitId: unit.value, qty, teach: true })); });
+  const unitRow = el('div', 'pick-unit');
+  unitRow.append(unit, unitGo);
+  body.append(unitRow);
+
+  const other = el('div', 'match-actions pick-other');
+  const shop = Object.assign(el('button', 'btn btn-ghost', t('shopSupplies')), { type: 'button' });
+  shop.addEventListener('click', () => done(shopItem(item, fromUse)));
+  const shelf = Object.assign(el('button', 'btn btn-ghost', t('stillOnShelf')), { type: 'button' });
+  shelf.addEventListener('click', () => done(placeItem(item, fromUse, { shelf: true, qty: 0 })));
+  other.append(shop, shelf);
+  body.append(other);
+}
+
+// Pick the parts a repair used, from the items bought around its date that
+// aren't tied to anything (its truck's first).
+function pickForRepair(entry) {
+  const body = partsDialog(repairText(entry) || t('repair'), [entry.vehicleName ?? unitName(entry.vehicleId), dateText(entry.date)].filter(Boolean).join(' · '));
+  const open = openItems(receiptItems(receipts), itemUses, { today: todayIso(), days: 120 })
+    .filter((it) => inWindow(it, entry))
+    .sort((a, b) => Number(b.vehicleId === entry.vehicleId) - Number(a.vehicleId === entry.vehicleId) || Math.abs(daysBetween(a.date, entry.date)) - Math.abs(daysBetween(b.date, entry.date)));
+  body.append(el('div', 'section-title', t('partsAround')));
+  if (!open.length) body.append(el('p', 'muted', t('noPartsAround')));
+  const list = el('div', 'pick-list');
+  for (const it of open) {
+    const b = Object.assign(el('button', 'pick-row'), { type: 'button' });
+    b.append(
+      el('span', 'pick-main', itemLine(it, it.remaining)),
+      el('span', 'pick-sub', [it.vendor, dateText(it.date), it.unitCost != null ? money(it.unitCost * it.remaining) : null, it.vehicleId ? t('boughtFor', unitName(it.vehicleId)) : null].filter(Boolean).join(' · ')),
+    );
+    b.addEventListener('click', () => placeItem(it, null, { entry, qty: it.remaining, teach: true })
+      .then(() => $('pdlg').close()).catch((err) => showAppError(t('couldNotSave', err.message))));
+    list.append(b);
+  }
+  body.append(list);
+}
+
+// What each truck cost: shelf parts used plus repair parts tied to its work.
+function spendBox() {
+  const today = todayIso();
+  const from = spendPeriod === 'month' ? `${today.slice(0, 7)}-01` : spendPeriod === 'year' ? `${today.slice(0, 4)}-01-01`
+    : new Date(Date.now() - 90 * DAY_MS).toLocaleDateString('en-CA');
+  const s = spending({ receipts, uses: itemUses, log: serviceLog, parts: partsList, from, to: today });
+  const period = selectOf(SPEND_PERIODS.map((p) => [p, t('spendPeriods')[p]]), spendPeriod);
+  period.addEventListener('change', () => { spendPeriod = period.value; renderParts(); });
+  const out = [el('h3', 'shop-group parts-group', t('spentTitle')), period];
+  const rows = el('div', 'buy-lines spend-lines');
+  for (const u of s.units) {
+    const row = el('div', 'buy-line spend-line');
+    row.append(
+      el('span', 'buy-text', `${unitName(u.unitId)}`),
+      el('span', 'spend-split', [u.shelf ? `${t('spendShelf')} ${money(u.shelf)}` : null, u.items ? `${t('spendItems')} ${money(u.items)}` : null].filter(Boolean).join(' · ')),
+      el('strong', null, money(u.total)),
+    );
+    rows.append(row);
+  }
+  if (s.units.length) out.push(rows);
+  else out.push(el('p', 'muted', t('noSpendYet')));
+  out.push(el('p', 'receipt-tax', t('shopCosts', money(s.shop.supplies), money(s.shop.tools))));
+  if (s.open) out.push(el('p', 'receipt-tax', t('notMatchedYet', money(s.open))));
+  return out;
+}
+
+// What admin tells the AI; it reads this before every receipt and match.
+function aiNotesBox() {
+  const box = el('div', 'ai-notes');
+  const area = Object.assign(el('textarea'), { rows: 4, value: aiMemory.notes ?? '', placeholder: t('aiNotesPh') });
+  const save = Object.assign(el('button', 'btn btn-ghost', t('saveNotes')), { type: 'button' });
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      await setDoc(doc(db, 'meta', 'aiMemory'), { notes: area.value.trim(), updatedAt: serverTimestamp() }, { merge: true });
+      save.textContent = t('notesSaved');
+      setTimeout(() => { save.textContent = t('saveNotes'); save.disabled = false; }, 1500);
+    } catch (err) {
+      save.disabled = false;
+      showAppError(t('couldNotSave', err.message));
+    }
+  });
+  box.append(el('h3', 'shop-group parts-group', t('aiNotes')), el('p', 'parts-hint', t('aiNotesHint')), area, save);
+  return [box];
 }
 
 // ---- Parts popups: a part, a kit, a receipt -------------------------------------
@@ -2561,6 +2898,29 @@ const savedVendors = () => {
 // (goes on the shelf) or anything else, charged to a truck or the shop.
 // Lines the reader couldn't place show what it read and why; they stay on
 // the receipt (adding nothing to stock) until someone picks where they go.
+// A line has somewhere to go: the shelf, a truck, the shop, or (repair parts,
+// labor, cores, returns the reader sorted) the pool the AI matches from.
+const linePlaced = (l) => Boolean(l.part || l.to) || (!l.flags?.length && [...POOL_KINDS, 'credit'].includes(l.kind));
+
+// The lines admin changed from what the reader read, as corrections docs.
+function readingCorrections(before, after) {
+  const truck = (l) => (l.vehicleId ? unitName(l.vehicleId) : l.for?.[0]?.name ?? null);
+  const place = (l) => ({ part: l.part || null, kind: l.part ? 'stock' : lineKind(l), truck: truck(l), qty: Number(l.qty) || 0, price: l.price ?? null });
+  const same = (a, b) => a.part === b.part && a.kind === b.kind && a.truck === b.truck && a.qty === b.qty && a.price === b.price;
+  const base = { type: 'reading', vendor: after.vendor || before.vendor || null };
+  const at = new Date().toISOString();
+  const old = new Map((before.lines ?? []).map((l, i) => [l.id ?? `i${i}`, l]));
+  const out = [];
+  for (const l of after.lines) {
+    const o = old.get(l.id);
+    old.delete(l.id);
+    if (o && same(place(o), place(l))) continue;
+    out.push({ ...base, at, text: l.text || o?.text || '', partNumber: l.partNumber ?? o?.partNumber ?? null, before: o ? place(o) : null, after: place(l) });
+  }
+  for (const o of old.values()) out.push({ ...base, at, text: o.text ?? '', partNumber: o.partNumber ?? null, before: place(o), after: null });
+  return out;
+}
+
 function openReceipt(id) {
   const r = id ? receipts.find((x) => x.id === id) : null;
   const body = partsDialog(r ? (r.vendor || t('receipt')) : t('newReceipt'), r ? dateText(r.date) : null);
@@ -2570,7 +2930,7 @@ function openReceipt(id) {
   const state = {
     photo: null, // new photo (data URL)
     vendor: r?.vendor ?? '',
-    lines: (r?.lines ?? [{ part: '', qty: '', price: '' }]).map((l) => ({ ...l, packSize: 1, packQty: l.qty })),
+    lines: (r?.lines ?? [{ part: '', qty: '', price: '' }]).map((l, i) => ({ ...l, id: l.id ?? (r ? `i${i}` : null), packSize: 1, packQty: l.qty })),
   };
 
   // Photo: take one now, or see the saved one.
@@ -2609,14 +2969,20 @@ function openReceipt(id) {
   const vendorWrap = el('div', 'field');
   vendorWrap.append(el('span', null, t('vendor')), vendor.wrap);
 
+  // Where a line goes: a stock part, a kind (repair parts go to the pool,
+  // where the AI finds their repair), or a repair part for a known truck.
   const truckOptions = [...vehicles].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true })).map((v) => [`truck:${v.id}`, v.name]);
-  const partOptions = [['', t('choosePart')], ...activeParts().map((p) => [`part:${p.id}`, [p.name, p.number].filter(Boolean).join(' · ')]), ['other:shop', t('otherShop')], ...truckOptions.map(([v, n]) => [v, t('otherTruck', n)])];
+  const kindOptions = ['part', 'labor', 'core', 'supplies', 'tool', 'credit'].map((k) => [`kind:${k}`, t('kindOpt')[k]]);
+  const partOptions = [['', t('choosePart')], ...activeParts().map((p) => [`part:${p.id}`, [p.name, p.number].filter(Boolean).join(' · ')]), ...kindOptions, ...truckOptions.map(([v, n]) => [v, t('forTruck', n)])];
   const linesBox = el('div', 'receipt-lines');
   const tax = numberInput(r?.tax ?? '');
+  const feesNow = r?.feesTotal ?? (r?.fees ?? []).reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+  const fees = numberInput(feesNow || '', { step: '0.01' });
   const totalText = el('div', 'receipt-sum');
-  const lineValue = (l) => (l.part ? `part:${l.part}` : l.to === 'truck' ? `truck:${l.vehicleId}` : l.to === 'shop' ? 'other:shop' : '');
+  const lineValue = (l) => (l.part ? `part:${l.part}` : l.to === 'truck' ? `truck:${l.vehicleId}`
+    : linePlaced(l) ? `kind:${lineKind(l)}` : '');
   function updateTotal() {
-    const sum = state.lines.reduce((s, l) => s + (Number(l.price) || 0), 0) + (Number(tax.value) || 0);
+    const sum = state.lines.reduce((s, l) => s + (Number(l.price) || 0), 0) + (Number(tax.value) || 0) + (Number(fees.value) || 0);
     totalText.textContent = t('receiptTotal', money(sum));
   }
   function drawLines() {
@@ -2636,10 +3002,17 @@ function openReceipt(id) {
       price.placeholder = t('linePrice');
       const sync = () => { l.qty = qty.value === '' ? '' : Number(qty.value) * Number(l.packSize || 1); };
       what.addEventListener('change', () => {
-        const [kind, ref] = what.value.split(':');
-        Object.assign(l, kind === 'part' ? { part: ref, to: 'stock', vehicleId: null } : kind === 'truck' ? { part: null, to: 'truck', vehicleId: ref } : kind === 'other' ? { part: null, to: 'shop', vehicleId: null } : { part: null, to: null, vehicleId: null });
+        const [type, ref] = what.value.split(':');
+        const keepKind = [...POOL_KINDS, 'credit'].includes(l.kind) ? l.kind : 'part';
+        Object.assign(l, type === 'part' ? { part: ref, kind: 'stock', to: 'stock', vehicleId: null }
+          : type === 'truck' ? { part: null, kind: keepKind, to: 'truck', vehicleId: ref }
+            : type === 'kind' ? { part: null, kind: ref, to: SHOP_KINDS.includes(ref) ? 'shop' : null, vehicleId: null }
+              : { part: null, to: null, vehicleId: null });
+        // A choice settles what the reader wasn't sure of.
+        if (what.value) l.flags = [];
         l.packSize = 1;
         l.truckFrom = null;
+        l.truckChoices = null;
         sync();
         drawLines();
       });
@@ -2653,23 +3026,11 @@ function openReceipt(id) {
       const nums = el('div', 'receipt-nums');
       nums.append(qty, pack, price, rm);
       // What the reader saw, and why it's waiting (until a choice is made).
-      const undecided = !l.part && !l.to;
-      if (l.flags?.length && undecided) {
+      if (!linePlaced(l) && (l.flags?.length || l.text)) {
         row.classList.add('needs-choice');
         row.prepend(el('p', 'line-read', `${t('readAs')}: ${l.text}${l.partNumber ? ` (${l.partNumber})` : ''}`));
-        row.append(el('p', 'need-missing', l.flags.map((f) => t('lineFlags')[f] ?? f).join(' · ')));
+        if (l.flags?.length) row.append(el('p', 'need-missing', l.flags.map((f) => t('lineFlags')[f] ?? f).join(' · ')));
         if (l.suggestedPart && partById(l.suggestedPart)) row.append(el('p', 'line-for', t('maybePart', partById(l.suggestedPart).name)));
-        // The trucks the buyer's note named: one tap puts the line on one.
-        const choices = (l.truckChoices ?? []).map((id) => vehicles.find((v) => v.id === id)).filter(Boolean);
-        if (choices.length) {
-          const pick = el('div', 'truck-choices');
-          for (const v of choices) {
-            const b = Object.assign(el('button', 'btn btn-ghost', v.name), { type: 'button' });
-            b.addEventListener('click', () => { Object.assign(l, { part: null, to: 'truck', vehicleId: v.id, truckFrom: null }); drawLines(); });
-            pick.append(b);
-          }
-          row.append(pick);
-        }
       }
       row.append(what, text, nums);
       if (l.for?.length) row.append(el('p', 'line-for', t('forTrucks', l.for.map((u) => u.name).join(', '))));
@@ -2686,7 +3047,10 @@ function openReceipt(id) {
   who.wrap.querySelector('span').textContent = t('boughtBy');
   if (r?.boughtBy) who.wrap.querySelector('input').value = r.boughtBy;
 
-  form.append(photoBox, field(t('date'), date), vendorWrap, el('div', 'section-title', t('lines')), linesBox, field(t('tax'), tax), totalText, who.wrap);
+  fees.addEventListener('input', updateTotal);
+  const feesField = field(t('feesLabel'), fees);
+  if (r?.fees?.length) feesField.append(el('span', 'parts-hint', t('feesRead', r.fees.map((f) => `${f.label} ${money(f.amount)}`).join(', '))));
+  form.append(photoBox, field(t('date'), date), vendorWrap, el('div', 'section-title', t('lines')), linesBox, field(t('tax'), tax), feesField, totalText, who.wrap);
   const { save, fail } = formActions(form, t('saveReceipt'), {
     onDelete: r ? async () => {
       if (!confirm(t('confirmDeleteReceipt'))) return;
@@ -2701,14 +3065,19 @@ function openReceipt(id) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     // Decided lines need a quantity; read lines still undecided are kept.
-    const lines = state.lines.filter((l) => l.part || l.to || l.flags?.length);
-    const decided = lines.filter((l) => l.part || l.to);
+    const lines = state.lines.filter((l) => l.part || l.to || l.kind || l.flags?.length);
+    const decided = lines.filter(linePlaced);
     if (!lines.length && r?.status !== 'waiting') return fail(t('errNoLines'));
     const bad = decided.find((l) => !(Number(l.qty) > 0));
     if (bad) return fail(t('errLineQty'));
     if (decided.some((l) => !l.part && !(l.text ?? '').trim())) return fail(t('errLineText'));
     save.disabled = true;
-    const total = lines.reduce((s, l) => s + (Number(l.price) || 0), 0) + (Number(tax.value) || 0);
+    const taxAmount = Number(tax.value) || 0;
+    const feesAmount = Math.round((Number(fees.value) || 0) * 100) / 100;
+    const total = lines.reduce((s, l) => s + (Number(l.price) || 0), 0) + taxAmount + feesAmount;
+    const priceOf = (l) => (l.price === '' || l.price == null ? null : Number(l.price));
+    // Each line's real cost: its price plus its share of tax and fees.
+    const costs = landedCosts(lines.map((l) => ({ price: priceOf(l) })), taxAmount + feesAmount);
     const by = who.value();
     if (by) rememberName(by);
     const ref = r ? doc(db, 'receipts', r.id) : doc(collection(db, 'receipts'));
@@ -2716,15 +3085,18 @@ function openReceipt(id) {
       id: ref.id,
       date: date.value,
       vendor: state.vendor.trim() ? canonicalName(state.vendor, savedVendors()) : '',
-      lines: lines.map((l) => {
-        const placed = Boolean(l.part || l.to);
+      lines: lines.map((l, i) => {
+        const placed = linePlaced(l);
         return {
+          id: l.id || Math.random().toString(36).slice(2, 10),
           part: l.part || null,
+          kind: l.part ? 'stock' : lineKind(l),
           // The receipt's own wording is kept for lines the reader filled in.
           text: (l.part && !l.flags ? partById(l.part)?.name : l.text?.trim()) || partById(l.part)?.name || '',
           partNumber: l.partNumber ?? null,
           qty: Number(l.qty) || 0,
-          price: l.price === '' || l.price == null ? null : Number(l.price),
+          price: priceOf(l),
+          cost: costs[i],
           to: l.part ? 'stock' : l.to ?? null,
           vehicleId: l.to === 'truck' ? l.vehicleId : null,
           for: l.for?.length ? l.for : null,
@@ -2735,8 +3107,11 @@ function openReceipt(id) {
         };
       }),
       // Still waiting for a person while any read line has nowhere to go.
-      status: r?.status === 'waiting' && !lines.length ? 'waiting' : lines.some((l) => !l.part && !l.to) ? 'review' : 'read',
+      status: r?.status === 'waiting' && !lines.length ? 'waiting' : lines.some((l) => !linePlaced(l)) ? 'review' : 'read',
       tax: tax.value === '' ? null : Number(tax.value),
+      // The fees as read, unless admin changed the amount.
+      fees: feesAmount === Math.round(feesNow * 100) / 100 && r?.fees ? r.fees : feesAmount ? [{ label: t('feesWord'), amount: feesAmount }] : [],
+      feesTotal: feesAmount,
       total: Math.round(total * 100) / 100,
       boughtBy: by || null,
       hasPhoto: Boolean(state.photo || r?.hasPhoto),
@@ -2746,6 +3121,8 @@ function openReceipt(id) {
     const batch = writeBatch(db);
     batch.set(ref, data, { merge: true });
     if (state.photo) batch.set(doc(db, 'receiptPhotos', ref.id), { data: state.photo });
+    // What admin changed in what the AI read: the reader learns from it.
+    if (r?.readAt) for (const c of readingCorrections(r, data)) batch.set(doc(collection(db, 'corrections')), c);
     try {
       await batch.commit();
       $('pdlg').close();
@@ -3262,6 +3639,13 @@ function watchFleet() {
         return { ...r, id: d.id, createdMs: r.createdAt?.toMillis?.() ?? 0 };
       });
       renderParts();
+    }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'itemUses'), (snap) => {
+      itemUses = snap.docs.map((d) => ({ ...d.data({ serverTimestamps: 'estimate' }), id: d.id }));
+      renderParts();
+    }, (err) => console.error(err)),
+    onSnapshot(doc(db, 'meta', 'aiMemory'), (snap) => {
+      aiMemory = snap.data() ?? {};
     }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'sync'), (snap) => {
       const t = snap.data()?.lastRun?.toDate();

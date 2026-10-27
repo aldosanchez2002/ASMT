@@ -1332,5 +1332,41 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 .receipt-line.needs-choice { border-color: var(--floor-yellow); border-width: 3px; }
 .line-read { margin: 0; font: 700 13px var(--mono); overflow-wrap: anywhere; }
 .receipt-tax { margin: 0; text-align: right; font-size: 14px; color: var(--floor-muted); }
-/* Admin's Parts tabs: four in a row */
-.parts-side.many button { font-size: 15px !important; letter-spacing: .02em !important; padding: 0 4px; gap: 4px; }
+/* Admin's Parts tabs: five, in two rows (3 + 2) so each fits a phone */
+.parts-side.many { grid-template-columns: repeat(3, 1fr); grid-auto-flow: row; gap: 1px; background: var(--border); }
+.parts-side.many button { font-size: 15px !important; letter-spacing: .02em !important; padding: 0 4px; gap: 4px; border-left: none !important; }
+body.shop-mode .parts-side.many { gap: 3px; background: #111; }
+
+/* Matches: where the bought parts went (admin) */
+.match-score { margin: 0 0 6px; padding: 8px 12px; border-left: 8px solid #2e7d32; background: var(--floor-paper); font-weight: 700; }
+.match-card {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin-top: 8px; padding: 10px 12px;
+  border: 2px solid var(--floor-line); border-left: 8px solid var(--floor-yellow); background: var(--floor-paper);
+}
+.match-card.match-auto, .match-card.match-confirmed { border-left-color: #2e7d32; }
+.match-card.match-nowork, .match-card.match-noparts { border-left-color: var(--floor-track); }
+.match-card p { margin: 0; }
+.match-item { font-weight: 700; font-size: 17px; line-height: 1.25; overflow-wrap: anywhere; }
+.match-cost { font: 800 20px/1.1 var(--cond); justify-self: end; white-space: nowrap; }
+.match-meta { grid-column: 1 / -1; font-size: 13px; color: var(--floor-muted); overflow-wrap: anywhere; }
+.match-arrow { grid-column: 1 / -1; margin-top: 4px !important; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+.match-why { grid-column: 1 / -1; font-size: 13px; font-style: italic; color: var(--floor-muted); }
+.match-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.match-actions .btn { min-height: 44px; border-radius: 0; font: 800 15px var(--cond); text-transform: uppercase; letter-spacing: .04em; }
+.match-right { background: #111; color: #fff; border-color: #111; }
+.pick-list { display: grid; gap: 6px; margin: 6px 0 12px; }
+.pick-row { display: grid; gap: 2px; width: 100%; min-height: 52px; padding: 8px 12px; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); font: inherit; text-align: left; cursor: pointer; }
+.pick-row.current { border-left: 8px solid var(--floor-yellow); }
+.pick-main { font-weight: 700; overflow-wrap: anywhere; }
+.pick-sub, .pick-tag { font-size: 13px; color: var(--floor-muted); }
+.pick-tag { font-weight: 700; text-transform: uppercase; }
+.pick-unit { display: flex; gap: 8px; margin: 6px 0 12px; }
+.pick-unit select { flex: 1; min-height: 44px; }
+.pick-other { margin-bottom: 14px; }
+.spend-lines { margin-top: 8px; }
+.spend-line { display: grid; grid-template-columns: 1fr auto; border-left-color: var(--floor-track); }
+.spend-split { grid-column: 1; font-size: 13px; color: var(--floor-muted); }
+.spend-line strong { grid-row: 1 / span 2; grid-column: 2; align-self: center; font: 800 20px var(--cond); }
+.ai-notes textarea { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 10px; border: 2px solid var(--floor-line); border-radius: 0; font: 15px/1.4 var(--mono); background: var(--floor-paper); color: var(--floor-ink); }
+.ai-notes .btn { min-height: 44px; border-radius: 0; }
+#parts-view select { max-width: 100%; }

@@ -179,7 +179,8 @@ export const packsFor = (part, qty) => (part.packs ?? [])
   .filter((p) => Number(p.size) > 0)
   .map((p) => ({ name: p.name, size: Number(p.size), count: Math.ceil(qty / Number(p.size) - 1e-9) }));
 
-// Average price paid per unit, from receipt lines with a price.
+// Average paid per unit, from receipt lines with a price: the real cost
+// (with its share of tax and fees) when the reader worked it out.
 export function averageCost(partId, receipts = []) {
   let qty = 0;
   let spent = 0;
@@ -187,7 +188,7 @@ export function averageCost(partId, receipts = []) {
     for (const line of r.lines ?? []) {
       if (line.part !== partId || !(Number(line.qty) > 0) || line.price == null || line.price === '') continue;
       qty += Number(line.qty);
-      spent += Number(line.price);
+      spent += Number(line.cost ?? line.price);
     }
   }
   return qty ? spent / qty : null;

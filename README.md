@@ -48,7 +48,7 @@ In the repo: **Settings → Secrets and variables → Actions → New repository
 | `SAMSARA_API_KEY` | Your Samsara API token (read-only is enough) |
 | `FIREBASE_SERVICE_ACCOUNT` | *(Optional)* The entire contents of the service-account JSON file. Without it, the sync writes through Firestore's public API, which only works while your Firestore rules allow public writes. Add it before locking writes down. |
 | `ALLOWED_EMAILS` | *(Only if sign-in is on)* Google account(s) allowed to view the site, comma-separated |
-| `AS_LOG_KEY` | *(For receipt reading)* A Claude API key from console.anthropic.com (set a monthly spend limit there). The "Read receipts" Action uses it with Claude Sonnet 5.5 to fill in the receipts the buyer uploads (about 2–3¢ a receipt); without it, receipts stay "Waiting to be read". |
+| `AS_LOG_KEY` | *(For receipt reading)* A Claude API key from console.anthropic.com (set a monthly spend limit there). The "Read receipts" Action uses it with Claude Sonnet 5.5 to read the receipts the buyer sends (about 2–3¢ a receipt) and match the parts to repairs; without it, receipts stay "Waiting to be read". |
 
 ### 3. Run the first sync
 **Actions → Sync Samsara to Firestore → Run workflow.** After that it runs every 30 minutes on its own. You should then see a `vehicles` collection in Firestore.
@@ -161,6 +161,23 @@ On the site, the **Next service** column shows each truck's most urgent item. Cl
 The **Service log** tab (`aslog.dev/#log`) lists every logged service, newest first, filtered by period (last 7/30/90 days, 12 months, all time or a custom date range, on the service date) and by unit. Clicking a unit opens that truck.
 
 The due-date logic lives in `web/maintenance.js` and is covered by `npm test`.
+
+## Receipts and where the parts went
+
+1. **The buyer sends a photo** of each receipt: on WhatsApp (`twilio/README.md`) or with **Upload receipts** in Inventory. A caption or a truck number written next to an item says which truck it's for; neither is needed.
+2. **The reader** (`scripts/read-receipts.mjs`, the "Read receipts" Action, Claude Sonnet 5.5) turns each line into an item with a kind (`stock`, `part`, `labor`, `core`, `supplies`, `tool`, `credit`), a stable `id`, and its real `cost`: the price plus its share of the tax and fees (card fee, surcharge, shipping), split by price (`landedCosts` in `web/items.js`). Stock parts go on the shelf; supplies and tools are shop costs; repair parts, labor and cores go to the pool. Unsure stock matches, unclear quantities, totals that don't add up and invoices already uploaded wait in **To check**.
+3. **The mechanic records work** as always. Service kits take the oil and filters off the shelf.
+4. **The matcher** (`scripts/match-items.mjs`, same Action, right after reading) ties pool items to the repairs in the work log, from about a week before each purchase to a month after. Each tie is an `itemUses` doc; at 85%+ confidence it counts right away, otherwise it waits for admin. When nothing new came in, it skips the Claude call.
+5. **Admin → Parts → Matches** shows what needs a look: matches the AI wasn't sure of, parts bought 2+ weeks ago that no work explains, repairs with no parts, and (folded) the AI's own matches of the last two weeks. **Right** confirms; **Change** picks another repair, a truck with no repair, shop supplies or "still on the shelf". Below: **Spent per truck** (shelf parts at their average real cost plus the repair parts tied to its work) and **Notes for the AI**.
+6. **Corrections teach the AI.** Every change admin makes, to what the reader read (receipt form) or to a match, is saved in `corrections`. Both prompts include admin's notes (`meta/aiMemory`) and the 30 most recent corrections of their kind (`scripts/ai-memory.mjs`). The Matches tab shows how often the AI was right this month.
+
+| Collection | Contents |
+|---|---|
+| `receipts/{id}` | `status` (`waiting`, `read`, `review`, `unreadable`, `error`), `vendor`, `date`, `invoiceNumber`, `lines[]` (`id`, `kind`, `text`, `partNumber`, `qty`, `price`, `cost`, `part`, `to`, `vehicleId`, `for`, `flags`), `fees[]`, `feesTotal`, `tax`, `total`, `note`, `uploadedBy` |
+| `receiptPhotos/{id}` | The photo (`data`, a data URL) |
+| `itemUses/{id}` | `receiptId`, `lineId`, `qty`, `logId` (the repair), `vehicleId`, `by` (`ai`/`admin`), `status` (`auto`, `doubt`, `confirmed`, `rejected`, `snooze`), `confidence`, `reason` |
+| `corrections/{id}` | `type` (`reading`/`match`), what the AI said and what admin changed it to |
+| `meta/aiMemory` | `notes`: what admin tells the AI |
 
 ## Paper work log import
 

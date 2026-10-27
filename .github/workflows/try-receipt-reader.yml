@@ -1,7 +1,8 @@
 name: Try receipt reader
 
 # Branch only, for testing the reader on real receipts before it goes to
-# main: reads the waiting receipts and prints what it read, saving nothing.
+# main: reads the waiting receipts and matches items to repairs, printing
+# what it found and saving nothing.
 # Delete this file before merging.
 on:
   push:
@@ -9,6 +10,10 @@ on:
     paths:
       - scripts/read-receipts.mjs
       - scripts/receipt-reader.mjs
+      - scripts/match-items.mjs
+      - scripts/item-matcher.mjs
+      - scripts/ai-memory.mjs
+      - web/items.js
       - .github/workflows/try-receipt-reader.yml
 
 permissions:
@@ -26,5 +31,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node scripts/read-receipts.mjs --dry-run
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.AS_LOG_KEY }}
+      - run: node scripts/match-items.mjs --dry-run
         env:
           ANTHROPIC_API_KEY: ${{ secrets.AS_LOG_KEY }}

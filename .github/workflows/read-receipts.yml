@@ -1,5 +1,8 @@
 name: Read receipts
 
+# Reads receipt photos the buyer sent, then matches the bought parts to the
+# repairs in the work log.
+
 on:
   schedule:
     # Every 30 minutes at :22 and :52 (GitHub runs schedules "best effort",
@@ -26,5 +29,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node scripts/read-receipts.mjs
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.AS_LOG_KEY }}
+      # Then tie the bought repair parts to the repairs they were used in.
+      - run: node scripts/match-items.mjs
         env:
           ANTHROPIC_API_KEY: ${{ secrets.AS_LOG_KEY }}
