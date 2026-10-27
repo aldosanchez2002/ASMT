@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  dutyFor, effectiveSettings, mostUrgent, nextDue, recordKey, resolveItems, truckMaintenance,
+  customOilMiles, dutyFor, effectiveSettings, mostUrgent, nextDue, recordKey, resolveItems, truckMaintenance,
 } from '../web/maintenance.js';
 
 const now = new Date('2026-10-05T12:00:00Z');
@@ -152,4 +152,23 @@ test('duty cycle: byDuty overrides the base, settings variants scale or add on t
   assert.equal(dutyFor(schedule, models, { current: { detroit: 'shortHaul' } }), 'shortHaul');
   assert.equal(dutyFor(schedule, models, { current: { detroit: 'shortHaul' }, override: { detroit: 'severe' } }), 'severe');
   assert.equal(dutyFor({ items: [] }, models, null), null);
+});
+
+test('a custom oil change interval replaces the manufacturer\'s for oil changes only', () => {
+  const schedule = {
+    items: [
+      { id: 'oil', name: 'Oil', intervalMiles: 60000, byDuty: { severe: { intervalMiles: 35000, intervalHours: 750, intervalMonths: 6 } } },
+      { id: 'fuel-filter-engine-noframe', name: 'Engine fuel filter', intervalMiles: 60000 },
+      { id: 'coolant', name: 'Coolant', intervalMiles: 600000 },
+    ],
+  };
+  const byId = (items) => Object.fromEntries(items.map((i) => [i.id, i]));
+  const maker = byId(resolveItems(schedule, { oilChangeMiles: null }, 'severe'));
+  assert.deepEqual([maker.oil.intervalMiles, maker.oil.intervalHours, maker.oil.adjusted], [35000, 750, undefined]);
+  const shop = byId(resolveItems(schedule, { oilChangeMiles: 30000 }, 'severe'));
+  assert.deepEqual([shop.oil.intervalMiles, shop.oil.intervalHours, shop.oil.intervalMonths, shop.oil.adjusted], [30000, undefined, undefined, true]);
+  assert.match(shop.oil.notes, /manufacturer: 35,000 mi \/ 750 h \/ 6 mo/);
+  assert.equal(shop['fuel-filter-engine-noframe'].intervalMiles, 30000);
+  assert.equal(shop.coolant.intervalMiles, 600000);
+  assert.equal(customOilMiles({ oilChangeMiles: 0 }), null);
 });

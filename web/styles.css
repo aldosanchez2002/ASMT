@@ -1164,6 +1164,11 @@ body.shop-mode .fault-line.fault-soft::before, #truck .fault-line.fault-soft::be
 #settings-view .choice-pair button { min-height: 48px; padding: 6px 8px; border: 2px solid var(--floor-line); border-radius: 0; background: #fff; color: var(--floor-ink, inherit); font: 700 15px var(--cond); text-transform: uppercase; letter-spacing: .03em; line-height: 1.15; cursor: pointer; }
 #settings-view .choice-pair button.active { background: #111; border-color: #111; color: var(--floor-yellow); }
 #settings-view .setting-help { margin: 0; font-size: 13px; color: var(--floor-muted, var(--muted)); }
+#settings-view .miles-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 700; }
+#settings-view .miles-row span { white-space: nowrap; }
+#settings-view .miles-row[hidden] { display: none; }
+#settings-view .miles-row input { width: 90px; flex: none; text-align: center; }
+#settings-view .miles-row .btn { flex-basis: 100%; min-height: 48px; border-radius: 0; }
 #settings-view .settings-save { width: 100%; min-height: 50px; margin-top: 12px; }
 
 /* Done today */

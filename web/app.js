@@ -691,6 +691,7 @@ function renderSetup() {
   };
 
   $('setup-toggles').replaceChildren(...defs.map((d) => {
+    if (d.type === 'miles') return milesSetting(d, current[d.id], save);
     // Same layout as every other setting: label (and what it applies to), the
     // control (two equal buttons), then the help text.
     const row = el('div', 'setting-row');
@@ -717,6 +718,60 @@ function renderSetup() {
     row.append(label, seg, el('p', 'setting-help', d.description));
     return row;
   }));
+}
+
+// A setting that's either the manufacturer's numbers or the shop's own, in
+// thousands of miles (the oil change interval): two buttons, then the miles.
+function milesSetting(d, value, save) {
+  const row = el('div', 'setting-row');
+  const label = el('div', 'setting-label', d.question ?? d.label);
+  label.append(el('span', 'chip', d.appliesTo));
+  const custom = Number(value) > 0;
+  const seg = el('div', 'choice-pair');
+  seg.setAttribute('role', 'radiogroup');
+  seg.setAttribute('aria-label', d.question ?? d.label);
+  const [maker, own] = [d.choices?.on ?? 'Manufacturer', d.choices?.off ?? 'Custom'].map((text, i) => {
+    const on = i === 1 ? custom : !custom;
+    const b = el('button', on ? 'active' : '', text);
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(on));
+    return b;
+  });
+  seg.append(maker, own);
+  // Custom: every N thousand miles.
+  const milesRow = el('div', 'miles-row');
+  const input = Object.assign(el('input'), {
+    type: 'number', inputMode: 'numeric', min: 5, max: 150, step: 1, value: custom ? Number(value) / 1000 : 30,
+  });
+  input.setAttribute('aria-label', `${d.question ?? d.label} (thousand miles)`);
+  const apply = Object.assign(el('button', 'btn', 'Save'), { type: 'button' });
+  milesRow.append(el('span', null, 'Every'), input, el('span', null, 'thousand miles'), apply);
+  milesRow.hidden = !custom;
+  input.addEventListener('input', () => input.setCustomValidity(''));
+  maker.addEventListener('click', () => {
+    if (!custom) return;
+    if (confirm(`Use each manufacturer's oil change interval for ALL trucks again?`)) save(d, null, [maker, own, apply]);
+  });
+  own.addEventListener('click', () => {
+    maker.classList.remove('active');
+    own.classList.add('active');
+    milesRow.hidden = false;
+    input.focus();
+  });
+  apply.addEventListener('click', () => {
+    const k = Number(input.value);
+    if (!(k >= 5 && k <= 150)) {
+      input.setCustomValidity('Thousands of miles, 5 to 150 (30 = every 30,000 mi)');
+      input.reportValidity();
+      return;
+    }
+    const miles = Math.round(k) * 1000;
+    if (miles === Number(value)) return;
+    if (confirm(`Change oil changes to every ${miles.toLocaleString('en-US')} mi for ALL trucks, in place of the manufacturer's interval?`)) save(d, miles, [maker, own, apply]);
+  });
+  row.append(label, seg, milesRow, el('p', 'setting-help', d.description));
+  return row;
 }
 
 let openGroupKey = null; // year/model group shown in the schedule popup

@@ -4,19 +4,16 @@
   "notes": "Intervals are 'whichever comes first'. Miles are statute miles. Sources are linked per schedule. Verify against the manual before relying on an interval.",
   "settings": [
     {
-      "id": "detroitApprovedOil",
-      "label": "Detroit-approved engine oil",
-      "description": "Approved oils say DFS 93K222 or 93K223 on the jug or data sheet (e.g. approved versions of Shell Rotella T4, Mobil Delvac 1300 Super). Generic: oil change intervals are cut in half, a conservative assumption since Detroit only says 'reduced'; confirm with your dealer.",
-      "default": true,
-      "appliesTo": "Detroit engines",
-      "question": "Engine oil in Detroit engines",
+      "id": "oilChangeMiles",
+      "type": "miles",
+      "label": "Oil change interval",
+      "question": "Oil change interval",
+      "appliesTo": "All engines",
+      "default": null,
+      "description": "Manufacturer: each engine's own oil change interval for approved oil (Detroit DFS 93K222 / 93K223), by its duty cycle. Custom: the shop's own interval, in thousands of miles, used for every engine's oil change in place of the manufacturer's (a business choice).",
       "choices": {
-        "on": "Detroit-approved (DFS 93K222 / 93K223)",
-        "off": "Generic / not approved"
-      },
-      "short": {
-        "on": "Approved oil",
-        "off": "Generic oil"
+        "on": "Manufacturer's interval (approved oil)",
+        "off": "Custom interval"
       }
     },
     {
@@ -237,16 +234,7 @@
               "intervalHours": 750,
               "intervalMonths": 6
             }
-          },
-          "variants": [
-            {
-              "when": {
-                "detroitApprovedOil": false
-              },
-              "scale": 0.5,
-              "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
-            }
-          ]
+          }
         },
         {
           "id": "fuel-filter-engine",
@@ -441,16 +429,7 @@
               "intervalHours": 750,
               "intervalMonths": 6
             }
-          },
-          "variants": [
-            {
-              "when": {
-                "detroitApprovedOil": false
-              },
-              "scale": 0.5,
-              "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
-            }
-          ]
+          }
         },
         {
           "id": "fuel-filter-engine",
@@ -651,16 +630,7 @@
               "intervalHours": 750,
               "intervalMonths": 6
             }
-          },
-          "variants": [
-            {
-              "when": {
-                "detroitApprovedOil": false
-              },
-              "scale": 0.5,
-              "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
-            }
-          ]
+          }
         },
         {
           "id": "fuel-filter-engine",
@@ -876,16 +846,7 @@
               "intervalHours": 750,
               "intervalMonths": 6
             }
-          },
-          "variants": [
-            {
-              "when": {
-                "detroitApprovedOil": false
-              },
-              "scale": 0.5,
-              "notes": "Not Detroit-approved oil: interval cut in half (conservative assumption; confirm with your dealer)"
-            }
-          ]
+          }
         },
         {
           "id": "fuel-filter-engine",

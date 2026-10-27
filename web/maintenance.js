@@ -103,30 +103,53 @@ function applyOverrides(item, overrides) {
   return out;
 }
 
+// Items done at every oil change: the shop's own oil interval replaces
+// their manufacturer interval too.
+const OIL_CHANGE_ITEMS = ['oil', 'fuel-filter-engine-noframe'];
+
+// The shop's own oil change interval (Settings → Oil change interval:
+// Custom), in miles, or null to follow each manufacturer.
+export const customOilMiles = (settings = {}) => (Number(settings.oilChangeMiles) > 0 ? Number(settings.oilChangeMiles) : null);
+
 // A schedule's items for one truck:
 //  1. drops items whose `onlyWhen` doesn't match the fleet setup,
 //  2. applies the truck's duty cycle (`byDuty[duty]` overrides the base,
 //     which is the schedule's default duty cycle),
 //  3. applies the first fleet-setup `variant` whose `when` matches. A variant
 //     can override fields, `scale` the interval (e.g. 0.5) or `addMiles`.
-// Resolved items carry `adjusted: true` when a fleet-setup variant applied.
+//  4. with a custom oil change interval, oil changes (and what's done with
+//     them) use it instead of the manufacturer's miles, hours and months.
+// Resolved items carry `adjusted: true` when the fleet setup changed them.
 export function resolveItems(schedule, settings = {}, duty = null) {
+  const oilMiles = customOilMiles(settings);
   return schedule.items
     .filter((item) => !item.onlyWhen || matches(item.onlyWhen, settings))
     .map((item) => {
-      const { variants, onlyWhen, byDuty, ...base } = item;
-      let resolved = duty && byDuty?.[duty] ? applyOverrides(base, byDuty[duty]) : base;
-      const variant = variants?.find((v) => matches(v.when, settings));
-      if (!variant) return resolved;
-      const { when, scale, addMiles, ...overrides } = variant;
-      resolved = applyOverrides(resolved, overrides);
-      if (scale) {
-        if (resolved.intervalMiles) resolved.intervalMiles = roundMiles(resolved.intervalMiles * scale);
-        if (resolved.intervalHours) resolved.intervalHours = Math.round(resolved.intervalHours * scale);
-      }
-      if (addMiles && resolved.intervalMiles) resolved.intervalMiles += addMiles;
-      return { ...resolved, adjusted: true };
+      const resolved = resolveItem(item, settings, duty);
+      if (!oilMiles || !OIL_CHANGE_ITEMS.includes(item.id)) return resolved;
+      const { intervalHours, intervalMonths, ...rest } = resolved;
+      const was = resolved.intervalMiles ? `${resolved.intervalMiles.toLocaleString('en-US')} mi` : 'none';
+      return {
+        ...rest, intervalMiles: oilMiles, adjusted: true,
+        notes: `Shop's own oil change interval (manufacturer: ${was}${intervalHours ? ` / ${intervalHours} h` : ''}${intervalMonths ? ` / ${intervalMonths} mo` : ''})`,
+      };
     });
+}
+
+// One item with its duty cycle and fleet-setup variant (steps 2 and 3).
+function resolveItem(item, settings, duty) {
+  const { variants, onlyWhen, byDuty, ...base } = item;
+  let resolved = duty && byDuty?.[duty] ? applyOverrides(base, byDuty[duty]) : base;
+  const variant = variants?.find((v) => matches(v.when, settings));
+  if (!variant) return resolved;
+  const { when, scale, addMiles, ...overrides } = variant;
+  resolved = applyOverrides(resolved, overrides);
+  if (scale) {
+    if (resolved.intervalMiles) resolved.intervalMiles = roundMiles(resolved.intervalMiles * scale);
+    if (resolved.intervalHours) resolved.intervalHours = Math.round(resolved.intervalHours * scale);
+  }
+  if (addMiles && resolved.intervalMiles) resolved.intervalMiles += addMiles;
+  return { ...resolved, adjusted: true };
 }
 
 // The duty cycle to use for a schedule on a truck: a manual override, else
