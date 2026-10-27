@@ -1438,3 +1438,9 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; padding: 4px 0; font-size: 14px; border-bottom: 1px solid var(--floor-track); }
 .an-row-date { color: var(--floor-muted); }
 .an-row-text { overflow-wrap: anywhere; }
+
+/* A receipt's dates: sent, on the receipt, work done */
+.receipt-dates { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 4px 0 10px; padding: 8px 10px; border: 2px solid var(--floor-line); background: var(--floor-paper); font-size: 14px; }
+.receipt-dates dt { font: 800 13px var(--cond); text-transform: uppercase; letter-spacing: .05em; color: var(--floor-muted); padding-top: 2px; }
+.receipt-dates dd { margin: 0; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.receipt-when { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }

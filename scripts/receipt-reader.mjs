@@ -12,12 +12,13 @@ const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
 export const RECEIPT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['readable', 'problem', 'vendor', 'date', 'invoiceNumber', 'noteTrucks', 'lines', 'fees', 'tax', 'total'],
+  required: ['readable', 'problem', 'vendor', 'date', 'time', 'invoiceNumber', 'noteTrucks', 'lines', 'fees', 'tax', 'total'],
   properties: {
     readable: { type: 'boolean', description: 'false if the photo is too blurry, dark or cut off to read the items and total' },
     problem: { ...nullable('string'), description: 'what is wrong with the photo, if anything' },
     vendor: { ...nullable('string'), description: 'store name as printed' },
     date: { ...nullable('string'), description: 'purchase date, YYYY-MM-DD' },
+    time: { ...nullable('string'), description: 'purchase time if printed, 24-hour HH:MM (11:43:50AM -> 11:43)' },
     invoiceNumber: nullable('string'),
     noteTrucks: { type: 'array', items: { type: 'string' }, description: "every truck number the buyer's note mentions, from the truck list" },
     lines: {
@@ -109,8 +110,9 @@ const invoiceKey = (n) => String(n ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''
  * every item is for it; when it named several, items with no truck keep
  * those as the matcher's only choices.
  * `others`: the other receipts, to catch the same invoice uploaded twice.
- * @returns { status: 'read'|'review'|'unreadable', vendor, date,
- *   invoiceNumber, lines, fees, feesTotal, tax, total, problems }
+ * @returns { status: 'read'|'review'|'unreadable', vendor, date, time
+ *   (as printed, HH:MM, or null), invoiceNumber, lines, fees, feesTotal,
+ *   tax, total, problems }
  */
 export function receiptFromReading(reading, parts, vehicles, { uploadedDate, trucks = [], others = [], newId = newLineId } = {}) {
   const partById = new Map(parts.map((p) => [p.id, p]));
@@ -120,7 +122,8 @@ export function receiptFromReading(reading, parts, vehicles, { uploadedDate, tru
   const noted = [...new Set([...trucks, ...(reading.noteTrucks ?? [])].map(truckNamed).filter(Boolean))];
   // A receipt can't be from after its upload: a later date is a misread.
   const misdated = Boolean(reading.date && uploadedDate && reading.date > uploadedDate);
-  const base = { vendor: reading.vendor ?? '', date: (misdated ? null : reading.date) ?? uploadedDate ?? null, invoiceNumber: reading.invoiceNumber ?? null };
+  const time = !misdated && /^([01]\d|2[0-3]):[0-5]\d$/.test(reading.time ?? '') ? reading.time : null;
+  const base = { vendor: reading.vendor ?? '', date: (misdated ? null : reading.date) ?? uploadedDate ?? null, time, invoiceNumber: reading.invoiceNumber ?? null };
   if (!reading.readable) {
     return { ...base, status: 'unreadable', lines: [], fees: [], feesTotal: 0, tax: null, total: null, problems: [reading.problem || 'The photo could not be read'] };
   }

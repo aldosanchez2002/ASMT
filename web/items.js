@@ -130,6 +130,27 @@ export const inWindow = (item, entry) => {
 };
 
 /**
+ * When the work a receipt's parts went into was done: the repairs its lines
+ * are tied to (one receipt can cover several), earliest first. A match the AI
+ * wasn't sure of is `sure: false` until admin confirms it.
+ * @returns [{ date, logId, vehicleId, vehicleName, text, sure }]
+ */
+export function receiptWork(receipt, uses, log) {
+  const entryById = new Map(log.map((e) => [e.id, e]));
+  const byLog = new Map();
+  for (const u of uses) {
+    if (u.receiptId !== receipt.id || !u.logId || !HOLDING.includes(u.status)) continue;
+    const e = entryById.get(u.logId);
+    if (!e?.date) continue;
+    const sure = u.status !== 'doubt';
+    const seen = byLog.get(e.id);
+    if (seen) { seen.sure = seen.sure || sure; continue; }
+    byLog.set(e.id, { date: e.date, logId: e.id, vehicleId: e.vehicleId, vehicleName: e.vehicleName ?? null, text: repairText(e), sure });
+  }
+  return [...byLog.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
  * What admin needs to look at, worst first:
  *   doubts   matches the AI wasn't sure of
  *   recent   matches the AI made on its own in the last 2 weeks (spot check)

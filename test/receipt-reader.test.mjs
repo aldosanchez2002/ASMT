@@ -10,7 +10,7 @@ const vehicles = [{ id: 'v24', name: 'T-24', vin: '3AKJHHDR0PSNK0497' }, { id: '
 const line = (over) => ({
   printed: 'X', partNumber: null, quantity: 1, unitPrice: null, lineTotal: 10, kind: 'part', matchPartId: null, matchSure: false, matchReason: '', stockQuantity: null, truck: null, truckSource: null, ...over,
 });
-const reading = (lines, over = {}) => ({ readable: true, problem: null, vendor: 'FleetPride', date: '2026-10-27', invoiceNumber: '448213', noteTrucks: [], lines, fees: [], tax: null, total: null, ...over });
+const reading = (lines, over = {}) => ({ readable: true, problem: null, vendor: 'FleetPride', date: '2026-10-27', time: null, invoiceNumber: '448213', noteTrucks: [], lines, fees: [], tax: null, total: null, ...over });
 let n = 0;
 const newId = () => `L${++n}`;
 const read = (r, opts = {}) => receiptFromReading(r, parts, vehicles, { newId, ...opts });
@@ -106,6 +106,12 @@ test('a total that does not add up, or oil with no gallons, is flagged', () => {
   assert.match(r.problems[0], /come to \$11.00, but the receipt total is \$20.00/);
   const oil = read(reading([line({ matchPartId: 'oil', matchSure: true, stockQuantity: null })]));
   assert.deepEqual([oil.lines[0].part, oil.lines[0].flags], [null, ['quantity']]);
+});
+
+test('the time printed on the receipt is kept when it is a real time', () => {
+  assert.equal(read(reading([line({})], { time: '11:43' })).time, '11:43');
+  assert.equal(read(reading([line({})], { time: '11:43:50AM' })).time, null);
+  assert.equal(read(reading([line({})], { time: null })).time, null);
 });
 
 test('the same invoice uploaded twice is flagged', () => {

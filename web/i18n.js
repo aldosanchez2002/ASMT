@@ -278,6 +278,17 @@ const TEXT = {
     },
     forTruck: (n) => `Repair part for ${n}`,
     feesLabel: 'Fees ($)',
+    datesSent: 'Sent',
+    datesReceipt: 'Date on the receipt',
+    datesWork: 'Work done',
+    notReadYet: 'Not read yet',
+    noWorkYet: 'Not tied to any work yet',
+    shelfOnly: 'The parts went on the shelf; they count when the work is recorded',
+    maybeWork: 'maybe',
+    sentVia: { whatsapp: 'by WhatsApp', sms: 'by text', app: 'in the app', typed: 'typed by hand' },
+    sentShort: (when) => `sent ${when}`,
+    receiptShort: (date) => `receipt ${date}`,
+    timeLabel: 'Time',
     feesWord: 'Fees',
     feesRead: (list) => `Read: ${list}`,
     lineTextPh: 'What was it?',
@@ -595,6 +606,17 @@ const TEXT = {
     },
     forTruck: (n) => `Parte de reparación para ${n}`,
     feesLabel: 'Cargos ($)',
+    datesSent: 'Enviado',
+    datesReceipt: 'Fecha del recibo',
+    datesWork: 'Trabajo hecho',
+    notReadYet: 'Aún no se lee',
+    noWorkYet: 'Todavía no está unido a un trabajo',
+    shelfOnly: 'Las partes se sumaron al estante; cuentan cuando se anota el trabajo',
+    maybeWork: 'tal vez',
+    sentVia: { whatsapp: 'por WhatsApp', sms: 'por mensaje', app: 'en la app', typed: 'escrito a mano' },
+    sentShort: (when) => `enviado ${when}`,
+    receiptShort: (date) => `recibo ${date}`,
+    timeLabel: 'Hora',
     feesWord: 'Cargos',
     feesRead: (list) => `Se leyó: ${list}`,
     lineTextPh: '¿Qué fue?',
@@ -674,6 +696,19 @@ export function dateText(value) {
   if (!value) return '—';
   const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
   return d.toLocaleDateString(active() === 'es' ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// "Oct 27, 2026, 11:37 PM" / "27 oct 2026, 11:37 p.m." from a time in ms.
+export function dateTimeText(ms) {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleString(active() === 'es' ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+// "11:43" -> "11:43 AM" / "11:43 a.m.".
+export function clockText(hhmm) {
+  if (!/^\d{2}:\d{2}$/.test(hhmm ?? '')) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  return new Date(2000, 0, 1, h, m).toLocaleTimeString(active() === 'es' ? 'es-MX' : 'en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 // "10 min ago" / "hace 10 min".

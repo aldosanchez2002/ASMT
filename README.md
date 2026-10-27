@@ -169,11 +169,13 @@ The due-date logic lives in `web/maintenance.js` and is covered by `npm test`.
 3. **The mechanic records work** as always. Service kits take the oil and filters off the shelf.
 4. **The matcher** (`scripts/match-items.mjs`, same Action, right after reading) ties pool items to the repairs in the work log, from about a week before each purchase to a month after. Each tie is an `itemUses` doc; at 85%+ confidence it counts right away, otherwise it waits for admin. When nothing new came in, it skips the Claude call.
 5. **Admin → Parts → Review** shows what needs a look: receipts the reader wasn't sure of, matches the AI wasn't sure of, parts bought 2+ weeks ago that no work explains, repairs with no parts, and (folded) the AI's own matches of the last two weeks. **Right** confirms; **Change** picks another repair, a truck with no repair, shop supplies or "still on the shelf". Below: **Spent per truck** (shelf parts at their average real cost plus the repair parts tied to its work) and **Notes for the AI**.
+Every receipt shows three dates: when it was **sent** (`createdAt`, and how: WhatsApp, text, the app or typed), the **date on the receipt** (and the time, when printed), and when the **work** its parts went into was done (the repairs its lines are tied to, `receiptWork` in `web/items.js`; unsure matches say "maybe").
+
 6. **Corrections teach the AI.** Every change admin makes, to what the reader read (receipt form) or to a match, is saved in `corrections`. Both prompts include admin's notes (`meta/aiMemory`) and the 30 most recent corrections of their kind (`scripts/ai-memory.mjs`). The Review tab shows how often the AI was right this month. The buyer (Inventory) only sees **Receipts** and **To buy**.
 
 | Collection | Contents |
 |---|---|
-| `receipts/{id}` | `status` (`waiting`, `read`, `review`, `unreadable`, `error`), `vendor`, `date`, `invoiceNumber`, `lines[]` (`id`, `kind`, `text`, `partNumber`, `qty`, `price`, `cost`, `part`, `to`, `vehicleId`, `for`, `flags`), `fees[]`, `feesTotal`, `tax`, `total`, `note`, `uploadedBy` |
+| `receipts/{id}` | `status` (`waiting`, `read`, `review`, `unreadable`, `error`), `vendor`, `date` and `time` (printed on the receipt; `time` is HH:MM or null), `createdAt` (when it was sent or uploaded), `source` (`whatsapp`, `sms`; none for the app), `invoiceNumber`, `lines[]` (`id`, `kind`, `text`, `partNumber`, `qty`, `price`, `cost`, `part`, `to`, `vehicleId`, `for`, `flags`), `fees[]`, `feesTotal`, `tax`, `total`, `note`, `uploadedBy` |
 | `receiptPhotos/{id}` | The photo (`data`, a data URL) |
 | `itemUses/{id}` | `receiptId`, `lineId`, `qty`, `logId` (the repair), `vehicleId`, `by` (`ai`/`admin`), `status` (`auto`, `doubt`, `confirmed`, `rejected`, `snooze`), `confidence`, `reason` |
 | `corrections/{id}` | `type` (`reading`/`match`), what the AI said and what admin changed it to |

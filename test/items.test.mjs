@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  accuracy, auditQueue, landedCosts, lineKind, openItems, receiptItems, remainingQty, spending,
+  accuracy, auditQueue, receiptWork, landedCosts, lineKind, openItems, receiptItems, remainingQty, spending,
 } from '../web/items.js';
 
 const receipts = [
@@ -89,4 +89,19 @@ test('spending: shelf parts at real cost, matched items on the work date, truck-
   assert.deepEqual(s.units.map((u) => [u.name, u.shelf, u.items, u.total]), [['T-07', 27, 129.13, 156.13], ['v31', 0, 90, 90]]);
   assert.deepEqual(s.shop, { supplies: 20.5, tools: 0, total: 20.5 });
   assert.equal(s.open, 129.13); // the drum still waiting for admin
+});
+
+test('the work a receipt went into: its repairs, earliest first, unsure ones marked', () => {
+  const uses = [
+    { receiptId: 'r1', lineId: 'a', qty: 1, logId: 'e1', status: 'confirmed' },
+    { receiptId: 'r1', lineId: 'a', qty: 1, logId: 'e3', status: 'doubt' },
+    { receiptId: 'r1', lineId: 'b', qty: 1, logId: 'e1', status: 'auto' },
+    { receiptId: 'r1', lineId: 'a', qty: 1, logId: 'e2', status: 'rejected' },
+    { receiptId: 'r2', lineId: 'i0', qty: 1, logId: 'e2', status: 'auto' },
+  ];
+  assert.deepEqual(receiptWork(receipts[0], uses, log).map((w) => [w.date, w.vehicleName, w.text, w.sure]), [
+    ['2026-10-19', 'T-07', 'Disco delantero copiloto se remplazo', true],
+    ['2026-10-25', 'T-19', 'Ajuste de frenos', false],
+  ]);
+  assert.deepEqual(receiptWork(receipts[3], uses, log), []);
 });

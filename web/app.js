@@ -24,7 +24,7 @@ import {
   tagsForKeys, tireParts, upcomingWork,
 } from './parts.js';
 import {
-  activeLang, agoText, dateText, getLang, setLang, t, useEnglish,
+  activeLang, agoText, clockText, dateText, dateTimeText, getLang, setLang, t, useEnglish,
 } from './i18n.js';
 import {
   QUIET_DAYS, atShop, codeId, codeText, faultSummary, quietDays,
@@ -32,7 +32,7 @@ import {
 import { downloadLog, downloadTruckRecord } from './records.js';
 import {
   POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isRepair, itemKey, landedCosts,
-  lineKind, openItems, receiptItems, repairText, spending,
+  lineKind, openItems, receiptItems, receiptWork, repairText, spending,
 } from './items.js';
 import { periodsFor, unitBreakdown, workKind } from './analytics.js';
 
@@ -2341,7 +2341,7 @@ function partsReceipts() {
       el('span', 'receipt-vendor', r.vendor || t('noVendor')),
       el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
       el('span', 'receipt-status', t('receiptStatus')[status] ?? status),
-      el('span', 'receipt-meta', [dateText(r.date), r.lines?.length ? t('lineCount', r.lines.length) : null, r.uploadedBy ?? r.boughtBy].filter(Boolean).join(' · ')),
+      el('span', 'receipt-meta', receiptMeta(r, r.lines?.length ? t('lineCount', r.lines.length) : null)),
     );
     // Admin fixes and sorts lines; the buyer sees what was read.
     row.addEventListener('click', () => (admin ? openReceipt(r.id) : viewReceipt(r.id)));
@@ -2376,7 +2376,7 @@ function receiptsToCheck() {
       el('span', 'receipt-vendor', r.vendor || t('noVendor')),
       el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
       el('span', 'receipt-status', open ? t('linesToPlace', open) : t('checkTotal')),
-      el('span', 'receipt-meta', [dateText(r.date), r.uploadedBy].filter(Boolean).join(' · ')),
+      el('span', 'receipt-meta', receiptMeta(r)),
     );
     row.addEventListener('click', () => openReceipt(r.id));
     card.append(row);
@@ -2411,12 +2411,47 @@ async function showReceiptPhoto(r) {
 }
 
 // The buyer's view of a receipt: what was read from it, and the photo.
+// How a receipt came in: WhatsApp, a text, the app, or typed by hand.
+const receiptSource = (r) => r.source ?? (r.hasPhoto ? 'app' : 'typed');
+const isRead = (r) => r.status !== 'waiting' && r.status !== 'unreadable' && r.status !== 'error';
+
+// "receipt Oct 20, 2026 · sent Oct 27, 2026, 11:37 PM · 1 line · Tony"
+function receiptMeta(r, extra = null) {
+  return [
+    isRead(r) && r.date ? t('receiptShort', [dateText(r.date), clockText(r.time)].filter(Boolean).join(' ')) : null,
+    r.createdMs ? t('sentShort', dateTimeText(r.createdMs)) : null,
+    extra, r.uploadedBy ?? r.boughtBy,
+  ].filter(Boolean).join(' · ');
+}
+
+// The receipt's three dates: when it was sent, the date printed on it, and
+// when the work its parts went into was done.
+function receiptDates(r) {
+  const box = el('dl', 'receipt-dates');
+  const row = (label, ...values) => {
+    const dd = el('dd');
+    for (const v of values) dd.append(typeof v === 'string' ? el('span', null, v) : v);
+    box.append(el('dt', null, label), dd);
+  };
+  row(t('datesSent'), [r.createdMs ? dateTimeText(r.createdMs) : '—', t('sentVia')[receiptSource(r)], r.uploadedBy ?? r.boughtBy].filter(Boolean).join(' · '));
+  row(t('datesReceipt'), isRead(r) && r.date ? [dateText(r.date), clockText(r.time)].filter(Boolean).join(' ') : t('notReadYet'));
+  const work = receiptWork(r, itemUses, serviceLog);
+  if (work.length) {
+    row(t('datesWork'), ...work.map((w) => `${dateText(w.date)} · ${w.vehicleName ?? unitName(w.vehicleId)} · ${w.text}${w.sure ? '' : ` (${t('maybeWork')})`}`));
+  } else if (isRead(r)) {
+    const allShelf = (r.lines ?? []).length && (r.lines ?? []).every((l) => l.part);
+    row(t('datesWork'), allShelf ? t('shelfOnly') : t('noWorkYet'));
+  }
+  return box;
+}
+
 function viewReceipt(id) {
   const r = receipts.find((x) => x.id === id);
   if (!r) return;
   const status = shownStatus(r, false);
   const body = partsDialog(r.vendor || t('receipt'), [dateText(r.date), t('receiptStatus')[status]].filter(Boolean).join(' · '));
   if (r.note) body.append(el('p', 'receipt-note', t('buyerNote', r.note)));
+  body.append(receiptDates(r));
   if (status === 'waiting') body.append(el('p', 'parts-hint', t('waitingHint')));
   if (status === 'unreadable' || status === 'error') body.append(el('p', 'need-missing', `${t('unreadableHint')} ${(r.problems ?? []).concat(r.readError ?? []).join(' ')}`));
   const lines = el('div', 'buy-lines receipt-view');
@@ -3241,6 +3276,7 @@ function openReceipt(id) {
   const r = id ? receipts.find((x) => x.id === id) : null;
   const body = partsDialog(r ? (r.vendor || t('receipt')) : t('newReceipt'), r ? dateText(r.date) : null);
   if (r?.note) body.append(el('p', 'receipt-note', t('buyerNote', r.note)));
+  if (r) body.append(receiptDates(r));
   const form = pform();
   const today = new Date().toLocaleDateString('en-CA');
   const state = {
@@ -3281,6 +3317,9 @@ function openReceipt(id) {
   photoBox.append(takeBtn, fileInput, preview);
 
   const date = Object.assign(el('input'), { type: 'date', required: true, max: today, value: r?.date ?? today });
+  const time = Object.assign(el('input'), { type: 'time', value: r?.time ?? '' });
+  const when = el('div', 'receipt-when');
+  when.append(field(t('datesReceipt'), date), field(t('timeLabel'), time));
   const vendor = combo(state.vendor, (v) => { state.vendor = v; }, {
     options: savedVendors, placeholder: t('vendorPh'), newText: (v) => t('newVendor', v), emptyText: t('noVendorsYet'),
   });
@@ -3365,7 +3404,7 @@ function openReceipt(id) {
   fees.addEventListener('input', updateTotal);
   const feesField = field(t('feesLabel'), fees);
   if (r?.fees?.length) feesField.append(el('span', 'parts-hint', t('feesRead', r.fees.map((f) => `${f.label} ${money(f.amount)}`).join(', '))));
-  form.append(photoBox, field(t('date'), date), vendorWrap, el('div', 'section-title', t('lines')), linesBox, field(t('tax'), tax), feesField, totalText);
+  form.append(photoBox, when, vendorWrap, el('div', 'section-title', t('lines')), linesBox, field(t('tax'), tax), feesField, totalText);
   const { save, fail } = formActions(form, t('saveReceipt'), {
     onDelete: r ? async () => {
       if (!confirm(t('confirmDeleteReceipt'))) return;
@@ -3397,6 +3436,7 @@ function openReceipt(id) {
     const data = {
       id: ref.id,
       date: date.value,
+      time: time.value || null,
       vendor: state.vendor.trim() ? canonicalName(state.vendor, savedVendors()) : '',
       lines: lines.map((l, i) => {
         const placed = linePlaced(l);
