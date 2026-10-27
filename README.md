@@ -181,7 +181,7 @@ The due-date logic lives in `web/maintenance.js` and is covered by `npm test`.
 
 ## Analytics (admin)
 
-**Admin → Analytics** shows one truck or trailer month by month (last 6, 12 or 24 months) or week by week (last 8, 12 or 26 weeks): what it cost (shelf parts its work used at their average real cost, plus the repair parts, labor and cores tied to it; `costEvents` in `web/items.js`), miles driven from Samsara's daily odometer (`odometerDaily`; trailers have none), cost per mile, and the work logged. A chart shows spending per period; tap a period to see the work and each cost in it. The math is in `web/analytics.js` (`periodsBack`, `milesIn`, `unitBreakdown`) and covered by `npm test`.
+**Admin → Analytics** shows one truck or trailer for a **Month** (week by week), a **Year** (month by month), a **Range** of dates (week by week up to about two months, month by month after that) or **All** (month by month since its first record): what it cost (shelf parts its work used at their average real cost, plus the repair parts, labor and cores tied to it; `costEvents` in `web/items.js`), miles driven from Samsara's daily odometer (`odometerDaily`; trailers have none), cost per mile, and the work logged. A chart shows spending per period; tap a period to see the work and each cost in it. The math is in `web/analytics.js` (`periodsFor`, `milesIn`, `unitBreakdown`) and covered by `npm test`.
 
 ## Paper work log import
 

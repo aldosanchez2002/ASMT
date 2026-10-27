@@ -190,17 +190,15 @@
             <span>Truck or trailer</span>
             <select id="an-unit"></select>
           </label>
-          <label class="field">
-            <span>By</span>
-            <select id="an-view">
-              <option value="month">Month</option>
-              <option value="week">Week</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Show</span>
-            <select id="an-count"></select>
-          </label>
+        </div>
+        <div class="an-dates">
+          <div id="an-modes" class="an-modes" role="tablist" aria-label="Dates">
+            <button type="button" role="tab" data-mode="month">Month</button>
+            <button type="button" role="tab" data-mode="year">Year</button>
+            <button type="button" role="tab" data-mode="range">Range</button>
+            <button type="button" role="tab" data-mode="all">All</button>
+          </div>
+          <div id="an-pick" class="an-pick"></div>
         </div>
         <div id="an-body"></div>
       </div>

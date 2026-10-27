@@ -34,7 +34,7 @@ import {
   POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isRepair, itemKey, landedCosts,
   lineKind, openItems, receiptItems, repairText, spending,
 } from './items.js';
-import { periodsBack, unitBreakdown, workKind } from './analytics.js';
+import { periodsFor, unitBreakdown, workKind } from './analytics.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -2782,9 +2782,11 @@ function aiNotesBox() {
 // ---- Analytics: one truck or trailer, month by month or week by week ------------
 // What it cost (shelf parts its work used, plus the repair parts tied to it),
 // how far it drove (Samsara's daily odometer), and what work it had. Admin
-// picks the unit and the period; each period opens to what was in it.
+// picks the unit and the dates (a month by week, a year by month, a range, or
+// everything); each period opens to what was in it.
 
-const AN_COUNTS = { month: [6, 12, 24], week: [8, 12, 26] };
+const AN_MODES = ['month', 'year', 'range', 'all'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const AN_KEY = 'aslog.analytics';
 let anSettings = (() => { try { return JSON.parse(localStorage.getItem(AN_KEY)) ?? {}; } catch { return {}; } })();
 const anDays = {}; // vehicleId -> odometerDaily days ({} when none)
@@ -2845,23 +2847,76 @@ function renderAnalytics() {
   const unit = units.find((u) => u.id === anSettings.unit) ?? units[0];
   if (!unit) { body.replaceChildren(el('p', 'muted', 'No trucks yet.')); return; }
   unitSel.value = unit.id;
-  const view = anSettings.view === 'week' ? 'week' : 'month';
-  $('an-view').value = view;
-  const counts = AN_COUNTS[view];
-  const count = counts.includes(anSettings.count) ? anSettings.count : counts[0];
-  const countSel = $('an-count');
-  countSel.replaceChildren(...counts.map((n) => Object.assign(el('option', null, `Last ${n} ${view}s`), { value: n })));
-  countSel.value = count;
 
   let days = null;
   if (!unit.trailer) {
     if (!(unit.id in anDays)) loadAnDays(unit.id);
     days = anDays[unit.id] ?? null;
   }
-  const periods = periodsBack(todayIso(), view, count);
+  const today = todayIso();
   const events = costEvents({ receipts, uses: itemUses, log: serviceLog });
+  // The unit's first record, for "All"; the fleet's, for the years offered.
+  const firstOf = (dates) => dates.filter(Boolean).sort()[0] ?? today;
+  const unitFirst = firstOf([...serviceLog.filter((e) => e.vehicleId === unit.id && workKind(e)).map((e) => e.date), ...events.filter((ev) => ev.unitId === unit.id).map((ev) => ev.date)]);
+  const choice = anChoice(today);
+  renderAnDates(choice, today, firstOf(serviceLog.map((e) => e.date)), unitFirst);
+  const { grain, periods } = periodsFor(choice, today, unitFirst);
+  if (!periods.length) {
+    body.replaceChildren(el('p', 'parts-empty', 'Nothing to show yet for these dates.'));
+    return;
+  }
   const { rows, totals } = unitBreakdown({ unitId: unit.id, periods, events, log: serviceLog, days });
-  body.replaceChildren(anTiles(totals, unit), anChart(rows, view), ...anCards(rows, unit, view, events));
+  body.replaceChildren(anTiles(totals, unit), anChart(rows, grain), ...anCards(rows, unit, grain, events));
+}
+
+// The date choice, with defaults: this month, this year, the last 90 days.
+function anChoice(today) {
+  const mode = AN_MODES.includes(anSettings.mode) ? anSettings.mode : 'month';
+  return {
+    mode,
+    month: /^\d{4}-\d{2}$/.test(anSettings.month ?? '') ? anSettings.month : today.slice(0, 7),
+    year: /^\d{4}$/.test(anSettings.year ?? '') ? anSettings.year : today.slice(0, 4),
+    from: anSettings.from || new Date(Date.now() - 90 * DAY_MS).toLocaleDateString('en-CA'),
+    to: anSettings.to || today,
+  };
+}
+
+// Month / Year / Range / All, and under it what that choice needs.
+function renderAnDates(choice, today, fleetFirst, unitFirst) {
+  for (const b of $('an-modes').querySelectorAll('button')) {
+    const on = b.dataset.mode === choice.mode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  }
+  const years = [];
+  for (let y = Number(today.slice(0, 4)); y >= Number(fleetFirst.slice(0, 4)); y -= 1) years.push(String(y));
+  const yearSel = (value, onPick) => {
+    const sel = selectOf(years.map((y) => [y, y]), years.includes(value) ? value : years[0]);
+    sel.setAttribute('aria-label', 'Year');
+    sel.addEventListener('change', () => onPick(sel.value));
+    return sel;
+  };
+  const pick = $('an-pick');
+  if (choice.mode === 'month') {
+    const [y, m] = choice.month.split('-');
+    const month = selectOf(MONTH_NAMES.map((name, i) => [String(i + 1).padStart(2, '0'), name]), m);
+    month.setAttribute('aria-label', 'Month');
+    month.addEventListener('change', () => saveAnSettings({ month: `${y}-${month.value}` }));
+    pick.replaceChildren(month, yearSel(y, (year) => saveAnSettings({ month: `${year}-${m}` })));
+  } else if (choice.mode === 'year') {
+    pick.replaceChildren(yearSel(choice.year, (year) => saveAnSettings({ year })));
+  } else if (choice.mode === 'range') {
+    const date = (label, value, key) => {
+      const input = Object.assign(el('input'), { type: 'date', value, max: today });
+      input.addEventListener('change', () => { if (input.value) saveAnSettings({ [key]: input.value }); });
+      const wrap = el('label', 'field');
+      wrap.append(el('span', null, label), input);
+      return wrap;
+    };
+    pick.replaceChildren(date('From', choice.from, 'from'), date('To', choice.to, 'to'));
+  } else {
+    pick.replaceChildren(el('p', 'an-since', `Since ${niceDate(unitFirst)}, the first record for this unit`));
+  }
 }
 
 // The totals for the whole range: spent, miles, cost per mile, work.
@@ -4000,8 +4055,7 @@ for (const th of document.querySelectorAll('th[data-trsort]')) {
 }
 $('log-period').addEventListener('change', () => { applyLogPeriod(); renderLog(); });
 $('an-unit').addEventListener('change', () => saveAnSettings({ unit: $('an-unit').value }));
-$('an-view').addEventListener('change', () => saveAnSettings({ view: $('an-view').value }));
-$('an-count').addEventListener('change', () => saveAnSettings({ count: Number($('an-count').value) }));
+for (const b of $('an-modes').querySelectorAll('button')) b.addEventListener('click', () => saveAnSettings({ mode: b.dataset.mode }));
 for (const id of ['log-from', 'log-to']) {
   $(id).addEventListener('change', () => { $('log-period').value = 'custom'; renderLog(); });
 }

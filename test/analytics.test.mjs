@@ -1,19 +1,37 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { milesIn, periodsBack, unitBreakdown, workKind } from '../web/analytics.js';
+import {
+  milesIn, monthPeriods, periodsFor, unitBreakdown, weekPeriods, workKind,
+} from '../web/analytics.js';
 
-test('months and weeks back from today, oldest first, the current one ending today', () => {
-  assert.deepEqual(periodsBack('2026-10-27', 'month', 3), [
-    { key: '2026-08', label: 'Aug', from: '2026-08-01', to: '2026-08-31' },
+test('months and weeks touching a range, cut to it', () => {
+  assert.deepEqual(monthPeriods('2026-08-15', '2026-10-27'), [
+    { key: '2026-08', label: 'Aug', from: '2026-08-15', to: '2026-08-31' },
     { key: '2026-09', label: 'Sep', from: '2026-09-01', to: '2026-09-30' },
     { key: '2026-10', label: 'Oct', from: '2026-10-01', to: '2026-10-27' },
   ]);
-  assert.deepEqual(periodsBack('2026-01-15', 'month', 2).map((p) => [p.key, p.label]), [['2025-12', 'Dec'], ['2026-01', "Jan '26"]]);
-  // 2026-10-27 is a Tuesday: this week started Monday Oct 26.
-  assert.deepEqual(periodsBack('2026-10-27', 'week', 2), [
-    { key: '2026-10-19', label: 'Oct 19', from: '2026-10-19', to: '2026-10-25' },
-    { key: '2026-10-26', label: 'Oct 26', from: '2026-10-26', to: '2026-10-27' },
+  assert.deepEqual(monthPeriods('2025-12-01', '2026-01-31').map((p) => p.label), ['Dec', "Jan '26"]);
+  // Oct 1, 2026 is a Thursday: the first week is Oct 1-4 (cut), then Monday weeks.
+  assert.deepEqual(weekPeriods('2026-10-01', '2026-10-12'), [
+    { key: '2026-10-01', label: 'Oct 1', from: '2026-10-01', to: '2026-10-04' },
+    { key: '2026-10-05', label: 'Oct 5', from: '2026-10-05', to: '2026-10-11' },
+    { key: '2026-10-12', label: 'Oct 12', from: '2026-10-12', to: '2026-10-12' },
   ]);
+});
+
+test('the date choices: month by week, year by month, range by size, all since the first record', () => {
+  const today = '2026-10-27';
+  const month = periodsFor({ mode: 'month', month: '2026-10' }, today);
+  assert.deepEqual([month.grain, month.from, month.to, month.periods.length, month.periods.at(-1).to], ['week', '2026-10-01', '2026-10-27', 5, '2026-10-27']);
+  assert.deepEqual(periodsFor({ mode: 'month', month: '2026-09' }, today).periods.map((p) => p.key), ['2026-09-01', '2026-09-07', '2026-09-14', '2026-09-21', '2026-09-28']);
+  const year = periodsFor({ mode: 'year', year: '2026' }, today);
+  assert.deepEqual([year.grain, year.periods.length, year.periods[0].key, year.to], ['month', 10, '2026-01', today]);
+  assert.equal(periodsFor({ mode: 'year', year: '2025' }, today).periods.length, 12);
+  assert.equal(periodsFor({ mode: 'range', from: '2026-10-01', to: '2026-09-01' }, today).grain, 'week'); // swapped dates still work
+  assert.equal(periodsFor({ mode: 'range', from: '2026-01-01', to: '2026-10-01' }, today).grain, 'month');
+  const all = periodsFor({ mode: 'all' }, today, '2026-02-14');
+  assert.deepEqual([all.from, all.periods.length], ['2026-02-01', 9]);
+  assert.deepEqual(periodsFor({ mode: 'month', month: '2026-12' }, today).periods, []);
 });
 
 test('work kinds; duty changes are not work', () => {
@@ -31,7 +49,7 @@ test('miles in a period come from the odometer readings around it', () => {
 });
 
 test('one truck period by period: work counts, shelf and repair spend, cost per mile', () => {
-  const periods = periodsBack('2026-10-27', 'month', 2);
+  const periods = monthPeriods('2026-09-01', '2026-10-27');
   const events = [
     { date: '2026-10-19', kind: 'items', amount: 258.25, unitId: 'v7' },
     { date: '2026-10-20', kind: 'shelf', amount: 120, unitId: 'v7' },

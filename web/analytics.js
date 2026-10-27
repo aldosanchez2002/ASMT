@@ -8,32 +8,73 @@ const iso = (d) => d.toISOString().slice(0, 10);
 const utc = (date) => new Date(`${date}T12:00:00Z`);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/**
- * The last `count` months or weeks up to `today` ("YYYY-MM-DD"), oldest first.
- * Weeks start on Monday. The current period ends today.
- * @returns [{ key, label, from, to }]
- */
-export function periodsBack(today, unit, count) {
+const monthLabel = (d) => (d.getUTCMonth() === 0 ? `Jan '${String(d.getUTCFullYear()).slice(2)}` : MONTHS[d.getUTCMonth()]);
+
+// The weeks (Monday to Sunday) touching [from, to], each cut to that range.
+export function weekPeriods(from, to) {
   const out = [];
-  const end = utc(today);
-  if (unit === 'week') {
-    const monday = new Date(end.getTime() - ((end.getUTCDay() + 6) % 7) * DAY_MS);
-    for (let i = count - 1; i >= 0; i -= 1) {
-      const from = new Date(monday.getTime() - i * 7 * DAY_MS);
-      const to = new Date(from.getTime() + 6 * DAY_MS);
-      out.push({ key: iso(from), label: `${MONTHS[from.getUTCMonth()]} ${from.getUTCDate()}`, from: iso(from), to: iso(to > end ? end : to) });
-    }
-    return out;
-  }
-  for (let i = count - 1; i >= 0; i -= 1) {
-    const first = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - i, 1, 12));
-    const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0, 12));
-    const key = iso(first).slice(0, 7);
-    // "Jul"; January carries its year ("Jan '27") so a range across years reads right.
-    const label = first.getUTCMonth() === 0 ? `Jan '${String(first.getUTCFullYear()).slice(2)}` : MONTHS[first.getUTCMonth()];
-    out.push({ key, label, from: iso(first), to: iso(last > end ? end : last) });
+  const start = utc(from);
+  const end = utc(to);
+  for (let monday = new Date(start.getTime() - ((start.getUTCDay() + 6) % 7) * DAY_MS); monday <= end; monday = new Date(monday.getTime() + 7 * DAY_MS)) {
+    const a = monday < start ? start : monday;
+    const sunday = new Date(monday.getTime() + 6 * DAY_MS);
+    const b = sunday > end ? end : sunday;
+    out.push({ key: iso(a), label: `${MONTHS[a.getUTCMonth()]} ${a.getUTCDate()}`, from: iso(a), to: iso(b) });
   }
   return out;
+}
+
+// The months touching [from, to], each cut to that range. "Jul"; January
+// carries its year ("Jan '27") so a range across years reads right.
+export function monthPeriods(from, to) {
+  const out = [];
+  const start = utc(from);
+  const end = utc(to);
+  for (let first = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1, 12)); first <= end;
+    first = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 1, 12))) {
+    const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0, 12));
+    const a = first < start ? start : first;
+    const b = last > end ? end : last;
+    out.push({ key: iso(first).slice(0, 7), label: monthLabel(first), from: iso(a), to: iso(b) });
+  }
+  return out;
+}
+
+const lastDayOf = (month) => { // "2026-02" -> "2026-02-28"
+  const [y, m] = month.split('-').map(Number);
+  return iso(new Date(Date.UTC(y, m, 0, 12)));
+};
+
+/**
+ * The periods for a date choice, never past `today`:
+ *   { mode: 'month', month: 'YYYY-MM' }      that month, week by week
+ *   { mode: 'year', year: 'YYYY' }           that year, month by month
+ *   { mode: 'range', from, to }              week by week up to ~2 months, else month by month
+ *   { mode: 'all' }                          since `first` (the first record), month by month
+ * @returns { grain: 'week'|'month', from, to, periods: [{ key, label, from, to }] }
+ *   (no periods when the choice is all in the future)
+ */
+export function periodsFor(choice, today, first = today) {
+  let from;
+  let to;
+  let grain = 'month';
+  if (choice.mode === 'month') {
+    from = `${choice.month}-01`;
+    to = lastDayOf(choice.month);
+    grain = 'week';
+  } else if (choice.mode === 'year') {
+    from = `${choice.year}-01-01`;
+    to = `${choice.year}-12-31`;
+  } else if (choice.mode === 'range') {
+    [from, to] = [choice.from, choice.to].sort();
+    grain = (utc(to) - utc(from)) / DAY_MS <= 62 ? 'week' : 'month';
+  } else {
+    from = (first && first < today ? first : today).slice(0, 7) + '-01';
+    to = today;
+  }
+  if (to > today) to = today;
+  if (!from || !to || from > to) return { grain, from, to, periods: [] };
+  return { grain, from, to, periods: grain === 'week' ? weekPeriods(from, to) : monthPeriods(from, to) };
 }
 
 // What a work log entry was (duty-cycle changes aren't work).

@@ -1396,7 +1396,19 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 /* Analytics: one truck, month by month or week by week (admin) */
 :root { --series-1: #2a78d6; }
 @media (prefers-color-scheme: dark) { :root { --series-1: #3987e5; } }
-.an-filters { display: grid; grid-template-columns: 2fr 1fr 1.4fr; gap: 10px; }
+.an-filters { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.an-dates { display: grid; gap: 10px; margin-top: 10px; padding: 10px; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.an-modes { display: grid; grid-template-columns: repeat(4, 1fr); border: 2px solid var(--floor-line); }
+.an-modes button { min-height: 46px; border: none; background: var(--floor-paper); color: var(--floor-ink); font: 800 16px var(--cond); letter-spacing: .05em; text-transform: uppercase; cursor: pointer; }
+.an-modes button + button { border-left: 2px solid var(--floor-line); }
+.an-modes button.active { background: #111; color: var(--floor-yellow); }
+.an-pick { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.an-pick select { min-height: 46px; padding: 0 10px; font-size: 16px; background: var(--floor-paper); color: var(--floor-ink); }
+.an-pick select:first-child:not(:only-child) { flex: 1.4; }
+.an-pick select:only-child, .an-pick select + select { flex: 1; }
+.an-pick .field { flex: 1; min-width: 140px; }
+.an-pick input[type="date"] { width: 100%; box-sizing: border-box; min-height: 46px; padding: 0 10px; font: inherit; font-size: 16px; }
+.an-since { margin: 0; font-weight: 700; }
 .an-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 12px 0 4px; }
 .an-tile { display: grid; gap: 2px; padding: 10px 12px; border: 2px solid var(--floor-line); background: var(--floor-paper); }
 .an-tile-label { font: 800 14px var(--cond); text-transform: uppercase; letter-spacing: .06em; color: var(--floor-muted); }
@@ -1426,4 +1438,3 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; padding: 4px 0; font-size: 14px; border-bottom: 1px solid var(--floor-track); }
 .an-row-date { color: var(--floor-muted); }
 .an-row-text { overflow-wrap: anywhere; }
-@media (max-width: 560px) { .an-filters { grid-template-columns: 1fr 1fr; } .an-filters .field:first-child { grid-column: 1 / -1; } }
