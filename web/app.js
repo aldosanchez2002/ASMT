@@ -2070,10 +2070,14 @@ function buildWork() {
 // admin has it as a tab too.
 
 const PART_GROUPS = ['oil', 'filter', 'tire', 'battery', 'fluid', 'other'];
-const PARTS_SIDES = ['receipts', 'buy', 'check', 'matches', 'stock'];
+const PARTS_SIDES = ['receipts', 'buy', 'review', 'stock'];
 const PARTS_SIDE_KEY = 'aslog.partsSide';
 let partsSide = (() => {
-  try { const s = localStorage.getItem(PARTS_SIDE_KEY); return PARTS_SIDES.includes(s) ? s : 'receipts'; } catch { return 'receipts'; }
+  try {
+    const s = localStorage.getItem(PARTS_SIDE_KEY);
+    if (s === 'check' || s === 'matches') return 'review'; // the tabs Review replaced
+    return PARTS_SIDES.includes(s) ? s : 'receipts';
+  } catch { return 'receipts'; }
 })();
 let showAllWork = false; // To buy: the upcoming work behind the list, folded
 let showKits = false; // Stock: the service kits, folded by default
@@ -2131,14 +2135,14 @@ function renderParts() {
   const list = shoppingList(partsList, work, stock);
   const queue = matchQueue();
   const counts = {
-    buy: list.length, check: toCheck().length, stock: activeParts().length, receipts: receipts.length,
-    matches: queue.doubts.length + queue.noWork.length + queue.noParts.length,
+    buy: list.length, stock: activeParts().length, receipts: receipts.length,
+    review: toCheck().length + queue.doubts.length + queue.noWork.length + queue.noParts.length,
   };
-  // The buyer's job is the list, the receipts and checking what the reader
-  // wasn't sure of; the matches, the shelf count and the kits are admin's
+  // The buyer's job is the list and sending the receipts; checking what the
+  // AI read and matched, the shelf count and the kits are admin's
   // (Admin → Parts).
   const buyer = roleOfTab(currentTab()) === 'inventory';
-  const adminOnly = ['stock', 'matches'];
+  const adminOnly = ['review', 'stock'];
   if (buyer && adminOnly.includes(partsSide)) partsSide = 'buy';
   const tabs = document.querySelectorAll('#parts-side button');
   $('parts-side').classList.toggle('many', !buyer);
@@ -2153,8 +2157,7 @@ function renderParts() {
   const body = $('parts-body');
   if (partsSide === 'stock') body.replaceChildren(...partsStock(stock));
   else if (partsSide === 'receipts') body.replaceChildren(...partsReceipts());
-  else if (partsSide === 'check') body.replaceChildren(...partsCheck());
-  else if (partsSide === 'matches') body.replaceChildren(...partsMatches(queue));
+  else if (partsSide === 'review') body.replaceChildren(...partsReview(queue));
   else body.replaceChildren(...partsBuy(list, work, stock));
 }
 
@@ -2352,22 +2355,17 @@ function partsReceipts() {
 }
 
 // In the history the buyer sees a receipt as read once it's read; the lines
-// that still need placing are in the To check tab ("Needs a look" in Admin).
+// that still need placing are admin's (Review tab).
 const shownStatus = (r, admin) => (!admin && r.status === 'review' ? 'read' : r.status ?? 'read');
 
 // Receipts with lines the reader couldn't place (or whose math is off).
 const toCheck = () => receipts.filter((r) => r.status === 'review').sort((a, b) => b.createdMs - a.createdMs);
 
-// To check: the receipts the reader wasn't sure of, each opening the receipt
-// form (what was read, the best guess, pick where each line goes), and a
-// receipt typed by hand for one without a photo.
-function partsCheck() {
-  const typed = Object.assign(el('button', 'btn btn-ghost type-receipt', t('typeReceipt')), { type: 'button' });
-  typed.addEventListener('click', () => openReceipt(null));
-  const out = [el('h2', 'parts-title', t('checkTitle')), el('p', 'parts-intro', t('checkIntro'))];
-  const list = toCheck();
-  if (!list.length) out.push(el('p', 'parts-empty parts-good', t('nothingToCheck')));
-  for (const r of list) {
+// Receipts to check: the ones the reader wasn't sure of, each opening the
+// receipt form (what was read, the best guess, pick where each line goes).
+function receiptsToCheck() {
+  const out = [];
+  for (const r of toCheck()) {
     const open = (r.lines ?? []).filter((l) => !linePlaced(l)).length;
     const card = el('div', 'receipt-card status-review');
     const row = el('button', 'receipt-row');
@@ -2382,7 +2380,6 @@ function partsCheck() {
     card.append(row);
     out.push(card);
   }
-  out.push(typed);
   return out;
 }
 
@@ -2470,8 +2467,12 @@ const repairLine = (e) => [e.vehicleName ?? unitName(e.vehicleId), dateText(e.da
 const itemLine = (item, qty) => `${qtyText(qty ?? item.qty)} × ${item.text || t('receipt')}`;
 const receiptOf = (item) => receipts.find((r) => r.id === item.receiptId);
 
-function partsMatches(queue) {
-  const out = [el('h2', 'parts-title', t('matchesTitle')), el('p', 'parts-intro', t('matchesIntro'))];
+// Review (admin): what the AI read and matched that needs a person —
+// receipts it wasn't sure of, matches it wasn't sure of, parts no work
+// explains, repairs with no parts — then where the money went and the notes
+// for the AI.
+function partsReview(queue) {
+  const out = [el('h2', 'parts-title', t('reviewTitle')), el('p', 'parts-intro', t('reviewIntro'))];
   const month = todayIso().slice(0, 7);
   const score = accuracy(itemUses, month);
   if (score.made) out.push(el('p', 'match-score', t('accuracyLine', score)));
@@ -2481,6 +2482,10 @@ function partsMatches(queue) {
     if (!rows.length && empty) out.push(el('p', 'parts-empty parts-good', empty));
     out.push(...rows);
   };
+  section(t('checkTitle'), t('checkIntro'), receiptsToCheck(), t('nothingToCheck'));
+  const typed = Object.assign(el('button', 'link-btn type-receipt-link', t('typeReceipt')), { type: 'button' });
+  typed.addEventListener('click', () => openReceipt(null));
+  out.push(typed);
   section(t('secDoubts'), t('secDoubtsHint'), queue.doubts.map((x) => matchCard(x)), t('nothingToCheck'));
   section(t('secNoWork'), t('secNoWorkHint'), queue.noWork.map(noWorkCard), t('nothingToCheck'));
   section(t('secNoParts'), t('secNoPartsHint'), queue.noParts.map(noPartsCard), t('nothingToCheck'));
@@ -2992,6 +2997,8 @@ function openReceipt(id) {
   const photoBox = el('div', 'receipt-photo');
   const fileInput = Object.assign(el('input'), { type: 'file', accept: 'image/*', capture: 'environment', hidden: true });
   const takeBtn = Object.assign(el('button', 'btn btn-ghost photo-btn', r?.hasPhoto ? t('retakePhoto') : t('takePhoto')), { type: 'button' });
+  // The buyer's photo stays; only a receipt typed here can take one.
+  takeBtn.hidden = Boolean(r && (r.source || r.uploadedBy || r.readAt));
   const preview = Object.assign(el('img', 'receipt-img'), { alt: t('receipt'), hidden: true });
   takeBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', async () => {
@@ -3098,14 +3105,11 @@ function openReceipt(id) {
   drawLines();
   tax.addEventListener('input', updateTotal);
   updateTotal();
-  const who = loggedByField();
-  who.wrap.querySelector('span').textContent = t('boughtBy');
-  if (r?.boughtBy) who.wrap.querySelector('input').value = r.boughtBy;
 
   fees.addEventListener('input', updateTotal);
   const feesField = field(t('feesLabel'), fees);
   if (r?.fees?.length) feesField.append(el('span', 'parts-hint', t('feesRead', r.fees.map((f) => `${f.label} ${money(f.amount)}`).join(', '))));
-  form.append(photoBox, field(t('date'), date), vendorWrap, el('div', 'section-title', t('lines')), linesBox, field(t('tax'), tax), feesField, totalText, who.wrap);
+  form.append(photoBox, field(t('date'), date), vendorWrap, el('div', 'section-title', t('lines')), linesBox, field(t('tax'), tax), feesField, totalText);
   const { save, fail } = formActions(form, t('saveReceipt'), {
     onDelete: r ? async () => {
       if (!confirm(t('confirmDeleteReceipt'))) return;
@@ -3133,8 +3137,6 @@ function openReceipt(id) {
     const priceOf = (l) => (l.price === '' || l.price == null ? null : Number(l.price));
     // Each line's real cost: its price plus its share of tax and fees.
     const costs = landedCosts(lines.map((l) => ({ price: priceOf(l) })), taxAmount + feesAmount);
-    const by = who.value();
-    if (by) rememberName(by);
     const ref = r ? doc(db, 'receipts', r.id) : doc(collection(db, 'receipts'));
     const data = {
       id: ref.id,
@@ -3168,7 +3170,9 @@ function openReceipt(id) {
       fees: feesAmount === Math.round(feesNow * 100) / 100 && r?.fees ? r.fees : feesAmount ? [{ label: t('feesWord'), amount: feesAmount }] : [],
       feesTotal: feesAmount,
       total: Math.round(total * 100) / 100,
-      boughtBy: by || null,
+      // Who sent it comes from WhatsApp, the text or the upload; a receipt
+      // typed here is admin's.
+      ...(r ? {} : { uploadedBy: rememberedName() || null }),
       hasPhoto: Boolean(state.photo || r?.hasPhoto),
       updatedAt: serverTimestamp(),
       ...(r ? {} : { createdAt: serverTimestamp() }),
