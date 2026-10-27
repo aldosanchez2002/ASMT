@@ -1,0 +1,30 @@
+name: Try receipt reader
+
+# Branch only, for testing the reader on real receipts before it goes to
+# main: reads the waiting receipts and prints what it read, saving nothing.
+# Delete this file before merging.
+on:
+  push:
+    branches: [claude/bold-johnson-3in5gu]
+    paths:
+      - scripts/read-receipts.mjs
+      - scripts/receipt-reader.mjs
+      - .github/workflows/try-receipt-reader.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/read-receipts.mjs --dry-run
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.AS_LOG_KEY }}
