@@ -14,7 +14,10 @@
 // here so changes are tracked. Setup: twilio/README.md.
 //
 // Environment variables (Twilio Functions → Environment Variables):
-//   ALLOWED_SENDERS     who may send receipts: "Maria:+19155551234,Aldo:+19155550000"
+//   ALLOWED_SENDERS     who may send receipts, as name:number pairs separated
+//                       by commas: "Maria:+19155551234,Aldo:+19155550000".
+//                       Now: Aldo, Tony, Hector and Andrea (their numbers are
+//                       only in Twilio, since this repository is public)
 //   FIREBASE_PROJECT_ID aslogdev-a7225
 //   FIREBASE_API_KEY    the web API key from web/firebase-config.js (not a secret)
 //   SMS_REPLIES         "yes" once the number is registered for texting, to
