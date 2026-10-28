@@ -2995,11 +2995,11 @@ function renderAnalytics() {
     return;
   }
   const { rows, totals } = unitBreakdown({ unitId: unit.id, periods, events, log: serviceLog, days });
-  // Shop share: supplies and tools split by shop visits, an estimate kept apart.
-  if (anSettings.shopShare) {
-    const shares = shopShare({ unitId: unit.id, periods, events, log: serviceLog });
+  // Shop share: supplies and tools split evenly by the trucks, an estimate kept apart.
+  if (anSettings.shopShare && !unit.trailer) {
+    const shares = shopShare({ periods, events, trucks: trucks.length });
     rows.forEach((r, i) => {
-      Object.assign(r, { shopShare: shares[i].share, visits: shares[i].visits, allVisits: shares[i].allVisits });
+      Object.assign(r, { shopShare: shares[i].share, shopTotal: shares[i].shop, trucks: shares[i].trucks });
       r.total = Math.round((r.parts + r.shopShare) * 100) / 100;
       r.perMile = r.miles ? Math.round((r.total / r.miles) * 100) / 100 : null;
     });
@@ -3010,7 +3010,8 @@ function renderAnalytics() {
   const share = el('label', 'an-share');
   const box = Object.assign(el('input'), { type: 'checkbox', id: 'an-shop-share', checked: Boolean(anSettings.shopShare) });
   box.addEventListener('change', () => saveAnSettings({ shopShare: box.checked }));
-  share.append(box, el('span', null, 'Include a share of shop supplies and tools (split by shop visits, an estimate)'));
+  share.append(box, el('span', null, `Include a share of shop supplies and tools (shop total ÷ ${fmt.format(trucks.length)} trucks)`));
+  share.hidden = unit.trailer;
   const range = { from: periods[0].from, to: periods.at(-1).to };
   body.replaceChildren(anTiles(totals, unit), share, anChart(rows, grain), ...anReceipts(unit, range, events), ...anCards(rows, unit, grain, events));
 }
@@ -3255,7 +3256,7 @@ function anDetails(r, unit, events) {
   }
   if (r.shopShare) {
     const row = el('div', 'an-row an-cost');
-    row.append(el('span', 'an-row-date', ''), el('span', 'an-row-text', `Shop share: ${r.visits} of ${r.allVisits} shop visits (estimate)`), el('strong', 'an-row-amount', money(r.shopShare)));
+    row.append(el('span', 'an-row-date', ''), el('span', 'an-row-text', `Shop share: ${money(r.shopTotal)} shop supplies and tools ÷ ${fmt.format(r.trucks)} trucks`), el('strong', 'an-row-amount', money(r.shopShare)));
     box.append(row);
   }
   return box;

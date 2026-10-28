@@ -167,19 +167,15 @@ test('rules: oldest batch first, across batches; batches set aside for a truck g
   assert.deepEqual(ruleUses({ receipts: [set, free], uses: [], log: [{ id: 'w', date: '2026-11-03', vehicleId: 'v24', partsUsed: { f: 1 } }] }).map((u) => u.receiptId), ['q']);
 });
 
-test('old stock shows for review; big tools spread over 12 months; shop share by visits', () => {
+test('old stock shows for review; big tools spread over 12 months; shop share split evenly by trucks', () => {
   const lot = { id: 'r', status: 'read', date: '2026-08-01', lines: [{ id: 'a', part: 'of5', qty: 3, cost: 90 }] };
   assert.deepEqual(oldStock([lot], [{ receiptId: 'r', lineId: 'a', qty: 1, status: 'auto' }], '2026-10-27').map((l) => [l.key, l.remaining]), [['r:a', 2]]);
   assert.deepEqual(oldStock([lot], [], '2026-09-15'), []); // under 60 days
   const scanner = { id: 't', status: 'read', date: '2026-01-31', lines: [{ id: 'x', kind: 'tool', text: 'SCANNER', qty: 1, cost: 1200 }] };
   const months = costEvents({ receipts: [scanner], uses: [], log: [] });
   assert.deepEqual([months.length, months[0].amount, months[1].date, months.at(-1).date, months.reduce((s, e) => s + e.amount, 0)], [12, 100, '2026-02-28', '2026-12-31', 1200]);
-  const visits = [
-    { vehicleId: 'v24', date: '2026-11-05', services: ['x'] }, { vehicleId: 'v24', date: '2026-11-05', type: 'repair' }, // one visit
-    { vehicleId: 'v31', date: '2026-11-06', services: ['x'] }, { vehicleId: 'v07', date: '2026-11-09', type: 'repair' },
-  ];
-  const share = shopShare({ unitId: 'v24', periods: [{ key: 'nov', from: '2026-11-01', to: '2026-11-30' }], events: [{ date: '2026-11-03', kind: 'supplies', amount: 52.6 }, { date: '2026-11-03', kind: 'tools', amount: 65.74 }], log: visits });
-  assert.deepEqual([share[0].visits, share[0].allVisits, share[0].share], [1, 3, 39.45]);
+  const share = shopShare({ periods: [{ key: 'nov', from: '2026-11-01', to: '2026-11-30' }], events: [{ date: '2026-11-03', kind: 'supplies', amount: 52.6 }, { date: '2026-11-03', kind: 'tools', amount: 65.74 }, { date: '2026-10-30', kind: 'supplies', amount: 99 }], trucks: 36 });
+  assert.deepEqual([share[0].shop, share[0].trucks, share[0].share], [118.34, 36, 3.29]);
 });
 
 test('the work a receipt went into: its repairs, earliest first, unsure ones marked', () => {

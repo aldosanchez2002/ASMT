@@ -423,18 +423,14 @@ export function oldStock(receipts, uses, today) {
 }
 
 /**
- * Shop costs shared out by shop visits (a day a unit had work logged): each
- * period's supplies and tools, times this unit's share of all visits.
- * An estimate, shown apart from the unit's own costs.
- * @returns [{ ...period, share, visits, allVisits }]
+ * A truck's share of the shop costs: each period's supplies and tools divided
+ * evenly by the number of trucks. An estimate, shown apart from the truck's
+ * own costs.
+ * @returns [{ ...period, shop, trucks, share }]
  */
-export function shopShare({ unitId, periods, events, log }) {
-  const visits = new Set(log.filter((e) => e.vehicleId && e.date && e.type !== 'duty').map((e) => `${e.vehicleId}|${e.date}`));
+export function shopShare({ periods, events, trucks }) {
   return periods.map((p) => {
-    const inP = (d) => d >= p.from && d <= p.to;
-    const all = [...visits].filter((v) => inP(v.split('|')[1]));
-    const mine = all.filter((v) => v.split('|')[0] === unitId).length;
-    const shop = events.filter((ev) => (ev.kind === 'supplies' || ev.kind === 'tools') && ev.date && inP(ev.date)).reduce((s, ev) => s + ev.amount, 0);
-    return { ...p, visits: mine, allVisits: all.length, share: all.length ? round2((shop * mine) / all.length) : 0 };
+    const shop = round2(events.filter((ev) => (ev.kind === 'supplies' || ev.kind === 'tools') && ev.date && ev.date >= p.from && ev.date <= p.to).reduce((s, ev) => s + ev.amount, 0));
+    return { ...p, shop, trucks, share: trucks ? round2(shop / trucks) : 0 };
   });
 }
