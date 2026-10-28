@@ -5,8 +5,9 @@
 // optionally with a note saying which truck(s) it's for ("T-28", or
 // "T-28 drums, T-31 headlight"). This saves each photo as a receipt "waiting
 // to be read", with the note, the same as "Upload receipts" in the app, and
-// replies so the buyer knows it arrived. The "Read receipts" GitHub Action
-// reads it from there. Texts get no reply until the number is registered
+// replies so the buyer knows it arrived. Then it starts the "Read receipts"
+// GitHub Action, which reads it within a few minutes (without GITHUB_TOKEN,
+// the Action's timer picks it up instead). Texts get no reply until the number is registered
 // for US texting (A2P 10DLC): carriers block the reply until then.
 //
 // Lives in Twilio (Functions & Assets), not on the website; this copy is kept
@@ -18,6 +19,9 @@
 //   FIREBASE_API_KEY    the web API key from web/firebase-config.js (not a secret)
 //   SMS_REPLIES         "yes" once the number is registered for texting, to
 //                       answer texts too (WhatsApp is always answered)
+//   GITHUB_TOKEN        a fine-grained GitHub token for this repository only,
+//                       with "Actions: Read and write", to read receipts as
+//                       soon as they arrive (twilio/README.md)
 // Dependency (Functions → Dependencies): jimp 0.22.12, to shrink large photos.
 
 const MAX_PHOTO_CHARS = 700000; // a Firestore document holds up to ~1 MB
@@ -26,6 +30,8 @@ const TIME_ZONE = 'America/Denver'; // El Paso
 // document arrive as HEIC, which they can't; sent as a photo, WhatsApp makes
 // them JPEG.
 const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+const WORKFLOW = 'https://api.github.com/repos/aldosanchez2002/ASMT/actions/workflows/read-receipts.yml/dispatches';
 
 // "Maria:+19155551234,Aldo:+19155550000" -> Map(+19155551234 => "Maria")
 function parseSenders(value = '') {
@@ -98,6 +104,25 @@ async function saveReceipt(context, { photo, uploadedBy, note, trucks, source, f
   return id;
 }
 
+// Starts the "Read receipts" Action now. Several photos in a row start one
+// run each, but GitHub keeps only one waiting behind the running one, which
+// then reads everything that came in. If this fails the timer still runs.
+async function startReading(context, fetchFn) {
+  if (!context.GITHUB_TOKEN) return;
+  try {
+    const res = await fetchFn(WORKFLOW, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${context.GITHUB_TOKEN}`, Accept: 'application/vnd.github+json', 'User-Agent': 'aslog-receipts', 'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({ ref: 'main' }),
+    });
+    if (!res.ok) console.error(`start reading: GitHub ${res.status}`);
+  } catch (err) {
+    console.error(`start reading: ${err.message}`);
+  }
+}
+
 exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => {
   const twiml = new Twilio.twiml.MessagingResponse();
   const source = String(event.From ?? '').startsWith('whatsapp:') ? 'whatsapp' : 'sms';
@@ -138,6 +163,7 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
       skipped += 1;
     }
   }
+  if (saved) await startReading(context, fetchFn);
   const what = saved === 1 ? '1 receipt' : `${saved} receipts`;
   const notes = [];
   if (wrongType) notes.push(`${saved ? `${wrongType} ${wrongType === 1 ? 'was a file' : 'were files'}` : 'That was sent as a file'} (like .heic) that can't be read. Send it as a photo instead: tap + then Photos, not Document.`);

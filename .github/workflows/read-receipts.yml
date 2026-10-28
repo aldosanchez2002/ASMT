@@ -1,15 +1,19 @@
 name: Read receipts
 
 # Reads receipt photos the buyer sent, then matches the bought parts to the
-# repairs in the work log.
+# repairs in the work log. A texted photo starts it right away (the Twilio
+# Function, with its GITHUB_TOKEN); the hourly timer catches receipts uploaded
+# in the app, new work to match, and anything the Function couldn't start.
 
 on:
   schedule:
-    # Every 30 minutes at :22 and :52 (GitHub runs schedules "best effort",
-    # so at busy times it can be a few hours). Quick when nothing is waiting.
-    - cron: '22,52 * * * *'
-  workflow_dispatch: # read the waiting receipts now, from the Actions tab
+    # Hourly at :22 (GitHub runs schedules "best effort", so at busy times it
+    # can be later). Quick when nothing is waiting.
+    - cron: '22 * * * *'
+  workflow_dispatch: # read the waiting receipts now: Twilio, or the Actions tab
 
+# One run at a time; photos sent while it runs wait for one more run, which
+# reads them all.
 concurrency:
   group: read-receipts
   cancel-in-progress: false

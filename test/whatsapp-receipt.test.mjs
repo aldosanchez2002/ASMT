@@ -16,15 +16,20 @@ const fn = createRequire(import.meta.url)('../twilio/whatsapp-receipt.js');
 const context = {
   ALLOWED_SENDERS: 'Maria:+19155551234, Aldo:+19155550000', FIREBASE_PROJECT_ID: 'proj', FIREBASE_API_KEY: 'key', ACCOUNT_SID: 'AC1', AUTH_TOKEN: 'tok',
 };
-const run = (event) => {
+const run = (event, ctx = context) => {
   const writes = [];
+  const started = [];
   const fetchFn = async (url, opts = {}) => {
     if (url.startsWith('https://media')) return { ok: true, arrayBuffer: async () => Buffer.from('jpegbytes') };
+    if (url.startsWith('https://api.github.com')) {
+      started.push([url, opts.headers.Authorization, JSON.parse(opts.body)]);
+      return { ok: ctx.GITHUB_TOKEN === 'gh' };
+    }
     writes.push(JSON.parse(opts.body).writes);
     return { ok: true };
   };
   return new Promise((resolve) => {
-    fn.handler(context, event, (err, twiml) => resolve({ twiml, writes }), { fetchFn });
+    fn.handler(ctx, event, (err, twiml) => resolve({ twiml, writes, started }), { fetchFn });
   });
 };
 
@@ -104,4 +109,15 @@ test('strangers get no answer; a text without a photo gets a hint', async () => 
   assert.deepEqual([stranger.writes.length, stranger.twiml.messages.length], [0, 0]);
   const hint = await run({ From: 'whatsapp:+19155551234', Body: 'hi', NumMedia: '0' });
   assert.match(hint.twiml.messages[0], /Send a photo of the receipt/);
+});
+
+test('saved receipts start the reader right away, once per message; it still answers if GitHub fails', async () => {
+  const photos = { From: 'whatsapp:+19155550000', NumMedia: '2', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg', MediaUrl1: 'https://media/2', MediaContentType1: 'image/jpeg' };
+  const now = await run(photos, { ...context, GITHUB_TOKEN: 'gh' });
+  assert.deepEqual(now.started, [['https://api.github.com/repos/aldosanchez2002/ASMT/actions/workflows/read-receipts.yml/dispatches', 'Bearer gh', { ref: 'main' }]]);
+  assert.equal((await run(photos)).started.length, 0); // no token: the timer reads it
+  const nothing = await run({ From: 'whatsapp:+19155550000', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/heic' }, { ...context, GITHUB_TOKEN: 'gh' });
+  assert.equal(nothing.started.length, 0);
+  const failed = await run(photos, { ...context, GITHUB_TOKEN: 'bad' });
+  assert.match(failed.twiml.messages[0], /^Got it: 2 receipts/);
 });

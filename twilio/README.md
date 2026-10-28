@@ -3,8 +3,9 @@
 The buyer sends a photo of a receipt to the company WhatsApp number. Adding
 the truck to the message ("T-28") ties the receipt to that truck. The Twilio
 Function in `whatsapp-receipt.js` saves each photo as a receipt "Waiting to be
-read", the same as **Upload receipts** in the app, and replies "Got it". The
-"Read receipts" GitHub Action reads it from there.
+read", the same as **Upload receipts** in the app, and replies "Got it". Then
+it starts the "Read receipts" GitHub Action, so the receipt is read within a
+few minutes (see [Read on arrival](#read-on-arrival)).
 
 Only phone numbers listed in `ALLOWED_SENDERS` are accepted; anyone else gets
 no answer.
@@ -60,6 +61,27 @@ right away; replies need the number registered for US texting (A2P 10DLC,
 "Sole Proprietor" works without a business). Until then the Function saves
 texted receipts without answering; once it's registered, add the environment
 variable `SMS_REPLIES` = `yes`.
+
+## Read on arrival
+
+The Function starts the "Read receipts" Action as soon as it saves a photo.
+To allow that, it needs a GitHub token that can only start Actions in this
+repository:
+
+1. GitHub → your picture → **Settings** → **Developer settings** →
+   **Personal access tokens** → **Fine-grained tokens** → **Generate new token**.
+2. Name `Twilio receipts`; pick an expiration (put a reminder in your calendar
+   to renew it); **Repository access** → **Only select repositories** →
+   `ASMT`.
+3. **Permissions** → **Repository permissions** → **Actions**: **Read and
+   write**. Leave everything else at "No access". **Generate token** and copy it.
+4. Twilio → the `receipts` service → **Settings → Environment Variables** →
+   add `GITHUB_TOKEN` with the token. Then **Deploy All**.
+
+Send a test photo: GitHub → **Actions** → **Read receipts** should show a run
+started by "workflow_dispatch" within a few seconds. Without the token (or
+once it expires) nothing breaks: the hourly timer reads the receipt instead,
+and the Function's logs say `start reading: GitHub 401`.
 
 ## Costs and limits
 
