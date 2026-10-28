@@ -33,7 +33,7 @@ export const RECEIPT_SCHEMA = {
           quantity: { type: 'number', description: 'quantity as printed' },
           unitPrice: nullable('number'),
           lineTotal: { ...nullable('number'), description: 'the line amount as printed, before tax (negative for a return or credit)' },
-          kind: { type: 'string', enum: ['part', 'labor', 'core', 'supplies', 'tool', 'credit'], description: 'what the item is (a stock list part is "part")' },
+          kind: { type: 'string', enum: ['part', 'labor', 'core', 'fee', 'supplies', 'tool', 'credit'], description: 'what the item is (a stock list part is "part")' },
           matchPartId: { ...nullable('string'), description: 'id from the stock list, or null if none fits' },
           matchSure: { type: 'boolean', description: 'true only if the part number or an exact name/cross-reference identifies it' },
           matchReason: { type: 'string' },
@@ -66,10 +66,11 @@ Each item gets a kind:
 - part: a part for a truck or trailer (filters, brake drums, sensors, lights, hoses, tires, batteries, oil).
 - labor: labor or a service done by the store or another shop.
 - core: a core charge or core deposit.
+- fee: a charge that comes with an item, like a state battery fee, a tire fee, or a disposal or recycling fee for a part. It goes with that item (and its truck).
 - supplies: shop supplies used up across the fleet (cleaners, degreaser, rags, gloves, grease, shop towels, zip ties).
 - tool: a tool or shop equipment.
 - credit: a return or credit (negative amount).
-Card fees, surcharges, shipping, freight, environmental and shop fees are not items: put them in fees, with the amount as printed. Do not list subtotal, tax or total lines as items or fees.
+Charges for the whole receipt (card fees, surcharges, shipping, freight, shop fees) are not items: put them in fees, with the amount as printed. Do not list subtotal, tax or total lines as items or fees.
 
 Part numbers: some stores print a location or store prefix before the part number, like "104F/DB1655B" or "WAB 432..." for a brand code; give the part number itself ("DB1655B").
 

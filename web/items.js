@@ -10,6 +10,8 @@
 //   part      a repair part bought for a job
 //   labor     outside labor (a dealer or another shop)
 //   core      a core charge (it goes with the part it came with)
+//   fee       a charge that comes with an item (state battery or tire fee,
+//             disposal): it goes with that item too
 //   supplies  shop supplies: cleaners, rags, grease
 //   tool      shop tools
 //   credit    a return or credit (negative)
@@ -30,7 +32,7 @@
 
 export const POOL_KINDS = ['part', 'labor', 'core'];
 export const SHOP_KINDS = ['supplies', 'tool'];
-export const KINDS = ['stock', ...POOL_KINDS, ...SHOP_KINDS, 'credit'];
+export const KINDS = ['stock', ...POOL_KINDS, 'fee', ...SHOP_KINDS, 'credit'];
 // Uses that hold an item (it isn't free to match again).
 export const HOLDING = ['auto', 'doubt', 'confirmed'];
 // Uses that count in what a truck cost.
@@ -83,31 +85,39 @@ export function lineKind(line) {
 export const lineIdOf = (line, i) => line.id ?? `i${i}`;
 export const itemKey = (receiptId, lineId) => `${receiptId}:${lineId}`;
 
+// A fee that comes with an item: kind 'fee', or (older readings) shop
+// supplies that are plainly a battery, tire or disposal fee.
+const isItemFee = (l) => lineKind(l) === 'fee'
+  || (lineKind(l) === 'supplies' && /fee/i.test(l.text ?? '') && /batter|tire|tyre|disposal|environmental|recycl|hazmat/i.test(l.text ?? ''));
+
 /**
- * Core charges go with the part they came with: each core line (and the
- * core return on the same receipt that cancels it, if any) is folded into
- * that part's line, the one whose description shares the most words with it
- * (else the biggest part on the receipt). What's left after a return (its
- * share of tax and fees) or an unreturned core becomes part of that part's
- * cost, so nobody has to match a core to work.
+ * Add-ons go with the part they came with: each core charge (and the core
+ * return on the same receipt that cancels it, if any) and each item fee
+ * (state battery or tire fee, disposal) is folded into that part's line, the
+ * one whose description shares the most words with it (else the biggest
+ * part on the receipt). The add-on's cost (for a returned core, what's left:
+ * its share of tax and fees) becomes part of that part's cost, so nobody has
+ * to match it to work and it lands on the same truck.
  * @returns { extra: Map(lineId -> amount added), absorbed: Set(lineId) }
  */
-export function coreLinks(r) {
+export function addOnLinks(r) {
   const lines = r.lines ?? [];
   const extra = new Map();
   const absorbed = new Set();
   const costOf = (l) => Number(l.cost ?? l.price) || 0;
-  const words = (l) => new Set(String(l.text ?? '').toLowerCase().replace(/\(.*?\)/g, ' ').split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !['core', 'return', 'deposit', 'credit'].includes(w)));
+  const words = (l) => new Set(String(l.text ?? '').toLowerCase().replace(/\(.*?\)/g, ' ').split(/[^a-z0-9]+/).map((w) => w.replace(/(ies|s)$/, (m) => (m === 'ies' ? 'y' : '')))
+    .filter((w) => w.length > 1 && !['core', 'return', 'deposit', 'credit', 'fee', 'sale', 'state', 'texa'].includes(w)));
   const targets = lines.map((l, i) => i).filter((i) => ['stock', 'part'].includes(lineKind(lines[i])));
   const isCoreReturn = (l) => lineKind(l) === 'credit' && /core/i.test(l.text ?? '');
   lines.forEach((core, i) => {
-    if (lineKind(core) !== 'core' || !targets.length) return;
+    const fee = isItemFee(core);
+    if ((lineKind(core) !== 'core' && !fee) || !targets.length) return;
     const mine = words(core);
     const shared = (j) => [...words(lines[j])].filter((w) => mine.has(w)).length;
     const target = targets.reduce((best, j) => (shared(j) > shared(best) || (shared(j) === shared(best) && costOf(lines[j]) > costOf(lines[best])) ? j : best), targets[0]);
     absorbed.add(lineIdOf(core, i));
     let amount = costOf(core);
-    const back = lines.findIndex((l, j) => !absorbed.has(lineIdOf(l, j)) && (isCoreReturn(l) || (lineKind(l) === 'credit' && Math.abs(Number(l.price)) === Math.abs(Number(core.price)))));
+    const back = fee ? -1 : lines.findIndex((l, j) => !absorbed.has(lineIdOf(l, j)) && (isCoreReturn(l) || (lineKind(l) === 'credit' && Math.abs(Number(l.price)) === Math.abs(Number(core.price)))));
     if (back >= 0) {
       absorbed.add(lineIdOf(lines[back], back));
       amount += costOf(lines[back]);
@@ -127,9 +137,10 @@ export function receiptItems(receipts) {
   const out = [];
   for (const r of receipts) {
     if (r.status === 'waiting' || r.status === 'unreadable' || r.status === 'error') continue;
-    const cores = coreLinks(r);
+    const cores = addOnLinks(r);
     (r.lines ?? []).forEach((l, i) => {
-      const kind = lineKind(l);
+      // A fee with no part to go with is a shop cost.
+      const kind = lineKind(l) === 'fee' ? 'supplies' : lineKind(l);
       const lineId = lineIdOf(l, i);
       if (kind === 'stock' || cores.absorbed.has(lineId)) return;
       const qty = Number(l.qty) > 0 ? Number(l.qty) : 1;
@@ -156,7 +167,7 @@ export function stockLots(receipts) {
   const out = [];
   for (const r of receipts) {
     if (!isRead(r)) continue;
-    const cores = coreLinks(r);
+    const cores = addOnLinks(r);
     (r.lines ?? []).forEach((l, i) => {
       if (!l.part || !(Number(l.qty) > 0)) return;
       const qty = Number(l.qty);
@@ -283,7 +294,7 @@ export function receiptMatch(receipt, uses) {
   const lines = receipt.lines ?? [];
   if (state0 === 'waiting' || state0 === 'unreadable' || state0 === 'error') return { state: state0, placed: 0, total: lines.length, open: [] };
   const open = [];
-  const cores = coreLinks(receipt);
+  const cores = addOnLinks(receipt);
   lines.forEach((l, i) => {
     const kind = lineKind(l);
     if (!POOL_KINDS.includes(kind) || cores.absorbed.has(lineIdOf(l, i))) return;

@@ -277,7 +277,7 @@ const TEXT = {
     newVendor: (v) => `New store: "${v}"`,
     noVendorsYet: 'Type the store name',
     kindOpt: {
-      part: 'Repair part (the AI finds the repair)', labor: 'Outside labor', core: 'Core charge',
+      part: 'Repair part (the AI finds the repair)', labor: 'Outside labor', core: 'Core charge', fee: 'Fee for an item (battery, tire, disposal)',
       supplies: 'Shop supplies', tool: 'Tool', credit: 'Return / credit',
     },
     forTruck: (n) => `Repair part for ${n}`,
@@ -614,7 +614,7 @@ const TEXT = {
     newVendor: (v) => `Tienda nueva: "${v}"`,
     noVendorsYet: 'Escribe el nombre de la tienda',
     kindOpt: {
-      part: 'Parte de reparación (la IA busca la reparación)', labor: 'Mano de obra de fuera', core: 'Cargo de core',
+      part: 'Parte de reparación (la IA busca la reparación)', labor: 'Mano de obra de fuera', core: 'Cargo de core', fee: 'Cargo de una pieza (batería, llanta, desecho)',
       supplies: 'Material del taller', tool: 'Herramienta', credit: 'Devolución / crédito',
     },
     forTruck: (n) => `Parte de reparación para ${n}`,

@@ -3613,7 +3613,7 @@ function openReceipt(id) {
   // Where a line goes: a stock part, a kind (repair parts go to the pool,
   // where the AI finds their repair), or a repair part for a known truck.
   const truckOptions = [...vehicles].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true })).map((v) => [`truck:${v.id}`, v.name]);
-  const kindOptions = ['part', 'labor', 'core', 'supplies', 'tool', 'credit'].map((k) => [`kind:${k}`, t('kindOpt')[k]]);
+  const kindOptions = ['part', 'labor', 'core', 'fee', 'supplies', 'tool', 'credit'].map((k) => [`kind:${k}`, t('kindOpt')[k]]);
   const partOptions = [['', t('choosePart')], ...activeParts().map((p) => [`part:${p.id}`, [p.name, p.number].filter(Boolean).join(' · ')]), ...kindOptions, ...truckOptions.map(([v, n]) => [v, t('forTruck', n)])];
   const linesBox = el('div', 'receipt-lines');
   const tax = numberInput(r?.tax ?? '');
