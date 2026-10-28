@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  accuracy, auditQueue, costEvents, receiptWork, landedCosts, lineKind, oldStock, openItems, receiptItems, remainingQty, ruleUses,
+  accuracy, auditQueue, costEvents, receiptMatch, receiptWork, landedCosts, lineKind, oldStock, openItems, receiptItems, remainingQty, ruleUses,
   shopShare, spending, stockLots,
 } from '../web/items.js';
 
@@ -191,4 +191,20 @@ test('the work a receipt went into: its repairs, earliest first, unsure ones mar
     ['2026-10-25', 'T-19', 'Ajuste de frenos', false],
   ]);
   assert.deepEqual(receiptWork(receipts[3], uses, log), []);
+});
+
+test('a receipt is waiting, read (some lines open) or matched (every line has a place)', () => {
+  assert.equal(receiptMatch({ id: 'w', status: 'waiting', lines: [] }, []).state, 'waiting');
+  assert.equal(receiptMatch({ ...fleetPride, status: 'review' }, []).state, 'review');
+  // Stock and shop lines have a place once read; the drum and headlamp need work.
+  const none = receiptMatch(fleetPride, []);
+  assert.deepEqual([none.state, none.placed, none.total, none.open.map((x) => [x.lineId, x.why])], ['read', 3, 5, [['d', 'setAside'], ['h', 'setAside']]]);
+  const drum = { receiptId: 'fp', lineId: 'd', qty: 1, logId: 'e2', status: 'auto' };
+  const lamp = { receiptId: 'fp', lineId: 'h', qty: 1, logId: 'e4', status: 'doubt' };
+  const half = receiptMatch(fleetPride, [drum, lamp]);
+  assert.deepEqual([half.state, half.placed, half.open.map((x) => [x.lineId, x.why])], ['read', 4, [['h', 'doubt']]]);
+  assert.equal(receiptMatch(fleetPride, [drum, { ...lamp, status: 'confirmed' }]).state, 'matched');
+  // Admin saying it's still on the shelf, or the shop used it, is a place too.
+  assert.equal(receiptMatch(fleetPride, [drum, { receiptId: 'fp', lineId: 'h', qty: 0, status: 'snooze', by: 'admin' }]).state, 'matched');
+  assert.equal(receiptMatch(fleetPride, [drum, { receiptId: 'fp', lineId: 'h', qty: 1, shop: true, status: 'confirmed' }]).state, 'matched');
 });

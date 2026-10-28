@@ -32,7 +32,7 @@ import {
 import { downloadLog, downloadTruckRecord } from './records.js';
 import {
   POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isRepair, itemKey, landedCosts,
-  lineKind, oldStock, openItems, receiptItems, receiptWork, repairText, shopShare, spending, stockLots,
+  lineKind, oldStock, openItems, receiptItems, receiptMatch, receiptWork, repairText, shopShare, spending, stockLots,
 } from './items.js';
 import { fleetBreakdown, periodsFor, unitBreakdown, workKind } from './analytics.js';
 
@@ -2330,17 +2330,37 @@ function partsReceipts() {
   });
   const out = [el('h2', 'parts-title', t('receiptsTitle')), el('p', 'parts-intro', t('receiptsIntro')), upload, picker];
   // Newest upload first, so a receipt just uploaded is always on top.
-  const list = [...receipts].sort((a, b) => b.createdMs - a.createdMs || (b.date ?? '').localeCompare(a.date ?? ''));
-  if (!list.length) out.push(el('p', 'parts-empty', t('noReceipts')));
-  for (const r of list) {
-    const status = shownStatus(r, admin);
+  const all = [...receipts].sort((a, b) => b.createdMs - a.createdMs || (b.date ?? '').localeCompare(a.date ?? ''))
+    .map((r) => ({ r, match: receiptMatch(r, itemUses) }));
+  if (!all.length) out.push(el('p', 'parts-empty', t('noReceipts')));
+  // Admin can narrow the list: needs a look, not matched yet, matched.
+  const inFilter = (x, f) => f === 'all' || (f === 'review' ? ['review', 'unreadable', 'error'].includes(x.match.state)
+    : f === 'open' ? ['waiting', 'read'].includes(x.match.state) : x.match.state === 'matched');
+  if (admin && all.length) {
+    const bar = el('div', 'receipt-filter');
+    bar.setAttribute('role', 'tablist');
+    for (const f of RECEIPT_FILTERS) {
+      const b = el('button', receiptFilter === f ? 'active' : '');
+      b.type = 'button';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', String(receiptFilter === f));
+      b.append(el('span', null, t('receiptFilter')[f]), el('span', 'receipt-filter-count', String(all.filter((x) => inFilter(x, f)).length)));
+      b.addEventListener('click', () => { receiptFilter = f; renderParts(); });
+      bar.append(b);
+    }
+    out.push(bar);
+  }
+  const list = admin ? all.filter((x) => inFilter(x, receiptFilter)) : all;
+  if (all.length && !list.length) out.push(el('p', 'parts-empty', t('noReceiptsHere')));
+  for (const { r, match } of list) {
+    const status = !admin && match.state === 'review' ? (match.open.length ? 'read' : 'matched') : match.state;
     const card = el('div', `receipt-card status-${status}`);
     const row = el('button', 'receipt-row');
     row.type = 'button';
     row.append(
       el('span', 'receipt-vendor', r.vendor || t('noVendor')),
       el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
-      el('span', 'receipt-status', t('receiptStatus')[status] ?? status),
+      el('span', 'receipt-status', status === 'read' ? t('readOf', match.placed, match.total) : t('receiptStatus')[status] ?? status),
       el('span', 'receipt-meta', receiptMeta(r, r.lines?.length ? t('lineCount', r.lines.length) : null)),
     );
     // Admin fixes and sorts lines; the buyer sees what was read.
@@ -2359,6 +2379,22 @@ function partsReceipts() {
 // In the history the buyer sees a receipt as read once it's read; the lines
 // that still need placing are admin's (Review tab).
 const shownStatus = (r, admin) => (!admin && r.status === 'review' ? 'read' : r.status ?? 'read');
+const RECEIPT_FILTERS = ['all', 'review', 'open', 'matched'];
+let receiptFilter = 'all';
+
+// The lines of a receipt not tied to work yet, and why.
+function openLinesBox(r) {
+  const { open } = receiptMatch(r, itemUses);
+  if (!open.length || ['waiting', 'unreadable', 'error'].includes(r.status)) return [];
+  const box = el('div', 'open-lines');
+  box.append(el('div', 'open-lines-title', `${t('openLinesTitle')} · ${open.length}`));
+  for (const x of open) {
+    const row = el('div', `open-line open-${x.why}`);
+    row.append(el('strong', null, x.text || t('receipt')), el('span', null, t('openWhy')[x.why]));
+    box.append(row);
+  }
+  return [box];
+}
 
 // Receipts with lines the reader couldn't place (or whose math is off).
 const toCheck = () => receipts.filter((r) => r.status === 'review').sort((a, b) => b.createdMs - a.createdMs);
@@ -2470,9 +2506,11 @@ function viewReceipt(id) {
   const r = receipts.find((x) => x.id === id);
   if (!r) return;
   const status = shownStatus(r, false);
-  const body = partsDialog(r.vendor || t('receipt'), [dateText(r.date), t('receiptStatus')[status]].filter(Boolean).join(' · '));
+  const match = receiptMatch(r, itemUses);
+  const shown = status === 'read' ? (match.open.length ? t('readOf', match.placed, match.total) : t('receiptStatus').matched) : t('receiptStatus')[status];
+  const body = partsDialog(r.vendor || t('receipt'), [dateText(r.date), shown].filter(Boolean).join(' · '));
   if (r.note) body.append(el('p', 'receipt-note', t('buyerNote', r.note)));
-  body.append(receiptDates(r));
+  body.append(receiptDates(r), ...openLinesBox(r));
   if (status === 'waiting') body.append(el('p', 'parts-hint', t('waitingHint')));
   if (status === 'unreadable' || status === 'error') body.append(el('p', 'need-missing', `${t('unreadableHint')} ${(r.problems ?? []).concat(r.readError ?? []).join(' ')}`));
   const lines = el('div', 'buy-lines receipt-view');
@@ -3522,7 +3560,7 @@ function openReceipt(id) {
   const r = id ? receipts.find((x) => x.id === id) : null;
   const body = partsDialog(r ? (r.vendor || t('receipt')) : t('newReceipt'), r ? dateText(r.date) : null);
   if (r?.note) body.append(el('p', 'receipt-note', t('buyerNote', r.note)));
-  if (r) body.append(receiptDates(r));
+  if (r) body.append(receiptDates(r), ...openLinesBox(r));
   const form = pform();
   const today = new Date().toLocaleDateString('en-CA');
   const state = {

@@ -754,13 +754,14 @@ dialog#work::backdrop { background: rgba(0, 0, 0, .45); }
   --floor-yellow: #ffc400;
   --floor-red: #d0021b;
   --floor-track: #e2e0da;
+  --floor-field: #fff; /* inputs: a well set into the card */
   --cond: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --floor-bg: #16181b; --floor-ink: #f2f2f2; --floor-paper: #202327; --floor-line: #f2f2f2;
-    --floor-muted: #a6a6a6; --floor-track: #34383e; --floor-red: #ff4d5e;
+    --floor-muted: #bcbcbc; --floor-track: #34383e; --floor-red: #ff4d5e; --floor-field: #121417;
   }
 }
 
@@ -1156,12 +1157,14 @@ body.shop-mode .fault-line.fault-soft::before, #truck .fault-line.fault-soft::be
 #settings-view .settings-form { display: grid; gap: 0; }
 #settings-view .setting-row { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--floor-track, var(--border)); }
 #settings-view .setting-label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
-#settings-view .setting-row input { width: 100%; box-sizing: border-box; min-height: 48px; padding: 0 12px; font: inherit; font-size: 17px; border: 2px solid var(--floor-line); border-radius: 0; background: #fff; color: var(--floor-ink, inherit); }
+#settings-view .setting-row input { width: 100%; box-sizing: border-box; min-height: 48px; padding: 0 12px; font: inherit; font-size: 17px; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-field); color: var(--floor-ink); }
+#settings-view .setting-row input::placeholder { color: var(--floor-muted); opacity: 1; }
+#settings-view .setting-row input:focus-visible, #settings-view .choice-pair button:focus-visible { outline: 3px solid var(--floor-yellow); outline-offset: 0; }
 #settings-view .input-unit { display: flex; }
 #settings-view .input-unit input { border-right: none; }
-#settings-view .input-unit span { display: flex; align-items: center; padding: 0 12px; border: 2px solid var(--floor-line); background: var(--floor-track, #eee); font-weight: 700; }
+#settings-view .input-unit span { display: flex; align-items: center; padding: 0 12px; border: 2px solid var(--floor-line); background: var(--floor-track); color: var(--floor-ink); font-weight: 700; }
 #settings-view .choice-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-#settings-view .choice-pair button { min-height: 48px; padding: 6px 8px; border: 2px solid var(--floor-line); border-radius: 0; background: #fff; color: var(--floor-ink, inherit); font: 700 15px var(--cond); text-transform: uppercase; letter-spacing: .03em; line-height: 1.15; cursor: pointer; }
+#settings-view .choice-pair button { min-height: 48px; padding: 6px 8px; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-field); color: var(--floor-ink); font: 700 15px var(--cond); text-transform: uppercase; letter-spacing: .03em; line-height: 1.15; cursor: pointer; }
 #settings-view .choice-pair button.active { background: #111; border-color: #111; color: var(--floor-yellow); }
 #settings-view .setting-help { margin: 0; font-size: 13px; color: var(--floor-muted, var(--muted)); }
 #settings-view .miles-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 700; }
@@ -1326,7 +1329,22 @@ body.shop-mode .parts-side button, #parts-view .parts-side button { font-size: 1
 .receipt-status { grid-column: 1 / -1; justify-self: start; padding: 2px 8px; background: var(--floor-track); font: 800 13px var(--cond); letter-spacing: .04em; text-transform: uppercase; }
 .status-review .receipt-status { background: var(--floor-yellow); color: #111; }
 .status-unreadable .receipt-status, .status-error .receipt-status { background: var(--floor-red); color: #fff; }
-.status-read .receipt-status { background: #2e7d32; color: #fff; }
+.receipt-card.status-read { border-left-color: var(--floor-ink); }
+.status-read .receipt-status { background: var(--floor-paper); color: var(--floor-ink); box-shadow: inset 0 0 0 2px var(--floor-line); }
+.status-matched .receipt-status { background: #2e7d32; color: #fff; }
+/* Admin's receipt filter: square tabs like the rest of admin */
+.receipt-filter { display: grid; grid-template-columns: repeat(4, 1fr); margin: 12px 0 4px; border: 2px solid var(--floor-line); }
+.receipt-filter button { display: grid; align-content: center; justify-items: center; gap: 2px; min-height: 52px; padding: 4px; border: none; background: var(--floor-paper); color: var(--floor-ink); font: 800 14px/1.05 var(--cond); letter-spacing: .04em; text-transform: uppercase; text-align: center; cursor: pointer; }
+.receipt-filter button + button { border-left: 2px solid var(--floor-line); }
+.receipt-filter button.active { background: #111; color: var(--floor-yellow); }
+.receipt-filter button:focus-visible { outline: 3px solid var(--floor-yellow); outline-offset: -3px; }
+.receipt-filter-count { font-size: 18px; }
+.open-lines { margin: 4px 0 10px; border: 2px solid var(--floor-line); border-left: 8px solid var(--floor-ink); background: var(--floor-paper); }
+.open-lines-title { padding: 6px 10px; font: 800 13px var(--cond); text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid var(--floor-track); }
+.open-line { display: grid; gap: 1px; padding: 6px 10px; font-size: 14px; }
+.open-line + .open-line { border-top: 1px solid var(--floor-track); }
+.open-line span { color: var(--floor-muted); }
+.open-line.open-doubt { box-shadow: inset 6px 0 0 var(--floor-yellow); }
 .receipt-photo-link { display: block; width: 100%; min-height: 44px; border: 2px solid var(--floor-line); border-top: none; background: var(--floor-paper); color: var(--floor-ink); font: 800 14px var(--cond); letter-spacing: .05em; text-transform: uppercase; text-align: left; padding: 0 12px; cursor: pointer; }
 .receipt-full { display: block; width: 100%; height: auto; margin-bottom: 14px; border: 2px solid var(--floor-line); background: #fff; }
 .receipt-view { margin: 8px 0; }

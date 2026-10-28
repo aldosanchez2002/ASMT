@@ -230,6 +230,35 @@ export const inWindow = (item, entry) => {
 };
 
 /**
+ * How far a receipt has got: 'waiting' (not read yet), 'review' (the reader
+ * wasn't sure: admin checks it), 'unreadable'/'error', 'read' (some lines
+ * not tied to work yet) or 'matched' (every line has a place). A line has a
+ * place when it's a shop cost (supplies, tools, returns), stock (being on the
+ * shelf is a place), or a repair part, labor or core whose whole quantity is
+ * tied to work or a truck (counted), or that admin said the shop used or is
+ * still on the shelf.
+ * @returns { state, placed, total, open: [{ lineId, text, why: 'doubt'|'setAside'|'noWork' }] }
+ */
+export function receiptMatch(receipt, uses) {
+  const state0 = receipt.status ?? 'read';
+  const lines = receipt.lines ?? [];
+  if (state0 === 'waiting' || state0 === 'unreadable' || state0 === 'error') return { state: state0, placed: 0, total: lines.length, open: [] };
+  const open = [];
+  lines.forEach((l, i) => {
+    const kind = lineKind(l);
+    if (!POOL_KINDS.includes(kind)) return;
+    const mine = usesFor(itemKey(receipt.id, lineIdOf(l, i)), uses);
+    const qty = Number(l.qty) > 0 ? Number(l.qty) : 1;
+    const done = mine.filter((u) => COUNTED.includes(u.status)).reduce((s, u) => s + (Number(u.qty) || 0), 0);
+    if (done >= qty - 1e-9 || mine.some((u) => u.status === 'snooze' && u.by === 'admin')) return;
+    const why = mine.some((u) => u.status === 'doubt') ? 'doubt' : l.to === 'truck' && l.vehicleId ? 'setAside' : 'noWork';
+    open.push({ lineId: lineIdOf(l, i), text: l.text ?? '', why });
+  });
+  const state = state0 === 'review' ? 'review' : open.length ? 'read' : 'matched';
+  return { state, placed: lines.length - open.length, total: lines.length, open };
+}
+
+/**
  * When the work a receipt's parts went into was done: the repairs its lines
  * are tied to (one receipt can cover several), earliest first. A match the AI
  * wasn't sure of is `sure: false` until admin confirms it.
