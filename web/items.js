@@ -84,6 +84,41 @@ export const lineIdOf = (line, i) => line.id ?? `i${i}`;
 export const itemKey = (receiptId, lineId) => `${receiptId}:${lineId}`;
 
 /**
+ * Core charges go with the part they came with: each core line (and the
+ * core return on the same receipt that cancels it, if any) is folded into
+ * that part's line, the one whose description shares the most words with it
+ * (else the biggest part on the receipt). What's left after a return (its
+ * share of tax and fees) or an unreturned core becomes part of that part's
+ * cost, so nobody has to match a core to work.
+ * @returns { extra: Map(lineId -> amount added), absorbed: Set(lineId) }
+ */
+export function coreLinks(r) {
+  const lines = r.lines ?? [];
+  const extra = new Map();
+  const absorbed = new Set();
+  const costOf = (l) => Number(l.cost ?? l.price) || 0;
+  const words = (l) => new Set(String(l.text ?? '').toLowerCase().replace(/\(.*?\)/g, ' ').split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !['core', 'return', 'deposit', 'credit'].includes(w)));
+  const targets = lines.map((l, i) => i).filter((i) => ['stock', 'part'].includes(lineKind(lines[i])));
+  const isCoreReturn = (l) => lineKind(l) === 'credit' && /core/i.test(l.text ?? '');
+  lines.forEach((core, i) => {
+    if (lineKind(core) !== 'core' || !targets.length) return;
+    const mine = words(core);
+    const shared = (j) => [...words(lines[j])].filter((w) => mine.has(w)).length;
+    const target = targets.reduce((best, j) => (shared(j) > shared(best) || (shared(j) === shared(best) && costOf(lines[j]) > costOf(lines[best])) ? j : best), targets[0]);
+    absorbed.add(lineIdOf(core, i));
+    let amount = costOf(core);
+    const back = lines.findIndex((l, j) => !absorbed.has(lineIdOf(l, j)) && (isCoreReturn(l) || (lineKind(l) === 'credit' && Math.abs(Number(l.price)) === Math.abs(Number(core.price)))));
+    if (back >= 0) {
+      absorbed.add(lineIdOf(lines[back], back));
+      amount += costOf(lines[back]);
+    }
+    const id = lineIdOf(lines[target], target);
+    extra.set(id, round2((extra.get(id) ?? 0) + amount));
+  });
+  return { extra, absorbed };
+}
+
+/**
  * Every non-stock line of the receipts that have been read, as items.
  * @returns [{ key, receiptId, lineId, text, partNumber, kind, qty, cost,
  *   unitCost, date, vendor, vehicleId, truckChoices, note }]
@@ -92,12 +127,14 @@ export function receiptItems(receipts) {
   const out = [];
   for (const r of receipts) {
     if (r.status === 'waiting' || r.status === 'unreadable' || r.status === 'error') continue;
+    const cores = coreLinks(r);
     (r.lines ?? []).forEach((l, i) => {
       const kind = lineKind(l);
-      if (kind === 'stock') return;
-      const qty = Number(l.qty) > 0 ? Number(l.qty) : 1;
-      const cost = l.cost ?? (l.price == null || l.price === '' ? null : Number(l.price));
       const lineId = lineIdOf(l, i);
+      if (kind === 'stock' || cores.absorbed.has(lineId)) return;
+      const qty = Number(l.qty) > 0 ? Number(l.qty) : 1;
+      const base = l.cost ?? (l.price == null || l.price === '' ? null : Number(l.price));
+      const cost = base == null ? null : round2(base + (cores.extra.get(lineId) ?? 0));
       out.push({
         key: itemKey(r.id, lineId), receiptId: r.id, lineId, text: l.text ?? '', partNumber: l.partNumber ?? null,
         kind, qty, cost, unitCost: cost == null ? null : cost / qty, date: r.date ?? null, vendor: r.vendor ?? '',
@@ -119,11 +156,13 @@ export function stockLots(receipts) {
   const out = [];
   for (const r of receipts) {
     if (!isRead(r)) continue;
+    const cores = coreLinks(r);
     (r.lines ?? []).forEach((l, i) => {
       if (!l.part || !(Number(l.qty) > 0)) return;
       const qty = Number(l.qty);
-      const cost = l.cost ?? (l.price == null || l.price === '' ? null : Number(l.price));
       const lineId = lineIdOf(l, i);
+      const base = l.cost ?? (l.price == null || l.price === '' ? null : Number(l.price));
+      const cost = base == null ? null : round2(base + (cores.extra.get(lineId) ?? 0));
       out.push({
         key: itemKey(r.id, lineId), receiptId: r.id, lineId, part: l.part, qty, cost, unitCost: cost == null ? null : cost / qty,
         date: r.date ?? null, vendor: r.vendor ?? '', forIds: (l.for ?? []).map((u) => u.id).filter(Boolean),
@@ -244,9 +283,10 @@ export function receiptMatch(receipt, uses) {
   const lines = receipt.lines ?? [];
   if (state0 === 'waiting' || state0 === 'unreadable' || state0 === 'error') return { state: state0, placed: 0, total: lines.length, open: [] };
   const open = [];
+  const cores = coreLinks(receipt);
   lines.forEach((l, i) => {
     const kind = lineKind(l);
-    if (!POOL_KINDS.includes(kind)) return;
+    if (!POOL_KINDS.includes(kind) || cores.absorbed.has(lineIdOf(l, i))) return;
     const mine = usesFor(itemKey(receipt.id, lineIdOf(l, i)), uses);
     const qty = Number(l.qty) > 0 ? Number(l.qty) : 1;
     const done = mine.filter((u) => COUNTED.includes(u.status)).reduce((s, u) => s + (Number(u.qty) || 0), 0);

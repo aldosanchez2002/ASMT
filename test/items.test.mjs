@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  accuracy, auditQueue, costEvents, receiptMatch, receiptWork, landedCosts, lineKind, oldStock, openItems, receiptItems, remainingQty, ruleUses,
+  accuracy, auditQueue, coreLinks, costEvents, receiptMatch, receiptWork, landedCosts, lineKind, oldStock, openItems, receiptItems, remainingQty, ruleUses,
   shopShare, spending, stockLots,
 } from '../web/items.js';
 
@@ -207,4 +207,30 @@ test('a receipt is waiting, read (some lines open) or matched (every line has a 
   // Admin saying it's still on the shelf, or the shop used it, is a place too.
   assert.equal(receiptMatch(fleetPride, [drum, { receiptId: 'fp', lineId: 'h', qty: 0, status: 'snooze', by: 'admin' }]).state, 'matched');
   assert.equal(receiptMatch(fleetPride, [drum, { receiptId: 'fp', lineId: 'h', qty: 1, shop: true, status: 'confirmed' }]).state, 'matched');
+});
+
+test('a core charge and its return go with the battery they came with (Tony\'s Doggett receipt)', () => {
+  const doggett = {
+    id: 'dg', status: 'read', date: '2026-10-27', vendor: 'Doggett',
+    lines: [
+      { id: 'b', kind: 'stock', part: 'battery', text: 'BATTERY-12V, GRP 31, COMM, 730', qty: 4, price: 399.96, cost: 430.82, to: 'stock' },
+      { id: 'c', kind: 'core', text: 'BATTERY-12V, GRP 31, COMM, 730CCA (core)', qty: 4, price: 135, cost: 145.42 },
+      { id: 'f', kind: 'supplies', text: 'TEXAS BATTERY SALES FEE', qty: 4, price: 12, cost: 12.93, to: 'shop' },
+      { id: 'r', kind: 'credit', text: 'BATTERY-12V, GRP 31, COMM, 730 (core return)', qty: -4, price: -135, cost: -135 },
+    ],
+  };
+  const links = coreLinks(doggett);
+  assert.deepEqual([[...links.extra], [...links.absorbed]], [[['b', 10.42]], ['c', 'r']]);
+  assert.deepEqual(stockLots([doggett]).map((l) => l.cost), [441.24]);
+  assert.deepEqual(receiptItems([doggett]).map((it) => it.key), ['dg:f']); // no core to match, no -$135 shop credit
+  const t23 = [{ id: 'w', date: '2026-10-27', vehicleId: 'v23', vehicleName: 'T-23', type: 'batteries', partsUsed: { battery: 4 } }];
+  const uses = ruleUses({ receipts: [doggett], uses: [], log: t23 });
+  const m = receiptMatch(doggett, uses);
+  assert.deepEqual([m.state, m.placed, m.total], ['matched', 4, 4]);
+  // Every dollar of the receipt lands somewhere: T-23 $441.24 + shop fee $12.93 = $454.17.
+  const ev = costEvents({ receipts: [doggett], uses, log: t23 });
+  assert.deepEqual(ev.map((e) => [e.kind, e.amount]), [['parts', 441.24], ['supplies', 12.93]]);
+  // A core never returned is part of the battery's cost.
+  const kept = { ...doggett, lines: doggett.lines.slice(0, 3) };
+  assert.deepEqual(stockLots([kept]).map((l) => l.cost), [576.24]);
 });
