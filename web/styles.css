@@ -1451,6 +1451,30 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
 .an-more { width: 100%; margin-top: 6px; }
 
+/* Receipt buttons: every cost opens the receipt it came from */
+.rc-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 2px solid var(--floor-line); background: var(--floor-paper); color: var(--floor-ink); font: 700 13px/1.3 var(--cond); letter-spacing: .03em; white-space: nowrap; cursor: pointer; }
+.rc-chip:hover, .rc-chip:focus-visible { background: var(--floor-yellow); color: #111; outline: none; }
+.rc-chip svg { flex: none; }
+.rc-chip.rc-none { border-style: dashed; border-color: var(--floor-red); color: var(--floor-red); cursor: default; background: none; }
+.an-tag { display: inline-block; padding: 1px 6px; border: 1.5px solid var(--floor-muted); color: var(--floor-muted); font: 700 12px/1.3 var(--cond); text-transform: uppercase; letter-spacing: .05em; }
+.an-cost .an-row-text { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.an-cost-waiting .an-row-amount, .an-cost-unpriced .an-row-amount { color: var(--floor-muted); }
+.an-share { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0 0; padding: 10px 12px; border: 2px solid var(--floor-line); background: var(--floor-paper); font-size: 14px; cursor: pointer; }
+.an-share input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: #111; }
+.an-receipts { display: grid; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.an-receipt { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center; padding: 8px 12px; font-size: 14px; }
+.an-receipt + .an-receipt { border-top: 1px solid var(--floor-track); }
+.an-receipt .rc-chip { justify-self: start; }
+.an-receipt-what { min-width: 0; overflow-wrap: anywhere; color: var(--floor-muted); }
+@media (max-width: 480px) { .an-receipt { grid-template-columns: 1fr auto; } .an-receipt-what { grid-column: 1 / -1; grid-row: 2; } }
+.receipt-context { margin: 0 0 6px; padding: 8px 10px; background: var(--floor-yellow); color: #111; font-weight: 700; }
+.batch-list { display: grid; border: 2px solid var(--floor-line); }
+.batch-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 6px 10px; font-size: 14px; }
+.batch-row + .batch-row { border-top: 1px solid var(--floor-track); }
+.batch-qty { font-weight: 700; }
+.batch-cost { color: var(--floor-muted); white-space: nowrap; }
+.batch-empty .batch-qty, .batch-empty .batch-cost { color: var(--floor-muted); font-weight: 400; }
+
 /* A receipt's dates: sent, on the receipt, work done */
 .receipt-dates { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 4px 0 10px; padding: 8px 10px; border: 2px solid var(--floor-line); background: var(--floor-paper); font-size: 14px; }
 .receipt-dates dt { font: 800 13px var(--cond); text-transform: uppercase; letter-spacing: .05em; color: var(--floor-muted); padding-top: 2px; }

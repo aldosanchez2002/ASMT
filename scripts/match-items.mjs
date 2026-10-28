@@ -1,11 +1,14 @@
-// Ties bought items (repair parts, labor, cores from read receipts) to the
-// repairs they were used in, with Claude. Run by the "Read receipts" GitHub
-// Action right after the receipts are read. Each suggestion becomes an
-// itemUses doc: sure ones count right away, the rest wait for admin (AI
-// matches tab). It first asks Firestore whether anything new happened since
-// its last check (a few reads) and stops if not; otherwise it loads only
-// recent receipts, matches and repairs, and skips the Claude call when the
-// open items and repairs are the same as last time.
+// Ties what was bought to the work it went into. Run by the "Read receipts"
+// GitHub Action right after the receipts are read, in two passes:
+//   1. Rules (no AI): what the work log says it used (oil, filters, tires,
+//      batteries) comes out of the oldest batch of that part (ruleUses in
+//      web/items.js).
+//   2. Claude: repair parts, labor and cores are matched to the repairs they
+//      were used in. Sure ones count right away, the rest wait for admin.
+// Each tie is an itemUses doc. It first asks Firestore whether anything new
+// happened since its last check (a few reads) and stops if not; otherwise it
+// loads only recent receipts, matches and repairs, and skips the Claude call
+// when the open items and repairs are the same as last time.
 //
 // Needs ANTHROPIC_API_KEY (the AS_LOG_KEY GitHub secret). Without it, does nothing.
 // Usage: node scripts/match-items.mjs [--dry-run]   (dry run: match, don't
@@ -16,7 +19,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { commit, getDoc, listDocs, mergeWrite, queryDocs, setWrite } from './firestore-rest.mjs';
 import { memoryText } from './ai-memory.mjs';
 import { MATCH_PROMPT, MATCH_SCHEMA, candidateRepairs, matchContext, matchSignature, usesFromAnswer } from './item-matcher.mjs';
-import { openItems, receiptItems, repairEntries } from '../web/items.js';
+import { openItems, receiptItems, repairEntries, ruleUses } from '../web/items.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const daysAgo = (n) => new Date(Date.now() - n * DAY_MS);
@@ -72,8 +75,6 @@ async function main() {
     }
     console.log(`New since the last check: ${why}.`);
   }
-  // Remember this check, so the next run only looks for what's newer.
-  const markChecked = (fields = {}) => (dryRun ? null : commit([mergeWrite('meta/matcher', { checkedAt: startedAt, ...fields })]));
 
   // Only recent data: pool items are matched for 60 days after purchase, to
   // repairs up to 90 days back. Matches are always made after their receipt.
@@ -88,6 +89,20 @@ async function main() {
   // A dry run sees the receipts the dry-run reader just read as if saved.
   const justRead = dryRun && existsSync('dry-run-receipts.json') ? JSON.parse(readFileSync('dry-run-receipts.json', 'utf8')) : [];
   const receipts = [...saved.filter((r) => !justRead.some((x) => x.id === r.id)), ...justRead];
+
+  // Pass 1: the rules. What the work log used comes out of the oldest batch.
+  const rule = ruleUses({ receipts, uses, log });
+  for (const u of rule) console.log(`  RULE ${u.vehicleName ?? u.vehicleId}: ${u.qty} x ${u.part} from receipt ${u.receiptId}`);
+  console.log(`${rule.length} use(s) of stock by rule.`);
+  const ruleWrites = rule.map((u) => {
+    const id = newId();
+    return setWrite(`itemUses/${id}`, { ...u, id }, 'createdAt');
+  });
+  uses.push(...rule);
+  // Remember this check (with the rule uses), so the next run only looks for what's newer.
+  const markChecked = (fields = {}) => (dryRun ? null : commit([...ruleWrites, mergeWrite('meta/matcher', { checkedAt: startedAt, ...fields })]));
+
+  // Pass 2: Claude, for repair parts, labor and cores.
   const allItems = receiptItems(receipts);
   const open = openItems(allItems, uses, { today });
   const repairs = candidateRepairs(open, repairEntries(log, { today, days: 90 }));
@@ -104,6 +119,7 @@ async function main() {
   }
   if (!process.env.ANTHROPIC_API_KEY) {
     console.log('No Claude API key is set (GitHub secret AS_LOG_KEY).');
+    if (ruleWrites.length && !dryRun) await commit(ruleWrites);
     return;
   }
 
@@ -117,10 +133,10 @@ async function main() {
   }
   console.log(`${found.filter((u) => u.status === 'auto').length} sure, ${found.filter((u) => u.status === 'doubt').length} for admin to check${dryRun ? ' (dry run, nothing saved)' : ''}.`);
   if (dryRun) return;
-  const writes = found.map(({ itemText, daysApart, ...u }) => {
+  const writes = [...ruleWrites, ...found.map(({ itemText, daysApart, ...u }) => {
     const id = newId();
     return setWrite(`itemUses/${id}`, { ...u, id, itemText }, 'createdAt');
-  });
+  })];
   // What's left open after these matches: the next run skips Claude unless
   // something new comes in (a receipt, a repair, admin freeing an item).
   const after = openItems(allItems, [...uses, ...found], { today });

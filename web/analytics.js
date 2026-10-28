@@ -106,17 +106,23 @@ export function milesIn(days, from, to) {
  * @param log serviceLog entries
  * @param days the unit's odometerDaily days (trucks), or null
  * @returns { rows: [{ key, label, from, to, miles, service, repair, tires,
- *   batteries, shelf, items, total, perMile }], totals: same fields summed }
+ *   batteries, parts, unpriced, total, perMile }], totals: same fields summed }
+ *   (parts: what its work used, each from a receipt; unpriced: how many
+ *   things it used that no receipt covers yet)
  */
 export function unitBreakdown({ unitId, periods, events, log, days = null }) {
   const mine = events.filter((ev) => ev.unitId === unitId && ev.date);
   const work = log.filter((e) => e.vehicleId === unitId && e.date && workKind(e));
   const rows = periods.map((p) => {
     const inP = (d) => d >= p.from && d <= p.to;
-    const row = { ...p, miles: days ? milesIn(days, p.from, p.to) : null, service: 0, repair: 0, tires: 0, batteries: 0, shelf: 0, items: 0 };
+    const row = { ...p, miles: days ? milesIn(days, p.from, p.to) : null, service: 0, repair: 0, tires: 0, batteries: 0, parts: 0, unpriced: 0 };
     for (const e of work) if (inP(e.date)) row[workKind(e)] += 1;
-    for (const ev of mine) if (inP(ev.date) && (ev.kind === 'shelf' || ev.kind === 'items')) row[ev.kind] = round2(row[ev.kind] + ev.amount);
-    row.total = round2(row.shelf + row.items);
+    for (const ev of mine) {
+      if (!inP(ev.date)) continue;
+      if (ev.kind === 'parts') row.parts = round2(row.parts + ev.amount);
+      if (ev.kind === 'unpriced') row.unpriced += 1;
+    }
+    row.total = row.parts;
     row.perMile = row.miles ? round2(row.total / row.miles) : null;
     return row;
   });
@@ -125,7 +131,7 @@ export function unitBreakdown({ unitId, periods, events, log, days = null }) {
   const total = round2(sum('total'));
   const totals = {
     miles, service: sum('service'), repair: sum('repair'), tires: sum('tires'), batteries: sum('batteries'),
-    shelf: round2(sum('shelf')), items: round2(sum('items')), total, perMile: miles ? round2(total / miles) : null,
+    parts: round2(sum('parts')), unpriced: sum('unpriced'), total, perMile: miles ? round2(total / miles) : null,
   };
   return { rows, totals };
 }
@@ -152,9 +158,9 @@ export function fleetBreakdown({ units, periods, events, log, daysById = {} }) {
     const shop = shopOf(p);
     const row = {
       ...p, miles, service: add('service'), repair: add('repair'), tires: add('tires'), batteries: add('batteries'),
-      shelf: round2(add('shelf')), items: round2(add('items')), shop,
+      parts: round2(add('parts')), unpriced: add('unpriced'), shop,
     };
-    row.total = round2(row.shelf + row.items + shop);
+    row.total = round2(row.parts + shop);
     row.perMile = miles ? round2(row.total / miles) : null;
     row.units = each.map((u) => ({ id: u.id, name: u.name, trailer: u.trailer, total: u.rows[i].total })).filter((u) => u.total).sort((a, b) => b.total - a.total);
     return row;
@@ -164,7 +170,7 @@ export function fleetBreakdown({ units, periods, events, log, daysById = {} }) {
   const total = round2(sum('total'));
   const totals = {
     miles, service: sum('service'), repair: sum('repair'), tires: sum('tires'), batteries: sum('batteries'),
-    shelf: round2(sum('shelf')), items: round2(sum('items')), shop: round2(sum('shop')), total, perMile: miles ? round2(total / miles) : null,
+    parts: round2(sum('parts')), unpriced: sum('unpriced'), shop: round2(sum('shop')), total, perMile: miles ? round2(total / miles) : null,
     reporting: each.filter((u) => u.totals.miles != null).length,
   };
   const work = (t) => t.service + t.repair + t.tires + t.batteries;

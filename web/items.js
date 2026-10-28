@@ -1,27 +1,32 @@
 // Items: every line of every receipt, and where each one went.
 //
-// The receipt reader turns each receipt line into an item with a kind:
-//   stock     a part kept on the shelf (filters, oil, tires, batteries): the
-//             work log's kits and tire/battery entries use it (parts.js)
+// Everything bought is stock until it's used. Each receipt line is a batch
+// ("lot") with its real price (landedCosts) and its photo, and every cost on
+// a truck is a use of a batch, so it points back to the receipt that paid
+// for it. The receipt reader gives each line a kind:
+//   stock     a part in the parts list (filters, oil, tires, batteries): the
+//             work log says how many it used (kits, tires, batteries), and
+//             those come out of the oldest batch first, by rule (ruleUses)
 //   part      a repair part bought for a job
 //   labor     outside labor (a dealer or another shop)
 //   core      a core charge (it goes with the part it came with)
 //   supplies  shop supplies: cleaners, rags, grease
 //   tool      shop tools
 //   credit    a return or credit (negative)
-// Repair parts, labor and cores go to the "pool" until they're tied to the
+// Repair parts, labor and cores wait in the "pool" until they're tied to the
 // work they were used in: the matcher (scripts/match-items.mjs) suggests a
-// repair for each one, and admin confirms or changes it. Each tie is an
-// itemUses doc:
-//   { receiptId, lineId, qty, logId, vehicleId, vehicleName, assetType,
-//     shop, by: 'ai'|'admin', status, confidence, reason, createdAt }
-// status: 'auto' (the AI was sure, counted), 'doubt' (unsure, waits for
-// admin), 'confirmed' (admin said so), 'rejected' (admin said no; kept so
-// the AI doesn't suggest it again), 'snooze' (admin: still on the shelf).
+// repair for each one, and admin confirms or changes it. Supplies and tools
+// are shop costs the day they're bought. Each use of a batch is an itemUses
+// doc:
+//   { receiptId, lineId, part, qty, logId, vehicleId, vehicleName, assetType,
+//     shop, by: 'rule'|'ai'|'admin', status, confidence, reason, createdAt }
+// status: 'auto' (by rule, or the AI was sure: counted), 'doubt' (unsure,
+// waits for admin), 'confirmed' (admin said so), 'rejected' (admin said no;
+// kept so the AI doesn't suggest it again), 'snooze' (admin: still on the
+// shelf). Uses are only added or changed in status, never re-priced: a use
+// costs its batch's price, so last month's costs don't move.
 // Plain ES module with no dependencies, shared by the website, the scripts
 // and the tests.
-
-import { averageCost } from './parts.js';
 
 export const POOL_KINDS = ['part', 'labor', 'core'];
 export const SHOP_KINDS = ['supplies', 'tool'];
@@ -32,6 +37,13 @@ export const HOLDING = ['auto', 'doubt', 'confirmed'];
 export const COUNTED = ['auto', 'confirmed'];
 // The AI ties an item to a repair on its own when at least this sure.
 export const AUTO_CONFIDENCE = 85;
+// A batch on a receipt dated up to this many days after the work can still
+// cover it (the receipt is sometimes dated the day after).
+export const LATE_DAYS = 2;
+// Batches still on the shelf after this many days show in Review.
+export const OLD_STOCK_DAYS = 60;
+// Tools over this much are spread over 12 months in the costs.
+export const SPREAD_TOOLS_OVER = 500;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -92,6 +104,94 @@ export function receiptItems(receipts) {
         vehicleId: l.to === 'truck' ? l.vehicleId ?? null : null, truckChoices: l.truckChoices ?? null, note: r.note ?? null,
       });
     });
+  }
+  return out;
+}
+
+const isRead = (r) => r.status !== 'waiting' && r.status !== 'unreadable' && r.status !== 'error';
+
+/**
+ * The stock batches: lines of read receipts matched to a part in the parts
+ * list. `forIds` are the trucks the buyer's note set it aside for.
+ * @returns [{ key, receiptId, lineId, part, qty, cost, unitCost, date, vendor, forIds }]
+ */
+export function stockLots(receipts) {
+  const out = [];
+  for (const r of receipts) {
+    if (!isRead(r)) continue;
+    (r.lines ?? []).forEach((l, i) => {
+      if (!l.part || !(Number(l.qty) > 0)) return;
+      const qty = Number(l.qty);
+      const cost = l.cost ?? (l.price == null || l.price === '' ? null : Number(l.price));
+      const lineId = lineIdOf(l, i);
+      out.push({
+        key: itemKey(r.id, lineId), receiptId: r.id, lineId, part: l.part, qty, cost, unitCost: cost == null ? null : cost / qty,
+        date: r.date ?? null, vendor: r.vendor ?? '', forIds: (l.for ?? []).map((u) => u.id).filter(Boolean),
+      });
+    });
+  }
+  return out;
+}
+
+const workOrder = (a, b) => (a.date ?? '').localeCompare(b.date ?? '') || toMs(a.loggedAt) - toMs(b.loggedAt) || String(a.id).localeCompare(String(b.id));
+const lotOrder = (a, b) => (a.date ?? '').localeCompare(b.date ?? '') || a.key.localeCompare(b.key);
+
+// What a work entry used of a part that no batch covers yet.
+export function uncovered(entry, partId, uses) {
+  const need = Number(entry.partsUsed?.[partId]) || 0;
+  const covered = uses.filter((u) => u.logId === entry.id && u.part === partId && HOLDING.includes(u.status)).reduce((s, u) => s + (Number(u.qty) || 0), 0);
+  return round2(Math.max(0, need - covered));
+}
+
+/**
+ * The uses the rules add: what each work entry used of a part (its
+ * partsUsed) comes out of the oldest batch of that part with some left, first
+ * from batches set aside for that truck, then from ones set aside for nobody,
+ * then from the rest. Only batches bought by the work's date (+ LATE_DAYS)
+ * count, so old work from before a part was bought here stays "no receipt".
+ * Work is covered oldest first; what's already covered stays as it is.
+ * @returns new itemUses docs (no ids), by: 'rule'
+ */
+export function ruleUses({ receipts, uses, log }) {
+  const lots = stockLots(receipts).sort(lotOrder);
+  const left = new Map(lots.map((lot) => [lot.key, round2(lot.qty - holdingQty(lot.key, uses))]));
+  const added = [];
+  for (const e of log.filter((x) => x.partsUsed && x.date).sort(workOrder)) {
+    for (const partId of Object.keys(e.partsUsed)) {
+      let need = uncovered(e, partId, uses);
+      if (!need) continue;
+      const latest = addDays(e.date, LATE_DAYS);
+      const rank = (lot) => (lot.forIds.includes(e.vehicleId) ? 0 : lot.forIds.length ? 2 : 1);
+      const fits = lots.filter((lot) => lot.part === partId && lot.date && lot.date <= latest && left.get(lot.key) > 0)
+        .sort((a, b) => rank(a) - rank(b) || lotOrder(a, b));
+      for (const lot of fits) {
+        if (!need) break;
+        const qty = round2(Math.min(need, left.get(lot.key)));
+        left.set(lot.key, round2(left.get(lot.key) - qty));
+        need = round2(need - qty);
+        added.push({
+          receiptId: lot.receiptId, lineId: lot.lineId, part: partId, qty, logId: e.id, vehicleId: e.vehicleId ?? null,
+          vehicleName: e.vehicleName ?? null, assetType: e.assetType === 'trailer' ? 'trailer' : 'truck', shop: false,
+          by: 'rule', status: 'auto', confidence: 100, reason: 'Oldest batch of this part',
+        });
+      }
+    }
+  }
+  return added;
+}
+
+// What each use of a batch costs: its share of the batch's cost, rounded so
+// the uses of a whole batch add up to the cent (the last one takes the
+// leftover cent). Uses in the order they happened.
+function useAmounts(cost, qty, list, dateOf) {
+  const out = new Map();
+  if (cost == null || !(qty > 0)) return out;
+  let before = 0;
+  const sorted = [...list].sort((a, b) => (dateOf(a) ?? '').localeCompare(dateOf(b) ?? '') || toMs(a.createdAt) - toMs(b.createdAt) || String(a.id ?? '').localeCompare(String(b.id ?? '')));
+  for (const u of sorted) {
+    const q = Number(u.qty) || 0;
+    out.set(u, round2(round2((cost * (before + q)) / qty) - round2((cost * before) / qty)));
+    before += q;
   }
   return out;
 }
@@ -193,80 +293,148 @@ export function accuracy(uses, month) {
 }
 
 /**
- * Every cost, dated, with what it's for:
- *   shelf     shelf parts the work log used (kits, tires, batteries), at
- *             their average real cost, on the work's date
- *   items     repair parts, labor and cores tied to work (counted uses), on
- *             the work's date; tied to a truck with no repair, or bought for
- *             a truck and not tied to a repair yet, on the purchase date
+ * Every cost, dated, with the receipt line it came from:
+ *   parts     a use of a batch tied to a truck: stock the work log used (by
+ *             rule), or a repair part, labor or core tied to its work, on the
+ *             work's date (bought for a truck with no repair: the purchase date)
+ *   unpriced  something the work log used that no receipt covers yet (amount 0)
+ *   waiting   bought and set aside for a truck, not used yet (not a cost yet)
+ *   open      repair parts not tied to anything yet (no unit, not a cost yet)
  *   supplies / tools   shop costs (and returns not tied to a truck), on the
- *             purchase date
- *   open      pool items not tied to anything yet (no unit)
- * @returns [{ date, kind, amount, unitId, unitName, assetType, text, logId }]
+ *             purchase date; tools over SPREAD_TOOLS_OVER over 12 months
+ * @returns [{ date, kind, amount, unitId, unitName, assetType, text, part,
+ *   qty, logId, receiptId, lineId, by, sure }]
  */
 export function costEvents({ receipts, uses, log }) {
   const out = [];
-  const costOf = new Map();
-  const partCost = (id) => {
-    if (!costOf.has(id)) costOf.set(id, averageCost(id, receipts));
-    return costOf.get(id);
-  };
+  const entryById = new Map(log.map((e) => [e.id, e]));
   const assetOf = (e) => (e?.assetType === 'trailer' ? 'trailer' : 'truck');
-  for (const e of log) {
-    if (!e.partsUsed) continue;
-    for (const [id, qty] of Object.entries(e.partsUsed)) {
-      const c = partCost(id);
-      if (c == null) continue;
-      out.push({ date: e.date, kind: 'shelf', amount: round2(c * Number(qty)), unitId: e.vehicleId, unitName: e.vehicleName ?? null, assetType: assetOf(e), text: id, logId: e.id ?? null });
+  const counted = uses.filter((u) => COUNTED.includes(u.status));
+  const dateOf = (u) => entryById.get(u.logId)?.date ?? null;
+  const ref = (lot) => ({ receiptId: lot.receiptId, lineId: lot.lineId });
+
+  // Stock batches: each counted use, then what's set aside and not used yet.
+  for (const lot of stockLots(receipts)) {
+    const mine = counted.filter((u) => u.receiptId === lot.receiptId && u.lineId === lot.lineId);
+    const amounts = useAmounts(lot.cost, lot.qty, mine, dateOf);
+    for (const u of mine) {
+      const e = entryById.get(u.logId);
+      if (u.shop) { out.push({ date: e?.date ?? lot.date, kind: 'supplies', amount: amounts.get(u) ?? 0, unitId: null, text: lot.part, part: lot.part, qty: u.qty, ...ref(lot), by: u.by }); continue; }
+      const unitId = u.vehicleId ?? e?.vehicleId;
+      if (!unitId) continue;
+      out.push({ date: e?.date ?? lot.date, kind: 'parts', amount: amounts.get(u) ?? 0, unitId, unitName: u.vehicleName ?? e?.vehicleName ?? null, assetType: u.assetType ?? assetOf(e), text: lot.part, part: lot.part, qty: u.qty, logId: e?.id ?? null, ...ref(lot), by: u.by ?? 'rule', sure: true });
+    }
+    const left = round2(lot.qty - holdingQty(lot.key, uses));
+    if (left > 0 && lot.forIds.length && lot.unitCost != null) {
+      out.push({ date: lot.date, kind: 'waiting', amount: round2(lot.unitCost * left), unitId: lot.forIds[0], text: lot.part, part: lot.part, qty: left, ...ref(lot) });
     }
   }
-  const entryById = new Map(log.map((e) => [e.id, e]));
+  // What the work log used that no batch covers.
+  for (const e of log) {
+    if (!e.partsUsed || !e.date) continue;
+    for (const partId of Object.keys(e.partsUsed)) {
+      const qty = uncovered(e, partId, uses);
+      if (qty) out.push({ date: e.date, kind: 'unpriced', amount: 0, unitId: e.vehicleId, unitName: e.vehicleName ?? null, assetType: assetOf(e), text: partId, part: partId, qty, logId: e.id });
+    }
+  }
+  // Repair parts, labor, cores, shop costs and returns.
   for (const it of receiptItems(receipts)) {
     if (it.unitCost == null) continue;
+    const ref2 = { receiptId: it.receiptId, lineId: it.lineId };
     if (SHOP_KINDS.includes(it.kind) || (it.kind === 'credit' && !it.vehicleId)) {
-      out.push({ date: it.date, kind: it.kind === 'tool' ? 'tools' : 'supplies', amount: round2(it.cost), unitId: null, text: it.text });
+      const kind = it.kind === 'tool' ? 'tools' : 'supplies';
+      if (kind === 'tools' && it.cost > SPREAD_TOOLS_OVER && it.date) {
+        let before = 0;
+        for (let m = 1; m <= 12; m += 1) {
+          const upTo = round2((it.cost * m) / 12);
+          out.push({ date: addMonths(it.date, m - 1), kind, amount: round2(upTo - before), unitId: null, text: `${it.text} (${m} of 12)`, ...ref2 });
+          before = upTo;
+        }
+      } else out.push({ date: it.date, kind, amount: round2(it.cost), unitId: null, text: it.text, ...ref2 });
       continue;
     }
+    const mine = usesFor(it.key, counted);
+    const amounts = useAmounts(it.cost, it.qty, mine, (u) => dateOf(u) ?? it.date);
     let left = it.qty;
-    for (const u of usesFor(it.key, uses).filter((x) => COUNTED.includes(x.status))) {
-      const qty = Math.min(Number(u.qty) || 0, left);
-      left -= qty;
+    for (const u of mine) {
+      left -= Math.min(Number(u.qty) || 0, left);
       const entry = u.logId ? entryById.get(u.logId) : null;
-      const amount = round2(it.unitCost * qty);
-      if (u.shop) { out.push({ date: entry?.date ?? it.date, kind: 'supplies', amount, unitId: null, text: it.text }); continue; }
+      const amount = amounts.get(u) ?? 0;
+      if (u.shop) { out.push({ date: entry?.date ?? it.date, kind: 'supplies', amount, unitId: null, text: it.text, ...ref2, by: u.by }); continue; }
       const unitId = u.vehicleId ?? entry?.vehicleId;
       if (!unitId) continue;
-      out.push({ date: entry?.date ?? it.date, kind: 'items', amount, unitId, unitName: u.vehicleName ?? entry?.vehicleName ?? null, assetType: u.assetType ?? assetOf(entry), text: it.text, logId: entry?.id ?? null });
+      out.push({ date: entry?.date ?? it.date, kind: 'parts', amount, unitId, unitName: u.vehicleName ?? entry?.vehicleName ?? null, assetType: u.assetType ?? assetOf(entry), text: it.text, qty: u.qty, logId: entry?.id ?? null, ...ref2, by: u.by ?? 'ai', sure: true });
     }
     if (left <= 0) continue;
     const amount = round2(it.unitCost * left);
-    if (it.vehicleId) out.push({ date: it.date, kind: 'items', amount, unitId: it.vehicleId, unitName: null, assetType: 'truck', text: it.text, logId: null });
-    else if (POOL_KINDS.includes(it.kind)) out.push({ date: it.date, kind: 'open', amount, unitId: null, text: it.text });
+    if (it.kind === 'credit') out.push({ date: it.date, kind: 'parts', amount, unitId: it.vehicleId, unitName: null, assetType: 'truck', text: it.text, qty: left, logId: null, ...ref2, by: 'receipt', sure: true });
+    else if (it.vehicleId) out.push({ date: it.date, kind: 'waiting', amount, unitId: it.vehicleId, text: it.text, qty: left, ...ref2 });
+    else if (POOL_KINDS.includes(it.kind)) out.push({ date: it.date, kind: 'open', amount, unitId: null, text: it.text, qty: left, ...ref2 });
   }
   return out;
 }
 
+const addMonths = (date, n) => {
+  const [y, m, d] = date.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m - 1 + n, Math.min(d, last), 12)).toISOString().slice(0, 10);
+};
+
 /**
  * What each truck and trailer cost from `from` to `to` (dates, inclusive),
  * and what the shop spent on supplies and tools (costEvents, added up).
- * @returns { units: [{ unitId, name, assetType, total, shelf, items }],
- *   shop: { supplies, tools, total }, open }  — open: pool items not yet
- *   tied to anything (not in any total)
+ * @returns { units: [{ unitId, name, assetType, total, unpriced }],
+ *   shop: { supplies, tools, total }, open, waiting }  — open: repair parts
+ *   not tied to anything; waiting: set aside for a truck, not used (neither
+ *   is in a total); unpriced: things used that no receipt covers yet
  */
 export function spending({ receipts, uses, log, from, to }) {
   const units = new Map();
   const shop = { supplies: 0, tools: 0, total: 0 };
   let open = 0;
+  let waiting = 0;
   for (const ev of costEvents({ receipts, uses, log })) {
     if (!ev.date || ev.date < from || ev.date > to) continue;
     if (ev.kind === 'open') { open = round2(open + ev.amount); continue; }
+    if (ev.kind === 'waiting') { waiting = round2(waiting + ev.amount); continue; }
     if (ev.kind === 'supplies' || ev.kind === 'tools') { shop[ev.kind] = round2(shop[ev.kind] + ev.amount); continue; }
-    if (!units.has(ev.unitId)) units.set(ev.unitId, { unitId: ev.unitId, name: ev.unitName ?? ev.unitId, assetType: ev.assetType ?? 'truck', total: 0, shelf: 0, items: 0 });
+    if (!units.has(ev.unitId)) units.set(ev.unitId, { unitId: ev.unitId, name: ev.unitName ?? ev.unitId, assetType: ev.assetType ?? 'truck', total: 0, unpriced: 0 });
     const u = units.get(ev.unitId);
     if (ev.unitName && u.name === ev.unitId) u.name = ev.unitName;
-    u[ev.kind] = round2(u[ev.kind] + ev.amount);
+    if (ev.kind === 'unpriced') u.unpriced += 1;
+    else u.total = round2(u.total + ev.amount);
   }
-  for (const u of units.values()) u.total = round2(u.shelf + u.items);
   shop.total = round2(shop.supplies + shop.tools);
-  return { units: [...units.values()].filter((u) => u.total).sort((a, b) => b.total - a.total), shop, open };
+  return { units: [...units.values()].filter((u) => u.total || u.unpriced).sort((a, b) => b.total - a.total), shop, open, waiting };
+}
+
+/**
+ * Batches still on the shelf after OLD_STOCK_DAYS: nothing logged used them.
+ * Admin ties them to work, says the shop used them, or snoozes them.
+ * @returns [{ ...lot, remaining }] oldest first
+ */
+export function oldStock(receipts, uses, today) {
+  const cutoff = addDays(today, -OLD_STOCK_DAYS);
+  return stockLots(receipts)
+    .filter((lot) => lot.date && lot.date <= cutoff && !snoozed(lot, uses, today))
+    .map((lot) => ({ ...lot, remaining: round2(lot.qty - holdingQty(lot.key, uses)) }))
+    .filter((lot) => lot.remaining > 0)
+    .sort(lotOrder);
+}
+
+/**
+ * Shop costs shared out by shop visits (a day a unit had work logged): each
+ * period's supplies and tools, times this unit's share of all visits.
+ * An estimate, shown apart from the unit's own costs.
+ * @returns [{ ...period, share, visits, allVisits }]
+ */
+export function shopShare({ unitId, periods, events, log }) {
+  const visits = new Set(log.filter((e) => e.vehicleId && e.date && e.type !== 'duty').map((e) => `${e.vehicleId}|${e.date}`));
+  return periods.map((p) => {
+    const inP = (d) => d >= p.from && d <= p.to;
+    const all = [...visits].filter((v) => inP(v.split('|')[1]));
+    const mine = all.filter((v) => v.split('|')[0] === unitId).length;
+    const shop = events.filter((ev) => (ev.kind === 'supplies' || ev.kind === 'tools') && ev.date && inP(ev.date)).reduce((s, ev) => s + ev.amount, 0);
+    return { ...p, visits: mine, allVisits: all.length, share: all.length ? round2((shop * mine) / all.length) : 0 };
+  });
 }

@@ -32,7 +32,7 @@ import {
 import { downloadLog, downloadTruckRecord } from './records.js';
 import {
   POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isRepair, itemKey, landedCosts,
-  lineKind, openItems, receiptItems, receiptWork, repairText, spending,
+  lineKind, oldStock, openItems, receiptItems, receiptWork, repairText, shopShare, spending, stockLots,
 } from './items.js';
 import { fleetBreakdown, periodsFor, unitBreakdown, workKind } from './analytics.js';
 
@@ -2401,13 +2401,34 @@ async function uploadReceipts(files) {
   }
 }
 
-// The receipt photo, full width in a popup (pinch to zoom on a phone).
-async function showReceiptPhoto(r) {
-  const body = partsDialog(r.vendor || t('receipt'), dateText(r.date));
-  const img = Object.assign(el('img', 'receipt-full'), { alt: t('receipt') });
-  body.append(el('p', 'muted', t('loadingPhoto')));
+// The receipt photo, full width in a popup (pinch to zoom on a phone). With
+// `context`, a line above it saying what this cost took from the receipt.
+async function showReceiptPhoto(r, { context = null } = {}) {
+  const body = partsDialog(r.vendor || t('receipt'), [dateText(r.date), r.total != null ? money(r.total) : null].filter(Boolean).join(' · '));
+  const top = [];
+  if (context) top.push(el('p', 'receipt-context', context));
+  const details = Object.assign(el('button', 'link-btn', 'Receipt details'), { type: 'button' });
+  details.addEventListener('click', () => openReceipt(r.id));
+  top.push(details);
+  if (!r.hasPhoto) { body.replaceChildren(...top, el('p', 'muted', t('noPhoto'))); return; }
+  body.replaceChildren(...top, el('p', 'muted', t('loadingPhoto')));
   const snap = await getDoc(doc(db, 'receiptPhotos', r.id));
-  body.replaceChildren(snap.exists() ? Object.assign(img, { src: snap.data().data }) : el('p', 'muted', t('noPhoto')));
+  const img = Object.assign(el('img', 'receipt-full'), { alt: t('receipt') });
+  body.replaceChildren(...top, snap.exists() ? Object.assign(img, { src: snap.data().data }) : el('p', 'muted', t('noPhoto')));
+}
+
+// A small button naming a receipt ("FleetPride · Nov 3") that opens its photo.
+const RECEIPT_ICON = '<svg viewBox="0 0 13 15" width="12" height="14" aria-hidden="true"><path d="M1 1h11v13l-2-1.3L8.3 14 6.5 12.7 4.7 14 3 12.7 1 14z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 4.5h6M3.5 7h6M3.5 9.5h4" stroke="currentColor" stroke-width="1.3"/></svg>';
+function receiptChip(receiptId, context) {
+  const r = receipts.find((x) => x.id === receiptId);
+  const b = el('button', 'rc-chip');
+  b.type = 'button';
+  if (!r) { b.disabled = true; b.textContent = 'Receipt removed'; return b; }
+  b.innerHTML = RECEIPT_ICON;
+  b.append(document.createTextNode([r.vendor ? r.vendor.split(/[,(]/)[0].trim().slice(0, 24) : t('receipt'), r.date ? niceDate(r.date).replace(/, \d{4}$/, '') : null].filter(Boolean).join(' · ')));
+  b.setAttribute('aria-label', `See receipt: ${r.vendor || t('receipt')}, ${dateText(r.date)}`);
+  b.addEventListener('click', () => showReceiptPhoto(r, { context }));
+  return b;
 }
 
 // The buyer's view of a receipt: what was read from it, and the photo.
@@ -2525,6 +2546,7 @@ function partsReview(queue) {
   out.push(typed);
   section(t('secDoubts'), t('secDoubtsHint'), queue.doubts.map((x) => matchCard(x)), t('nothingToCheck'));
   section(t('secNoWork'), t('secNoWorkHint'), queue.noWork.map(noWorkCard), t('nothingToCheck'));
+  section(t('secOldStock'), t('secOldStockHint'), oldStock(receipts, itemUses, todayIso()).map(oldStockCard), t('nothingToCheck'));
   section(t('secNoParts'), t('secNoPartsHint'), queue.noParts.map(noPartsCard), t('nothingToCheck'));
 
   // The AI's own matches, folded: a spot check.
@@ -2584,6 +2606,32 @@ function noWorkCard(item) {
   shelf.addEventListener('click', () => snoozeItem(item, null));
   const actions = el('div', 'match-actions');
   actions.append(pick, shelf, receiptLink(item));
+  card.append(actions);
+  return card;
+}
+
+// A stock batch bought 60+ days ago that no work log used: the shop used it,
+// or it's still on the shelf (asked again in 30 days).
+function oldStockCard(lot) {
+  const card = el('div', 'match-card match-nowork');
+  const name = partById(lot.part)?.name ?? lot.part;
+  card.append(
+    el('p', 'match-item', `${qtyText(lot.remaining)} × ${name}`),
+    el('p', 'match-cost', lot.unitCost != null ? money(lot.unitCost * lot.remaining) : ''),
+    el('p', 'match-meta', [lot.vendor, dateText(lot.date)].filter(Boolean).join(' · ')),
+    el('p', 'match-arrow', t('daysOnShelf', daysBetween(lot.date, todayIso()))),
+  );
+  const write = (data) => {
+    const ref = useRef(null);
+    return setDoc(ref, { id: ref.id, receiptId: lot.receiptId, lineId: lot.lineId, part: lot.part, by: 'admin', createdAt: serverTimestamp(), ...data })
+      .catch((err) => showAppError(t('couldNotSave', err.message)));
+  };
+  const shop = Object.assign(el('button', 'btn match-right', t('usedByShop')), { type: 'button' });
+  shop.addEventListener('click', () => write({ qty: lot.remaining, shop: true, status: 'confirmed' }));
+  const shelf = Object.assign(el('button', 'btn btn-ghost', t('stillOnShelf')), { type: 'button' });
+  shelf.addEventListener('click', () => write({ qty: 0, status: 'snooze', until: new Date(Date.now() + 30 * DAY_MS).toLocaleDateString('en-CA') }));
+  const actions = el('div', 'match-actions');
+  actions.append(shop, shelf, receiptLink(lot));
   card.append(actions);
   return card;
 }
@@ -2768,7 +2816,7 @@ function pickForRepair(entry) {
   body.append(list);
 }
 
-// What each truck cost: shelf parts used plus repair parts tied to its work.
+// What each truck cost: everything its work used, each from a receipt.
 function spendBox() {
   const today = todayIso();
   const from = spendPeriod === 'month' ? `${today.slice(0, 7)}-01` : spendPeriod === 'year' ? `${today.slice(0, 4)}-01-01`
@@ -2782,7 +2830,7 @@ function spendBox() {
     const row = el('div', 'buy-line spend-line');
     row.append(
       el('span', 'buy-text', `${unitName(u.unitId)}`),
-      el('span', 'spend-split', [u.shelf ? `${t('spendShelf')} ${money(u.shelf)}` : null, u.items ? `${t('spendItems')} ${money(u.items)}` : null].filter(Boolean).join(' · ')),
+      el('span', 'spend-split', u.unpriced ? t('noReceiptYet', u.unpriced) : ''),
       el('strong', null, money(u.total)),
     );
     rows.append(row);
@@ -2791,6 +2839,7 @@ function spendBox() {
   else out.push(el('p', 'muted', t('noSpendYet')));
   out.push(el('p', 'receipt-tax', t('shopCosts', money(s.shop.supplies), money(s.shop.tools))));
   if (s.open) out.push(el('p', 'receipt-tax', t('notMatchedYet', money(s.open))));
+  if (s.waiting) out.push(el('p', 'receipt-tax', t('waitingLine', money(s.waiting))));
   return out;
 }
 
@@ -2815,7 +2864,7 @@ function aiNotesBox() {
 }
 
 // ---- Analytics: one truck or trailer, month by month or week by week ------------
-// What it cost (shelf parts its work used, plus the repair parts tied to it),
+// What it cost (everything its work used, each from a receipt),
 // how far it drove (Samsara's daily odometer), and what work it had. Admin
 // picks one unit or the whole fleet, and the dates (a month by week, a year by month, a range, or
 // everything); each period opens to what was in it.
@@ -2888,7 +2937,12 @@ const anPeriodName = (p, view) => (view === 'week'
   ? `Week of ${niceDate(p.from).replace(/, \d{4}$/, '')}`
   : new Date(`${p.from}T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
 const workText = (r) => [r.service && plural(r.service, 'service'), r.repair && plural(r.repair, 'repair'), r.tires && `${fmt.format(r.tires)} tire change${r.tires === 1 ? '' : 's'}`, r.batteries && `${fmt.format(r.batteries)} battery change${r.batteries === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || 'No work logged';
-const costText = (r) => `Shelf parts ${money(r.shelf)} · repair parts ${money(r.items)}${r.shop ? ` · shop supplies & tools ${money(r.shop)}` : ''}`;
+const costText = (r) => [
+  `Parts ${money(r.parts)}`,
+  r.shop ? `shop supplies & tools ${money(r.shop)}` : null,
+  r.shopShare ? `shop share ${money(r.shopShare)}` : null,
+  r.unpriced ? `${fmt.format(r.unpriced)} with no receipt yet` : null,
+].filter(Boolean).join(' · ');
 const milesText = (r) => (r.miles == null ? null : `${fmt.format(r.miles)} mi${r.perMile != null ? ` · $${r.perMile.toFixed(2)}/mi` : ''}`);
 
 function renderAnalytics() {
@@ -2941,8 +2995,60 @@ function renderAnalytics() {
     return;
   }
   const { rows, totals } = unitBreakdown({ unitId: unit.id, periods, events, log: serviceLog, days });
-  body.replaceChildren(anTiles(totals, unit), anChart(rows, grain), ...anCards(rows, unit, grain, events));
+  // Shop share: supplies and tools split by shop visits, an estimate kept apart.
+  if (anSettings.shopShare) {
+    const shares = shopShare({ unitId: unit.id, periods, events, log: serviceLog });
+    rows.forEach((r, i) => {
+      Object.assign(r, { shopShare: shares[i].share, visits: shares[i].visits, allVisits: shares[i].allVisits });
+      r.total = Math.round((r.parts + r.shopShare) * 100) / 100;
+      r.perMile = r.miles ? Math.round((r.total / r.miles) * 100) / 100 : null;
+    });
+    totals.shopShare = Math.round(rows.reduce((s, r) => s + r.shopShare, 0) * 100) / 100;
+    totals.total = Math.round((totals.parts + totals.shopShare) * 100) / 100;
+    totals.perMile = totals.miles ? Math.round((totals.total / totals.miles) * 100) / 100 : null;
+  }
+  const share = el('label', 'an-share');
+  const box = Object.assign(el('input'), { type: 'checkbox', id: 'an-shop-share', checked: Boolean(anSettings.shopShare) });
+  box.addEventListener('change', () => saveAnSettings({ shopShare: box.checked }));
+  share.append(box, el('span', null, 'Include a share of shop supplies and tools (split by shop visits, an estimate)'));
+  const range = { from: periods[0].from, to: periods.at(-1).to };
+  body.replaceChildren(anTiles(totals, unit), share, anChart(rows, grain), ...anReceipts(unit, range, events), ...anCards(rows, unit, grain, events));
 }
+
+// The receipts behind a unit's costs in the dates: one row each, with what
+// this unit took from it; each opens the photo.
+function anReceipts(unit, range, events) {
+  const mine = events.filter((ev) => ev.unitId === unit.id && ev.kind === 'parts' && ev.receiptId && ev.date >= range.from && ev.date <= range.to);
+  const byReceipt = new Map();
+  for (const ev of mine) {
+    const x = byReceipt.get(ev.receiptId) ?? { receiptId: ev.receiptId, amount: 0, lines: [] };
+    x.amount += ev.amount;
+    x.lines.push(ev);
+    byReceipt.set(ev.receiptId, x);
+  }
+  const unpriced = events.filter((ev) => ev.unitId === unit.id && ev.kind === 'unpriced' && ev.date >= range.from && ev.date <= range.to);
+  if (!byReceipt.size && !unpriced.length) return [];
+  const list = el('div', 'an-receipts');
+  for (const x of [...byReceipt.values()].sort((a, b) => b.amount - a.amount)) {
+    const what = x.lines.map((ev) => anCostName(ev)).join(', ');
+    const row = el('div', 'an-receipt');
+    row.append(receiptChip(x.receiptId, `${what} → ${unit.name}`), el('span', 'an-receipt-what', what), el('strong', 'an-row-amount', money(x.amount)));
+    list.append(row);
+  }
+  for (const ev of unpriced) {
+    const row = el('div', 'an-receipt an-receipt-none');
+    row.append(el('span', 'rc-chip rc-none', 'No receipt yet'), el('span', 'an-receipt-what', `${anCostName(ev)} · ${dateText(ev.date)}`), el('span', 'an-row-amount', '—'));
+    list.append(row);
+  }
+  const title = `Receipts behind ${money(mine.reduce((s, ev) => s + ev.amount, 0))}`;
+  return [el('h3', 'an-title', title), list];
+}
+
+// "4 × Battery", "Brake drum DB1655B".
+const anCostName = (ev) => {
+  const name = ev.part ? partById(ev.part)?.name ?? ev.part : ev.text || t('receipt');
+  return ev.qty && (ev.part || ev.qty !== 1) ? `${qtyText(ev.qty)} × ${name}` : name;
+};
 
 // The fleet's trucks and trailers for the dates, biggest spend first; tap one
 // to see it by itself. Units with no costs wait behind a button.
@@ -3077,7 +3183,7 @@ function anChart(rows, view) {
     col.append(bar, el('span', 'an-x', i % every === 0 || i === rows.length - 1 ? r.label : ''));
     const show = () => {
       tip.replaceChildren(el('strong', null, money(r.total)), el('span', null, anPeriodName(r, view)),
-        el('span', null, `Shelf ${money(r.shelf)} · repairs ${money(r.items)}${r.shop ? ` · shop ${money(r.shop)}` : ''}`), ...(milesText(r) ? [el('span', null, milesText(r))] : []));
+        el('span', null, `Parts ${money(r.parts)}${r.shop ? ` · shop ${money(r.shop)}` : ''}${r.shopShare ? ` · shop share ${money(r.shopShare)}` : ''}`), ...(milesText(r) ? [el('span', null, milesText(r))] : []));
       tip.hidden = false;
       // Centered over the column, kept inside the chart.
       const half = tip.offsetWidth / 2;
@@ -3112,7 +3218,7 @@ function anCards(rows, unit, view, events) {
     head.append(el('span', 'an-card-name', anPeriodName(r, view)), el('span', 'an-card-total', money(r.total)));
     head.addEventListener('click', () => { anOpenPeriod = open ? null : r.key; renderAnalytics(); });
     card.append(head, el('p', 'an-card-line', [milesText(r), workText(r)].filter(Boolean).join(' · ')));
-    if (r.total) card.append(el('p', 'an-card-line', costText(r)));
+    if (r.total || r.unpriced) card.append(el('p', 'an-card-line', costText(r)));
     if (open) card.append(unit ? anDetails(r, unit, events) : anFleetDetails(r, events));
     out.push(card);
   }
@@ -3125,7 +3231,7 @@ function anDetails(r, unit, events) {
   const inP = (d) => d && d >= r.from && d <= r.to;
   const work = serviceLog.filter((e) => e.vehicleId === unit.id && inP(e.date) && workKind(e))
     .sort((a, b) => a.date.localeCompare(b.date));
-  const costs = events.filter((ev) => ev.unitId === unit.id && inP(ev.date) && (ev.kind === 'shelf' || ev.kind === 'items'))
+  const costs = events.filter((ev) => ev.unitId === unit.id && inP(ev.date) && ['parts', 'unpriced', 'waiting'].includes(ev.kind))
     .sort((a, b) => a.date.localeCompare(b.date));
   box.append(el('div', 'an-sub', 'Work'));
   if (!work.length) box.append(el('p', 'muted', 'No work logged.'));
@@ -3137,9 +3243,19 @@ function anDetails(r, unit, events) {
   box.append(el('div', 'an-sub', 'Costs'));
   if (!costs.length) box.append(el('p', 'muted', 'No costs.'));
   for (const ev of costs) {
-    const row = el('div', 'an-row');
-    const what = ev.kind === 'shelf' ? `${partById(ev.text)?.name ?? ev.text} (shelf)` : ev.text;
-    row.append(el('span', 'an-row-date', dateText(ev.date)), el('span', 'an-row-text', what), el('strong', 'an-row-amount', money(ev.amount)));
+    const row = el('div', `an-row an-cost an-cost-${ev.kind}`);
+    const text = el('span', 'an-row-text');
+    text.append(el('span', null, anCostName(ev)));
+    if (ev.kind === 'parts' && ev.receiptId) text.append(receiptChip(ev.receiptId, `${anCostName(ev)} → ${unit.name}${ev.logId ? `, ${dateText(ev.date)} work` : ''}`));
+    if (ev.kind === 'unpriced') text.append(el('span', 'rc-chip rc-none', 'No receipt yet'));
+    if (ev.kind === 'waiting') text.append(el('span', 'an-tag', 'Set aside, not used yet'), receiptChip(ev.receiptId, `${anCostName(ev)} set aside for ${unit.name}`));
+    const amount = ev.kind === 'unpriced' ? '—' : money(ev.amount);
+    row.append(el('span', 'an-row-date', dateText(ev.date)), text, el(ev.kind === 'parts' ? 'strong' : 'span', 'an-row-amount', amount));
+    box.append(row);
+  }
+  if (r.shopShare) {
+    const row = el('div', 'an-row an-cost');
+    row.append(el('span', 'an-row-date', ''), el('span', 'an-row-text', `Shop share: ${r.visits} of ${r.allVisits} shop visits (estimate)`), el('strong', 'an-row-amount', money(r.shopShare)));
     box.append(row);
   }
   return box;
@@ -3165,7 +3281,10 @@ function anFleetDetails(r, events) {
     box.append(el('div', 'an-sub', 'Shop supplies and tools'));
     for (const ev of shop) {
       const row = el('div', 'an-row');
-      row.append(el('span', 'an-row-date', dateText(ev.date)), el('span', 'an-row-text', ev.text), el('strong', 'an-row-amount', money(ev.amount)));
+      const text = el('span', 'an-row-text');
+      text.append(el('span', null, anCostName(ev)));
+      if (ev.receiptId) text.append(receiptChip(ev.receiptId, `${anCostName(ev)} · shop`));
+      row.append(el('span', 'an-row-date', dateText(ev.date)), text, el('strong', 'an-row-amount', money(ev.amount)));
       box.append(row);
     }
   }
@@ -3252,6 +3371,7 @@ function openPart(id) {
     field(t('autoUse'), auto),
   );
   if (p && !p.countAt) form.append(el('p', 'parts-hint', t('countHint')));
+  if (p) form.append(...partBatches(p));
   const { save, fail } = formActions(form, t('save'), {
     onDelete: p ? async () => {
       if (!confirm(t('confirmArchive', p.name))) return;
@@ -3287,6 +3407,27 @@ function openPart(id) {
       fail(t('couldNotSave', err.message));
     }
   });
+}
+
+// A part's batches: what each receipt brought in and how much of it is left
+// (oldest is used first), newest first.
+function partBatches(p) {
+  const held = (lot) => itemUses.filter((u) => u.receiptId === lot.receiptId && u.lineId === lot.lineId && ['auto', 'doubt', 'confirmed'].includes(u.status))
+    .reduce((s, u) => s + (Number(u.qty) || 0), 0);
+  const lots = stockLots(receipts).filter((lot) => lot.part === p.id).sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '')).slice(0, 8);
+  if (!lots.length) return [];
+  const box = el('div', 'batch-list');
+  for (const lot of lots) {
+    const left = Math.max(0, Math.round((lot.qty - held(lot)) * 100) / 100);
+    const row = el('div', `batch-row${left ? '' : ' batch-empty'}`);
+    row.append(
+      el('span', 'batch-qty', `${qtyText(left)} of ${qtyText(lot.qty)} left`),
+      el('span', 'batch-cost', lot.unitCost != null ? `${money(lot.unitCost)} ${p.unit === 'gal' ? '/ gal' : 'each'}` : ''),
+      receiptChip(lot.receiptId, `${qtyText(lot.qty)} × ${p.name} · ${qtyText(left)} left`),
+    );
+    box.append(row);
+  }
+  return [el('div', 'section-title', 'Batches (oldest is used first)'), box];
 }
 
 // One kit: the parts a service uses on the trucks of one kit group.

@@ -51,11 +51,13 @@ test('miles in a period come from the odometer readings around it', () => {
 test('one truck period by period: work counts, shelf and repair spend, cost per mile', () => {
   const periods = monthPeriods('2026-09-01', '2026-10-27');
   const events = [
-    { date: '2026-10-19', kind: 'items', amount: 258.25, unitId: 'v7' },
-    { date: '2026-10-20', kind: 'shelf', amount: 120, unitId: 'v7' },
-    { date: '2026-09-10', kind: 'shelf', amount: 80, unitId: 'v7' },
-    { date: '2026-10-05', kind: 'items', amount: 999, unitId: 'v19' },
+    { date: '2026-10-19', kind: 'parts', amount: 258.25, unitId: 'v7' },
+    { date: '2026-10-20', kind: 'parts', amount: 120, unitId: 'v7' },
+    { date: '2026-10-20', kind: 'unpriced', amount: 0, unitId: 'v7' },
+    { date: '2026-09-10', kind: 'parts', amount: 80, unitId: 'v7' },
+    { date: '2026-10-05', kind: 'parts', amount: 999, unitId: 'v19' },
     { date: '2026-10-06', kind: 'supplies', amount: 9, unitId: null },
+    { date: '2026-10-07', kind: 'waiting', amount: 50, unitId: 'v7' }, // set aside, not used: not a cost
   ];
   const log = [
     { vehicleId: 'v7', date: '2026-10-19', type: 'repair' },
@@ -65,11 +67,11 @@ test('one truck period by period: work counts, shelf and repair spend, cost per 
   ];
   const days = { '2026-08-31': { miles: 10000 }, '2026-09-30': { miles: 18000 }, '2026-10-27': { miles: 24000 } };
   const { rows, totals } = unitBreakdown({ unitId: 'v7', periods, events, log, days });
-  assert.deepEqual(rows.map((r) => [r.key, r.miles, r.service, r.repair, r.tires, r.shelf, r.items, r.total, r.perMile]), [
+  assert.deepEqual(rows.map((r) => [r.key, r.miles, r.service, r.repair, r.tires, r.parts, r.unpriced, r.total, r.perMile]), [
     ['2026-09', 8000, 0, 0, 1, 80, 0, 80, 0.01],
-    ['2026-10', 6000, 1, 1, 0, 120, 258.25, 378.25, 0.06],
+    ['2026-10', 6000, 1, 1, 0, 378.25, 1, 378.25, 0.06],
   ]);
-  assert.deepEqual([totals.miles, totals.total, totals.perMile, totals.repair], [14000, 458.25, 0.03, 1]);
+  assert.deepEqual([totals.miles, totals.total, totals.perMile, totals.repair, totals.unpriced], [14000, 458.25, 0.03, 1, 1]);
   const trailer = unitBreakdown({ unitId: 'v7', periods, events, log });
   assert.deepEqual([trailer.rows[1].miles, trailer.rows[1].perMile, trailer.totals.miles], [null, null, null]);
 });
@@ -78,11 +80,11 @@ test('the whole fleet: every unit and the shop add up; units ranked by spend', (
   const periods = monthPeriods('2026-09-01', '2026-10-27');
   const units = [{ id: 'v7', name: 'T-07', trailer: false }, { id: 'v19', name: 'T-19', trailer: false }, { id: 'c1', name: '501', trailer: true }, { id: 'v9', name: 'T-09', trailer: false }];
   const events = [
-    { date: '2026-10-19', kind: 'items', amount: 258.25, unitId: 'v7' },
-    { date: '2026-09-10', kind: 'shelf', amount: 80, unitId: 'v7' },
-    { date: '2026-10-05', kind: 'items', amount: 999, unitId: 'v19' },
-    { date: '2026-10-06', kind: 'shelf', amount: 40, unitId: 'c1' },
-    { date: '2026-10-07', kind: 'items', amount: 10, unitId: 'gone' }, // a unit since removed
+    { date: '2026-10-19', kind: 'parts', amount: 258.25, unitId: 'v7' },
+    { date: '2026-09-10', kind: 'parts', amount: 80, unitId: 'v7' },
+    { date: '2026-10-05', kind: 'parts', amount: 999, unitId: 'v19' },
+    { date: '2026-10-06', kind: 'parts', amount: 40, unitId: 'c1' },
+    { date: '2026-10-07', kind: 'parts', amount: 10, unitId: 'gone' }, // a unit since removed
     { date: '2026-10-06', kind: 'supplies', amount: 9, unitId: null },
     { date: '2026-09-02', kind: 'tools', amount: 60, unitId: null },
     { date: '2026-10-08', kind: 'open', amount: 500, unitId: null }, // not tied to anything yet: not counted
@@ -98,9 +100,9 @@ test('the whole fleet: every unit and the shop add up; units ranked by spend', (
     v19: { '2026-09-30': { miles: 50000 }, '2026-10-27': { miles: 54000 } },
   };
   const { rows, totals, byUnit } = fleetBreakdown({ units, periods, events, log, daysById });
-  assert.deepEqual(rows.map((r) => [r.key, r.miles, r.shelf, r.items, r.shop, r.total, r.repair, r.tires, r.service]), [
-    ['2026-09', 8000, 80, 0, 60, 140, 0, 0, 0],
-    ['2026-10', 10000, 40, 1267.25, 9, 1316.25, 2, 1, 1],
+  assert.deepEqual(rows.map((r) => [r.key, r.miles, r.parts, r.shop, r.total, r.repair, r.tires, r.service]), [
+    ['2026-09', 8000, 80, 60, 140, 0, 0, 0],
+    ['2026-10', 10000, 1307.25, 9, 1316.25, 2, 1, 1],
   ]);
   assert.deepEqual(rows[1].units.map((u) => [u.name, u.total]), [['T-19', 999], ['T-07', 258.25], ['501', 40]]);
   assert.deepEqual([totals.miles, totals.total, totals.shop, totals.perMile, totals.reporting], [18000, 1456.25, 69, 0.08, 2]);
