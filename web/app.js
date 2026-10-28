@@ -2057,7 +2057,9 @@ function buildWork() {
         tires.length ? t('tiresSection').toLowerCase() : null, doBatteries ? t('batteriesWord') : null].filter(Boolean).join(' + ');
       const next = nextAfterSave(v, keys, m, date.value, tires);
       $('work').close();
+      const matching = startMatchingSoon();
       showUndo([t('saved', v.name, summary), next].filter(Boolean).join(' · '), async () => {
+        matching.cancel();
         const undo = writeBatch(db);
         refs.forEach((ref) => undo.delete(ref));
         if (oldMiles && m > (oldMiles.odometerMiles ?? -1)) undo.set(doc(db, 'vehicles', v.id), oldMiles, { merge: true });
@@ -4162,7 +4164,9 @@ function buildTrailerWork() {
     try {
       await batch.commit();
       $('work').close();
+      const matching = startMatchingSoon();
       showUndo(t('saved', c.name, summary), async () => {
+        matching.cancel();
         const undo = writeBatch(db);
         refs.forEach((ref) => undo.delete(ref));
         await undo.commit();
@@ -4173,6 +4177,19 @@ function buildTrailerWork() {
       fail(t('couldNotSave', err.message));
     }
   });
+}
+
+// New work starts the matching run (twilio/start-matching.js), so what was
+// bought for it is tied to it in a minute or two instead of the next hourly
+// run. Sent once the Undo has passed; nothing is sent if it's undone.
+const START_MATCHING_URL = 'https://receipts-4564.twil.io/start-matching';
+function startMatchingSoon() {
+  const timer = setTimeout(() => {
+    // A plain form post needs no permission check from the browser; the
+    // answer isn't needed (the hourly run still catches anything missed).
+    fetch(START_MATCHING_URL, { method: 'POST', mode: 'no-cors', body: new URLSearchParams({ app: 'aslog' }) }).catch(() => {});
+  }, 12000);
+  return { cancel: () => clearTimeout(timer) };
 }
 
 // A message bar with an Undo button that disappears after 10 seconds.

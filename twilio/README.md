@@ -83,6 +83,23 @@ started by "workflow_dispatch" within a few seconds. Without the token (or
 once it expires) nothing breaks: the hourly timer reads the receipt instead,
 and the Function's logs say `start reading: GitHub 401`.
 
+## Match as soon as work is logged
+
+A second Function starts the same "Read receipts" Action when the mechanic
+saves work in the app, so a part already bought is tied to that work in a
+minute or two (otherwise it waits for the hourly run).
+
+1. In the `receipts` service: **Add** → **Add Function**, path
+   `/start-matching`. Paste the contents of `start-matching.js`.
+2. Set its visibility to **Public** (the website calls it, not Twilio).
+3. **Deploy All**. It uses the same `GITHUB_TOKEN` as above.
+
+The app calls `https://receipts-4564.twil.io/start-matching` about 12 seconds
+after work is saved (after its Undo), and not at all if it's undone. If your
+service's domain is different, change `START_MATCHING_URL` in `web/app.js`.
+Anyone could call this link, but it only starts a run that stops after a few
+reads when nothing changed, and GitHub keeps at most one run waiting.
+
 ## Costs and limits
 
 - The buyer starts every conversation, so replies are free-form and Meta
