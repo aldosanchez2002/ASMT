@@ -1393,7 +1393,7 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .ai-notes .btn { min-height: 44px; border-radius: 0; }
 #parts-view select { max-width: 100%; }
 
-/* Analytics: one truck, month by month or week by week (admin) */
+/* Analytics: one truck or the whole fleet, month by month or week by week (admin) */
 :root { --series-1: #2a78d6; }
 @media (prefers-color-scheme: dark) { :root { --series-1: #3987e5; } }
 .an-filters { display: grid; grid-template-columns: 1fr; gap: 10px; }
@@ -1402,6 +1402,7 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-modes button { min-height: 46px; border: none; background: var(--floor-paper); color: var(--floor-ink); font: 800 16px var(--cond); letter-spacing: .05em; text-transform: uppercase; cursor: pointer; }
 .an-modes button + button { border-left: 2px solid var(--floor-line); }
 .an-modes button.active { background: #111; color: var(--floor-yellow); }
+.an-scope { grid-template-columns: repeat(2, 1fr); }
 .an-pick { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .an-pick select { min-height: 46px; padding: 0 10px; font-size: 16px; background: var(--floor-paper); color: var(--floor-ink); }
 .an-pick select:first-child:not(:only-child) { flex: 1.4; }
@@ -1436,8 +1437,19 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-details { padding: 4px 12px 12px; border-top: 1px solid var(--floor-track); }
 .an-sub { margin: 10px 0 4px; font: 800 13px var(--cond); text-transform: uppercase; letter-spacing: .06em; color: var(--floor-muted); }
 .an-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; padding: 4px 0; font-size: 14px; border-bottom: 1px solid var(--floor-track); }
+.an-row-unit { grid-template-columns: 1fr auto; }
 .an-row-date { color: var(--floor-muted); }
 .an-row-text { overflow-wrap: anywhere; }
+
+.an-units { display: grid; gap: 6px; }
+.an-unit { display: grid; grid-template-columns: minmax(64px, auto) 1fr auto; grid-template-areas: 'name bar total' 'name note note'; gap: 2px 10px; align-items: center; width: 100%; padding: 8px 12px; border: 2px solid var(--floor-line); background: var(--floor-paper); color: var(--floor-ink); font: inherit; text-align: left; cursor: pointer; }
+.an-unit:hover, .an-unit:focus-visible { background: var(--floor-track); outline: none; }
+.an-unit-name { grid-area: name; font: 800 20px var(--cond); }
+.an-unit-track { grid-area: bar; height: 12px; }
+.an-unit-bar { display: block; height: 100%; min-width: 3px; background: var(--series-1); border-radius: 0 4px 4px 0; }
+.an-unit-total { grid-area: total; font: 800 20px var(--cond); white-space: nowrap; }
+.an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
+.an-more { width: 100%; margin-top: 6px; }
 
 /* A receipt's dates: sent, on the receipt, work done */
 .receipt-dates { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 4px 0 10px; padding: 8px 10px; border: 2px solid var(--floor-line); background: var(--floor-paper); font-size: 14px; }

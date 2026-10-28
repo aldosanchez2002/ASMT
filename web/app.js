@@ -34,7 +34,7 @@ import {
   POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isRepair, itemKey, landedCosts,
   lineKind, openItems, receiptItems, receiptWork, repairText, spending,
 } from './items.js';
-import { periodsFor, unitBreakdown, workKind } from './analytics.js';
+import { fleetBreakdown, periodsFor, unitBreakdown, workKind } from './analytics.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -2817,7 +2817,7 @@ function aiNotesBox() {
 // ---- Analytics: one truck or trailer, month by month or week by week ------------
 // What it cost (shelf parts its work used, plus the repair parts tied to it),
 // how far it drove (Samsara's daily odometer), and what work it had. Admin
-// picks the unit and the dates (a month by week, a year by month, a range, or
+// picks one unit or the whole fleet, and the dates (a month by week, a year by month, a range, or
 // everything); each period opens to what was in it.
 
 const AN_MODES = ['month', 'year', 'range', 'all'];
@@ -2857,6 +2857,26 @@ async function loadAnDays(id) {
   renderAnalytics();
 }
 
+// Every truck's readings, for the fleet: loaded together, drawn once.
+let anFleetLoading = false;
+async function loadAnFleetDays(ids) {
+  const missing = ids.filter((id) => !(id in anDays) && !anLoading.has(id));
+  if (anFleetLoading || !missing.length) return;
+  anFleetLoading = true;
+  missing.forEach((id) => anLoading.add(id));
+  await Promise.all(missing.map(async (id) => {
+    try {
+      const snap = await getDoc(doc(db, 'odometerDaily', id));
+      anDays[id] = snap.exists() ? snap.data().days ?? {} : {};
+    } catch {
+      anDays[id] = {};
+    }
+    anLoading.delete(id);
+  }));
+  anFleetLoading = false;
+  renderAnalytics();
+}
+
 // Chart ticks: a clean top value (0 / half / top) and compact money ($1.5K).
 function niceTop(max) {
   if (!(max > 0)) return 100;
@@ -2868,40 +2888,94 @@ const anPeriodName = (p, view) => (view === 'week'
   ? `Week of ${niceDate(p.from).replace(/, \d{4}$/, '')}`
   : new Date(`${p.from}T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
 const workText = (r) => [r.service && plural(r.service, 'service'), r.repair && plural(r.repair, 'repair'), r.tires && `${fmt.format(r.tires)} tire change${r.tires === 1 ? '' : 's'}`, r.batteries && `${fmt.format(r.batteries)} battery change${r.batteries === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || 'No work logged';
+const costText = (r) => `Shelf parts ${money(r.shelf)} · repair parts ${money(r.items)}${r.shop ? ` · shop supplies & tools ${money(r.shop)}` : ''}`;
 const milesText = (r) => (r.miles == null ? null : `${fmt.format(r.miles)} mi${r.perMile != null ? ` · $${r.perMile.toFixed(2)}/mi` : ''}`);
 
 function renderAnalytics() {
   if (currentTab() !== 'analytics') return;
   const units = anUnits();
+  const fleet = anSettings.scope === 'fleet';
+  for (const b of $('an-scope').querySelectorAll('button')) {
+    const on = (b.dataset.scope === 'fleet') === fleet;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  }
+  $('an-unit-field').hidden = fleet;
   const unitSel = $('an-unit');
   const options = units.map((u) => [u.id, u.trailer ? `Trailer ${u.name}` : u.name]);
   if ([...unitSel.options].map((o) => o.value).join() !== options.map(([v]) => v).join()) {
     unitSel.replaceChildren(...options.map(([v, label]) => Object.assign(el('option', null, label), { value: v })));
   }
   const body = $('an-body');
-  const unit = units.find((u) => u.id === anSettings.unit) ?? units[0];
-  if (!unit) { body.replaceChildren(el('p', 'muted', 'No trucks yet.')); return; }
-  unitSel.value = unit.id;
+  const unit = fleet ? null : units.find((u) => u.id === anSettings.unit) ?? units[0];
+  if (!units.length) { body.replaceChildren(el('p', 'muted', 'No trucks yet.')); return; }
+  if (unit) unitSel.value = unit.id;
 
+  const trucks = units.filter((u) => !u.trailer).map((u) => u.id);
   let days = null;
-  if (!unit.trailer) {
+  if (fleet) loadAnFleetDays(trucks);
+  else if (!unit.trailer) {
     if (!(unit.id in anDays)) loadAnDays(unit.id);
     days = anDays[unit.id] ?? null;
   }
   const today = todayIso();
   const events = costEvents({ receipts, uses: itemUses, log: serviceLog });
-  // The unit's first record, for "All"; the fleet's, for the years offered.
+  // The first record (the unit's or the fleet's), for "All"; the fleet's, for the years offered.
   const firstOf = (dates) => dates.filter(Boolean).sort()[0] ?? today;
-  const unitFirst = firstOf([...serviceLog.filter((e) => e.vehicleId === unit.id && workKind(e)).map((e) => e.date), ...events.filter((ev) => ev.unitId === unit.id).map((ev) => ev.date)]);
+  const fleetFirst = firstOf(serviceLog.map((e) => e.date));
+  const first = fleet
+    ? firstOf([...serviceLog.filter(workKind).map((e) => e.date), ...events.filter((ev) => ev.kind !== 'open').map((ev) => ev.date)])
+    : firstOf([...serviceLog.filter((e) => e.vehicleId === unit.id && workKind(e)).map((e) => e.date), ...events.filter((ev) => ev.unitId === unit.id).map((ev) => ev.date)]);
   const choice = anChoice(today);
-  renderAnDates(choice, today, firstOf(serviceLog.map((e) => e.date)), unitFirst);
-  const { grain, periods } = periodsFor(choice, today, unitFirst);
+  renderAnDates(choice, today, fleetFirst, first, fleet);
+  const { grain, periods } = periodsFor(choice, today, first);
   if (!periods.length) {
     body.replaceChildren(el('p', 'parts-empty', 'Nothing to show yet for these dates.'));
     return;
   }
+  if (fleet) {
+    const daysById = Object.fromEntries(trucks.filter((id) => id in anDays).map((id) => [id, anDays[id]]));
+    const { rows, totals, byUnit } = fleetBreakdown({ units, periods, events, log: serviceLog, daysById });
+    const loading = trucks.some((id) => !(id in anDays));
+    body.replaceChildren(anTiles(totals, null, { loading }), anChart(rows, grain), ...anFleetUnits(byUnit, loading), ...anCards(rows, null, grain, events));
+    return;
+  }
   const { rows, totals } = unitBreakdown({ unitId: unit.id, periods, events, log: serviceLog, days });
   body.replaceChildren(anTiles(totals, unit), anChart(rows, grain), ...anCards(rows, unit, grain, events));
+}
+
+// The fleet's trucks and trailers for the dates, biggest spend first; tap one
+// to see it by itself. Units with no costs wait behind a button.
+let anShowIdle = false;
+function anFleetUnits(byUnit, loading) {
+  const busy = byUnit.filter((u) => u.total);
+  const idle = byUnit.filter((u) => !u.total);
+  const top = Math.max(...busy.map((u) => u.total), 0);
+  const list = el('div', 'an-units');
+  const row = (u) => {
+    const b = el('button', 'an-unit');
+    b.type = 'button';
+    const track = el('span', 'an-unit-track');
+    const bar = el('span', 'an-unit-bar');
+    bar.style.width = `${top ? (u.total / top) * 100 : 0}%`;
+    if (u.total) track.append(bar);
+    const miles = u.trailer || u.miles == null ? (loading && !u.trailer ? 'miles loading…' : null) : `${fmt.format(u.miles)} mi${u.perMile != null ? ` · $${u.perMile.toFixed(2)}/mi` : ''}`;
+    b.append(el('span', 'an-unit-name', u.trailer ? `Trailer ${u.name}` : u.name), track, el('span', 'an-unit-total', money(u.total)),
+      el('span', 'an-unit-note', [miles, workText(u)].filter(Boolean).join(' · ')));
+    b.setAttribute('aria-label', `${u.name}: ${money(u.total)}. Show only ${u.name}`);
+    b.addEventListener('click', () => saveAnSettings({ scope: 'unit', unit: u.id }));
+    return b;
+  };
+  list.append(...busy.map(row));
+  if (!busy.length) list.append(el('p', 'muted', 'No costs for these dates.'));
+  const out = [el('h3', 'an-title', 'By truck'), list];
+  if (idle.length) {
+    if (anShowIdle) list.append(...idle.map(row));
+    const more = Object.assign(el('button', 'btn btn-ghost an-more', anShowIdle ? 'Hide units with no costs' : `${plural(idle.length, 'more unit')} with no costs`), { type: 'button' });
+    more.addEventListener('click', () => { anShowIdle = !anShowIdle; renderAnalytics(); });
+    out.push(more);
+  }
+  return out;
 }
 
 // The date choice, with defaults: this month, this year, the last 90 days.
@@ -2917,7 +2991,7 @@ function anChoice(today) {
 }
 
 // Month / Year / Range / All, and under it what that choice needs.
-function renderAnDates(choice, today, fleetFirst, unitFirst) {
+function renderAnDates(choice, today, fleetFirst, first, fleet) {
   for (const b of $('an-modes').querySelectorAll('button')) {
     const on = b.dataset.mode === choice.mode;
     b.classList.toggle('active', on);
@@ -2950,12 +3024,13 @@ function renderAnDates(choice, today, fleetFirst, unitFirst) {
     };
     pick.replaceChildren(date('From', choice.from, 'from'), date('To', choice.to, 'to'));
   } else {
-    pick.replaceChildren(el('p', 'an-since', `Since ${niceDate(unitFirst)}, the first record for this unit`));
+    pick.replaceChildren(el('p', 'an-since', `Since ${niceDate(first)}, the first record for ${fleet ? 'the fleet' : 'this unit'}`));
   }
 }
 
-// The totals for the whole range: spent, miles, cost per mile, work.
-function anTiles(totals, unit) {
+// The totals for the whole range: spent, miles, cost per mile, work. With no
+// unit, the fleet's (miles from every truck with readings).
+function anTiles(totals, unit, { loading = false } = {}) {
   const tiles = el('div', 'an-tiles');
   const tile = (label, value, note) => {
     const t2 = el('div', 'an-tile');
@@ -2964,8 +3039,10 @@ function anTiles(totals, unit) {
     return t2;
   };
   tiles.append(
-    tile('Spent', money(totals.total), `Shelf parts ${money(totals.shelf)} · repair parts ${money(totals.items)}`),
-    tile('Miles', totals.miles == null ? '—' : fmt.format(totals.miles), unit.trailer ? 'Trailers have no odometer in Samsara' : totals.miles == null ? 'Loading Samsara readings…' : null),
+    tile('Spent', money(totals.total), costText(totals)),
+    unit
+      ? tile('Miles', totals.miles == null ? '—' : fmt.format(totals.miles), unit.trailer ? 'Trailers have no odometer in Samsara' : totals.miles == null ? 'Loading Samsara readings…' : null)
+      : tile('Miles', totals.miles == null ? '—' : fmt.format(totals.miles), loading ? 'Loading Samsara readings…' : `${plural(totals.reporting, 'truck')} with readings`),
     tile('Cost per mile', totals.perMile == null ? '—' : `$${totals.perMile.toFixed(2)}`),
     tile('Work', fmt.format(totals.service + totals.repair + totals.tires + totals.batteries), workText(totals)),
   );
@@ -3000,7 +3077,7 @@ function anChart(rows, view) {
     col.append(bar, el('span', 'an-x', i % every === 0 || i === rows.length - 1 ? r.label : ''));
     const show = () => {
       tip.replaceChildren(el('strong', null, money(r.total)), el('span', null, anPeriodName(r, view)),
-        el('span', null, `Shelf ${money(r.shelf)} · repairs ${money(r.items)}`), ...(milesText(r) ? [el('span', null, milesText(r))] : []));
+        el('span', null, `Shelf ${money(r.shelf)} · repairs ${money(r.items)}${r.shop ? ` · shop ${money(r.shop)}` : ''}`), ...(milesText(r) ? [el('span', null, milesText(r))] : []));
       tip.hidden = false;
       // Centered over the column, kept inside the chart.
       const half = tip.offsetWidth / 2;
@@ -3035,8 +3112,8 @@ function anCards(rows, unit, view, events) {
     head.append(el('span', 'an-card-name', anPeriodName(r, view)), el('span', 'an-card-total', money(r.total)));
     head.addEventListener('click', () => { anOpenPeriod = open ? null : r.key; renderAnalytics(); });
     card.append(head, el('p', 'an-card-line', [milesText(r), workText(r)].filter(Boolean).join(' · ')));
-    if (r.total) card.append(el('p', 'an-card-line', `Shelf parts ${money(r.shelf)} · repair parts ${money(r.items)}`));
-    if (open) card.append(anDetails(r, unit, events));
+    if (r.total) card.append(el('p', 'an-card-line', costText(r)));
+    if (open) card.append(unit ? anDetails(r, unit, events) : anFleetDetails(r, events));
     out.push(card);
   }
   return out;
@@ -3064,6 +3141,33 @@ function anDetails(r, unit, events) {
     const what = ev.kind === 'shelf' ? `${partById(ev.text)?.name ?? ev.text} (shelf)` : ev.text;
     row.append(el('span', 'an-row-date', dateText(ev.date)), el('span', 'an-row-text', what), el('strong', 'an-row-amount', money(ev.amount)));
     box.append(row);
+  }
+  return box;
+}
+
+// What a period held fleet-wide: each unit's spend, then the shop's.
+function anFleetDetails(r, events) {
+  const box = el('div', 'an-details');
+  box.append(el('div', 'an-sub', 'Trucks and trailers'));
+  if (!r.units.length) box.append(el('p', 'muted', 'No costs.'));
+  for (const u of r.units) {
+    const row = el('div', 'an-row an-row-unit');
+    const name = Object.assign(el('button', 'link-btn', u.trailer ? `Trailer ${u.name}` : u.name), { type: 'button' });
+    name.addEventListener('click', () => saveAnSettings({ scope: 'unit', unit: u.id }));
+    const text = el('span', 'an-row-text');
+    text.append(name);
+    row.append(text, el('strong', 'an-row-amount', money(u.total)));
+    box.append(row);
+  }
+  const shop = events.filter((ev) => !ev.unitId && (ev.kind === 'supplies' || ev.kind === 'tools') && ev.date >= r.from && ev.date <= r.to)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (shop.length) {
+    box.append(el('div', 'an-sub', 'Shop supplies and tools'));
+    for (const ev of shop) {
+      const row = el('div', 'an-row');
+      row.append(el('span', 'an-row-date', dateText(ev.date)), el('span', 'an-row-text', ev.text), el('strong', 'an-row-amount', money(ev.amount)));
+      box.append(row);
+    }
   }
   return box;
 }
@@ -4095,6 +4199,7 @@ for (const th of document.querySelectorAll('th[data-trsort]')) {
 }
 $('log-period').addEventListener('change', () => { applyLogPeriod(); renderLog(); });
 $('an-unit').addEventListener('change', () => saveAnSettings({ unit: $('an-unit').value }));
+for (const b of $('an-scope').querySelectorAll('button')) b.addEventListener('click', () => saveAnSettings({ scope: b.dataset.scope }));
 for (const b of $('an-modes').querySelectorAll('button')) b.addEventListener('click', () => saveAnSettings({ mode: b.dataset.mode }));
 for (const id of ['log-from', 'log-to']) {
   $(id).addEventListener('change', () => { $('log-period').value = 'custom'; renderLog(); });

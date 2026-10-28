@@ -1,5 +1,5 @@
-// Analytics: one truck (or trailer), month by month or week by week — what
-// it cost, how far it drove, what work it had. Plain ES module, no
+// Analytics: one truck (or trailer), or the whole fleet, month by month or
+// week by week — what it cost, how far it drove, what work it had. Plain ES module, no
 // dependencies, shared by the website and the tests.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -128,4 +128,47 @@ export function unitBreakdown({ unitId, periods, events, log, days = null }) {
     shelf: round2(sum('shelf')), items: round2(sum('items')), total, perMile: miles ? round2(total / miles) : null,
   };
   return { rows, totals };
+}
+
+/**
+ * The whole fleet, period by period: every truck's and trailer's costs and
+ * work, plus the shop's supplies and tools, and the miles of every truck
+ * with readings. Also each unit's totals, biggest spend first.
+ * @param units [{ id, name, trailer }]
+ * @param daysById vehicleId -> odometerDaily days (trucks with readings)
+ * @returns { rows: [{ ...unitBreakdown row, shop, units: [{ id, name, total }] }],
+ *   totals: same sums plus shop, byUnit: [{ id, name, trailer, ...totals }] }
+ */
+export function fleetBreakdown({ units, periods, events, log, daysById = {} }) {
+  const each = units.map((u) => ({ ...u, ...unitBreakdown({ unitId: u.id, periods, events, log, days: u.trailer ? null : daysById[u.id] ?? null }) }));
+  // Costs and work for units no longer in the list still count fleet-wide.
+  const known = new Set(units.map((u) => u.id));
+  const others = { rows: unitBreakdown({ unitId: null, periods, events: events.filter((ev) => ev.unitId && !known.has(ev.unitId)).map((ev) => ({ ...ev, unitId: null })), log: log.filter((e) => e.vehicleId && !known.has(e.vehicleId)).map((e) => ({ ...e, vehicleId: null })) }).rows };
+  const shopOf = (p) => round2(events.filter((ev) => !ev.unitId && (ev.kind === 'supplies' || ev.kind === 'tools') && ev.date >= p.from && ev.date <= p.to).reduce((s, ev) => s + ev.amount, 0));
+  const rows = periods.map((p, i) => {
+    const parts = [...each.map((u) => u.rows[i]), others.rows[i]];
+    const add = (k) => parts.reduce((s, r) => s + (r[k] ?? 0), 0);
+    const miles = parts.some((r) => r.miles != null) ? add('miles') : null;
+    const shop = shopOf(p);
+    const row = {
+      ...p, miles, service: add('service'), repair: add('repair'), tires: add('tires'), batteries: add('batteries'),
+      shelf: round2(add('shelf')), items: round2(add('items')), shop,
+    };
+    row.total = round2(row.shelf + row.items + shop);
+    row.perMile = miles ? round2(row.total / miles) : null;
+    row.units = each.map((u) => ({ id: u.id, name: u.name, trailer: u.trailer, total: u.rows[i].total })).filter((u) => u.total).sort((a, b) => b.total - a.total);
+    return row;
+  });
+  const sum = (k) => rows.reduce((s, r) => s + (r[k] ?? 0), 0);
+  const miles = rows.some((r) => r.miles != null) ? sum('miles') : null;
+  const total = round2(sum('total'));
+  const totals = {
+    miles, service: sum('service'), repair: sum('repair'), tires: sum('tires'), batteries: sum('batteries'),
+    shelf: round2(sum('shelf')), items: round2(sum('items')), shop: round2(sum('shop')), total, perMile: miles ? round2(total / miles) : null,
+    reporting: each.filter((u) => u.totals.miles != null).length,
+  };
+  const work = (t) => t.service + t.repair + t.tires + t.batteries;
+  const byUnit = each.map((u) => ({ id: u.id, name: u.name, trailer: u.trailer, ...u.totals, work: work(u.totals) }))
+    .sort((a, b) => b.total - a.total || b.work - a.work);
+  return { rows, totals, byUnit };
 }
