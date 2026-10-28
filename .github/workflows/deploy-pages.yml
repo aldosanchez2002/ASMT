@@ -31,6 +31,13 @@ jobs:
           sed -i -E "s#(src|href)=\"(app\.js|styles\.css)\"#\1=\"\2?v=$v\"#g" web/index.html
           sed -i -E "s#from '\./([a-z0-9-]+)\.js'#from './\1.js?v=$v'#g" web/*.js
           grep -n "?v=" web/index.html web/*.js
+      # aslog.dev/analytics: the same page, which opens on Analytics only
+      # (app.js checks the path). <base> keeps its files loading from the root.
+      - name: Add the Analytics page
+        run: |
+          mkdir -p web/analytics
+          sed 's#<head>#<head>\n  <base href="/">#' web/index.html > web/analytics/index.html
+          head -4 web/analytics/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

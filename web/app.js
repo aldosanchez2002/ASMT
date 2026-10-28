@@ -551,17 +551,24 @@ const ROLE_LOCKS = {
   inventory: { password: 'antonio', key: 'aslog.inventory' },
   admin: { password: 'Covington', key: 'aslog.admin' },
 };
+// The office's own password for aslog.dev/analytics; it opens that page only.
+const ANALYTICS_LOCK = { password: 'andrea', key: 'aslog.analyticsPage' };
 const remembered = (key) => { try { return localStorage.getItem(key) === 'yes'; } catch { return false; } };
 const adminUnlocked = () => remembered(ROLE_LOCKS.admin.key);
-const roleUnlocked = (role) => role === 'mechanic' || adminUnlocked() || (role === 'inventory' && remembered(ROLE_LOCKS.inventory.key));
+const roleUnlocked = (role) => role === 'mechanic' || adminUnlocked() || (role === 'inventory' && remembered(ROLE_LOCKS.inventory.key))
+  || (role === 'admin' && ANALYTICS_PAGE && remembered(ANALYTICS_LOCK.key));
 const roleOfTab = (tab) => (tab === 'shop' ? 'mechanic' : tab === 'inventory' ? 'inventory' : 'admin');
+// aslog.dev/analytics: the same app showing only Analytics (deploy-pages.yml
+// copies index.html there), for a bookmark or a screen on the wall.
+const ANALYTICS_PAGE = /\/analytics\/?$/.test(location.pathname);
+const wantedTab = () => (ANALYTICS_PAGE ? 'analytics' : location.hash.slice(1));
 let lockRole = null; // the role the password popup is for
 let lastAllowedHash = ''; // where Cancel goes back to
 
 function askPassword(role) {
   lockRole = role;
   const dlg = $('admin-lock');
-  $('admin-lock-title').textContent = t('lockTitle', t('roles')[role]);
+  $('admin-lock-title').textContent = ANALYTICS_PAGE ? 'Analytics' : t('lockTitle', t('roles')[role]);
   $('admin-pass').placeholder = t('adminPassword');
   $('admin-pass-error').hidden = true;
   $('admin-pass-error').textContent = t('adminWrong');
@@ -573,7 +580,7 @@ function askPassword(role) {
 }
 
 function currentTab() {
-  const tab = location.hash.slice(1);
+  const tab = wantedTab();
   if (!TABS.includes(tab)) return 'shop';
   // Locked: stay on the last page this device could open (behind the password box).
   return roleUnlocked(roleOfTab(tab)) ? tab : lastAllowedHash.slice(1) || 'shop';
@@ -4331,15 +4338,18 @@ $('sign-in').addEventListener('click', async () => {
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
 addEventListener('hashchange', () => {
-  const tab = location.hash.slice(1);
+  const tab = wantedTab();
   if (TABS.includes(tab) && !roleUnlocked(roleOfTab(tab))) askPassword(roleOfTab(tab));
   showTab();
   render();
 });
 $('admin-lock').addEventListener('submit', (e) => {
   e.preventDefault();
-  const lock = ROLE_LOCKS[lockRole];
-  if (!lock || $('admin-pass').value.trim().toLowerCase() !== lock.password.toLowerCase()) {
+  const typed = $('admin-pass').value.trim().toLowerCase();
+  // On the Analytics page the office password works as well as admin's.
+  const locks = [ROLE_LOCKS[lockRole], ...(ANALYTICS_PAGE && lockRole === 'admin' ? [ANALYTICS_LOCK] : [])].filter(Boolean);
+  const lock = locks.find((l) => typed === l.password.toLowerCase());
+  if (!lock) {
     $('admin-pass-error').hidden = false;
     $('admin-pass').select();
     return;
@@ -4352,6 +4362,8 @@ $('admin-lock').addEventListener('submit', (e) => {
 $('admin-pass-cancel').addEventListener('click', () => $('admin-lock').close());
 // Closed without the password (Cancel or Esc): back to where they were.
 $('admin-lock').addEventListener('close', () => {
+  // The Analytics page without the password: back to the app's start.
+  if (ANALYTICS_PAGE && !roleUnlocked('admin')) { location.href = '/'; return; }
   if (!roleUnlocked(lockRole)) history.replaceState(null, '', location.pathname + location.search + lastAllowedHash);
   lockRole = null;
   showTab();
@@ -4429,7 +4441,13 @@ $('tires-form').addEventListener('submit', async (e) => {
   }
 });
 applyLogPeriod();
-if (TABS.includes(location.hash.slice(1)) && !roleUnlocked(roleOfTab(location.hash.slice(1)))) askPassword(roleOfTab(location.hash.slice(1)));
+if (ANALYTICS_PAGE) {
+  document.body.classList.add('page-analytics');
+  document.title = 'Analytics · aslog.dev';
+  $('an-page-link').hidden = true;
+  $('an-home').hidden = false;
+}
+if (TABS.includes(wantedTab()) && !roleUnlocked(roleOfTab(wantedTab()))) askPassword(roleOfTab(wantedTab()));
 showTab();
 $('t-close').addEventListener('click', () => $('truck').close());
 $('s-close').addEventListener('click', () => $('schedule').close());
