@@ -1495,7 +1495,8 @@ function trailerCard({ c, status, worn, group }) {
 }
 
 // One truck in the shop view: its number, flags, the code that matters, what's due.
-function shopCard({ v, due }) {
+// Admin's Overview shows the same card without Record work (that's the mechanics').
+function shopCard({ v, due }, { record: withRecord = true } = {}) {
   // A div, not a button, so it can hold the small Record work button.
   const card = el('div', `shop-card${due.some((r) => r.status === 'overdue') || v.faults?.stop ? ' has-overdue' : ''}`);
   card.setAttribute('role', 'button');
@@ -1504,11 +1505,15 @@ function shopCard({ v, due }) {
     if (e.target === card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openTruck(v.id); }
   });
   const head = el('div', 'shop-card-head');
-  const record = el('button', 'shop-record', t('logWork'));
-  record.type = 'button';
-  record.addEventListener('click', (e) => { e.stopPropagation(); openWork(v.id); });
-  head.classList.add('with-record');
-  head.append(el('span', 'shop-truck', v.name), record, el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
+  head.append(el('span', 'shop-truck', v.name));
+  if (withRecord === true) {
+    const record = el('button', 'shop-record', t('logWork'));
+    record.type = 'button';
+    record.addEventListener('click', (e) => { e.stopPropagation(); openWork(v.id); });
+    head.classList.add('with-record');
+    head.append(record);
+  }
+  head.append(el('span', 'shop-miles', v.odometerMiles == null ? '' : `${fmt.format(v.odometerMiles)} mi`));
   card.append(head);
   // One level of loudness: red only for a STOP lamp or something overdue.
   const badges = signalBadges(v, { lampsOnly: true });
@@ -1580,10 +1585,13 @@ function renderTruck(v) {
   if (v.local) body.append(el('p', 'item-meta', t('localTruck')));
   if (admin) body.append(complianceBox(v.id, admin));
   // 3. The one button.
-  const logBtn = el('button', 'btn btn-log', t('logWork'));
-  logBtn.type = 'button';
-  logBtn.addEventListener('click', () => openWork(v.id));
-  body.append(logBtn);
+  // Recording work is the mechanics' job: admin's page has no button for it.
+  if (!admin) {
+    const logBtn = el('button', 'btn btn-log', t('logWork'));
+    logBtn.type = 'button';
+    logBtn.addEventListener('click', () => openWork(v.id));
+    body.append(logBtn);
+  }
   // 4. Tires and batteries.
   body.append(truckTiresSection(v), batterySection(v));
   // 5. Recent work.
@@ -3412,7 +3420,7 @@ function anFleetDetails(r, events) {
 // In the order the admin cares about: work to do today and soon (the same
 // lists the mechanics see, plus paperwork expired or due), work done today,
 // receipts that came in today, anything to correct in what the AI read or
-// matched, then schedules and settings.
+// matched.
 
 function renderAdminToday() {
   const today = todayIso();
@@ -3464,19 +3472,12 @@ function renderAdminToday() {
     if (hint) out.push(el('p', 'parts-hint', hint));
     out.push(...(rows.length ? rows : [el('p', 'parts-empty parts-good', empty)]));
   };
-  const work = (o) => [...o.trucks.map(shopCard), ...o.trailers.map(trailerCard), ...o.paper.map(cpRow)];
+  const work = (o) => [...o.trucks.map((x) => shopCard(x, { record: false })), ...o.trailers.map(trailerCard), ...o.paper.map(cpRow)];
   section('now', 'To do today', 'In the yard and needs service, as the mechanics see it, plus paperwork that has expired.', work(now), 'Nothing in the yard needs service.');
   section('soon', 'Coming up', 'Needs service but not in the yard yet, and paperwork expiring in the next 30 days.', work(soon), 'Nothing coming up.');
   section('done', 'Done today', null, done.map(doneRow), 'No work logged yet today.');
   section('receipts', 'Receipts today', null, inToday.map((x) => receiptCard(x, true)), 'No receipts in yet today.');
   section('fix', 'Receipts to review', 'What the AI read or matched that needs a person: receipts it wasn\'t sure of, unsure matches, parts no work explains, old stock, repairs with no parts.', fix, 'Nothing to review.');
-  const setup = el('div', 'today-setup');
-  for (const [href, label] of [['#schedules', 'Schedules'], ['#settings', 'Settings'], ['#compliance', 'Inspections']]) {
-    const a = el('a', 'btn btn-ghost', label);
-    a.href = href;
-    setup.append(a);
-  }
-  out.push(el('h3', 'shop-group parts-group today-section', 'Schedules & settings'), setup);
   $('today-body').replaceChildren(...out);
 }
 
@@ -4361,10 +4362,12 @@ function renderTrailer() {
   $('t-sub').textContent = [t('trailer'), m ? t('trailerMiles', fmt.format(Math.round(m.miles)), dateText(m.startedAt)) : null].filter(Boolean).join(' · ');
   const body = $('t-body');
   body.replaceChildren();
-  const btn = el('button', 'btn btn-log', t('trailerWork'));
-  btn.type = 'button';
-  btn.addEventListener('click', () => openTrailerWork(c.id));
-  body.append(btn);
+  if (currentTab() === 'shop') {
+    const btn = el('button', 'btn btn-log', t('trailerWork'));
+    btn.type = 'button';
+    btn.addEventListener('click', () => openTrailerWork(c.id));
+    body.append(btn);
+  }
   const here = atShop({ lat: c.latitude, lon: c.longitude, speedMph: c.speedMph });
   body.append(el('p', 'muted truck-where', c.local ? t('cpNoTracker') : `📍 ${here ? t('atShop') : c.location || '—'} · ${timeAgo(c.lastReportedAt)}`));
   if (currentTab() !== 'shop') body.append(complianceBox(c.id, true));
