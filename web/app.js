@@ -582,10 +582,13 @@ function wantedTab() {
   if (PAGE === 'admin') return ADMIN_TABS.includes(hash) ? hash : 'today';
   return 'shop';
 }
+// Admin uses the office's Analytics page (aslog.dev/analytics), not a copy.
+if (PAGE === 'admin' && location.hash === '#analytics') location.replace('/analytics');
 // Old links to aslog.dev/#inventory or /#trucks go to the new addresses.
 if (PAGE === 'mechanic') {
   const hash = location.hash.slice(1);
   if (hash === 'inventory') location.replace('/receipts');
+  else if (hash === 'analytics') location.replace('/analytics');
   else if (ADMIN_TABS.includes(hash)) location.replace(`/admin#${hash}`);
 }
 let lockRole = null; // the role the password popup is for
@@ -649,19 +652,20 @@ function showTab() {
     a.setAttribute('aria-current', on ? 'page' : 'false');
   }
   const sections = group ? group.dataset.tabs.split(' ') : [];
-  $('admin-subnav').hidden = shop || sections.length < 2;
+  const pages = group?.dataset.links ? group.dataset.links.split(' ') : [];
+  $('admin-subnav').hidden = shop || sections.length + pages.length < 2;
   $('admin-subnav').replaceChildren(...sections.map((x) => {
     const a = el('a', x === tab ? 'active' : '', SECTION_NAMES[x] ?? x);
     a.href = `#${x}`;
     if (x === tab) a.setAttribute('aria-current', 'page');
     return a;
-  }));
+  }), ...pages.map((path) => Object.assign(el('a', null, `${SECTION_NAMES[path] ?? path} ↗`), { href: path })));
   // On a phone the tab row scrolls; keep the open tab in view.
   document.querySelector('.tabs a.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 const SECTION_NAMES = {
-  trucks: 'Trucks', trailers: 'Trailers', compliance: 'Inspections', analytics: 'Analytics', parts: 'Receipts & parts',
+  trucks: 'Trucks', trailers: 'Trailers', compliance: 'Inspections', '/analytics': 'Analytics', parts: 'Receipts & parts',
   settings: 'Settings', schedules: 'Schedules',
 };
 
@@ -4707,6 +4711,7 @@ $('sign-in').addEventListener('click', async () => {
 $('sign-out').addEventListener('click', () => signOut(auth));
 $('search').addEventListener('input', render);
 addEventListener('hashchange', () => {
+  if (PAGE === 'admin' && location.hash === '#analytics') { location.replace('/analytics'); return; }
   const tab = wantedTab();
   if (TABS.includes(tab) && !roleUnlocked(roleOfTab(tab))) askPassword(roleOfTab(tab));
   showTab();

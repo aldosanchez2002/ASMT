@@ -190,8 +190,8 @@ Each person has their own address. It's the same app (`web/index.html`); the dep
 |---|---|---|
 | `aslog.dev` | Mechanic (EN/ES) | none |
 | `aslog.dev/receipts` or `aslog.dev/parts` | Inventory: receipts, to buy (EN/ES) | `antonio` (or admin's) |
-| `aslog.dev/admin` | Admin, in five groups: **Today** (home), **Fleet** (trucks, trailers, inspections), **Money** (analytics, receipts & parts), **Records** (service log), **Setup** (settings, schedules); links to the other pages in the header | `Covington` |
-| `aslog.dev/analytics` | The office's Analytics, in a softer look | `andrea` or admin's |
+| `aslog.dev/admin` | Admin, in five groups: **Today** (home), **Fleet** (trucks, trailers, inspections), **Money** (receipts & parts, and a link to the Analytics page), **Records** (service log), **Setup** (settings, schedules); links to the other pages in the header | `Covington` |
+| `aslog.dev/analytics` | Analytics, in a softer look: the office's page, and admin's too (`/admin#analytics` forwards here) | `andrea` or admin's |
 
 Old links (`aslog.dev/#inventory`, `aslog.dev/#trucks`) forward to the new addresses. The passwords only keep each person on their own page: anyone can read them in the code.
 
