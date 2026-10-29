@@ -31,13 +31,16 @@ jobs:
           sed -i -E "s#(src|href)=\"(app\.js|styles\.css)\"#\1=\"\2?v=$v\"#g" web/index.html
           sed -i -E "s#from '\./([a-z0-9-]+)\.js'#from './\1.js?v=$v'#g" web/*.js
           grep -n "?v=" web/index.html web/*.js
-      # aslog.dev/analytics: the same page, which opens on Analytics only
-      # (app.js checks the path). <base> keeps its files loading from the root.
-      - name: Add the Analytics page
+      # Each role's own address serves the same page (app.js picks the view
+      # from the path): /admin, /parts and /receipts (inventory), /analytics.
+      # Its two files load from the root.
+      - name: Add the role pages
         run: |
-          mkdir -p web/analytics
-          sed 's#<head>#<head>\n  <base href="/">#' web/index.html > web/analytics/index.html
-          head -4 web/analytics/index.html
+          for page in admin parts receipts analytics; do
+            mkdir -p "web/$page"
+            sed -E 's#(src|href)="(app\.js|styles\.css)#\1="/\2#g' web/index.html > "web/$page/index.html"
+          done
+          grep -n 'app.js\|styles.css' web/admin/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

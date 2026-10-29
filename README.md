@@ -182,6 +182,19 @@ Every receipt shows three dates: when it was **sent** (`createdAt`, and how: Wha
 | `corrections/{id}` | `type` (`reading`/`match`), what the AI said and what admin changed it to |
 | `meta/aiMemory` | `notes`: what admin tells the AI |
 
+## Pages
+
+Each person has their own address. It's the same app (`web/index.html`); the deploy (`deploy-pages.yml`) copies it to each path and `app.js` picks the view from the path:
+
+| Address | Who | Password |
+|---|---|---|
+| `aslog.dev` | Mechanic (EN/ES) | none |
+| `aslog.dev/receipts` or `aslog.dev/parts` | Inventory: receipts, to buy (EN/ES) | `antonio` (or admin's) |
+| `aslog.dev/admin` | Admin tabs (`/admin#trucks`, `#compliance`, …), with links to the other pages in the header | `Covington` |
+| `aslog.dev/analytics` | The office's Analytics, in a softer look | `andrea` or admin's |
+
+Old links (`aslog.dev/#inventory`, `aslog.dev/#trucks`) forward to the new addresses. The passwords only keep each person on their own page: anyone can read them in the code.
+
 ## Inspections & registrations (admin)
 
 **Admin → Inspections** lists every truck and trailer with when its annual inspection (49 CFR 396.17, every unit in service) and its registration expire: **Needs action** (expired or within 30 days), **Coming up** (90 days), **No dates on file**, **Up to date** and **Out of service or sold** (nothing to renew). Filter by trucks or trailers and by state; tap a unit to update its dates, plate, state, status or note ("Inspected today" fills in the end of the same month next year). Multi-year plates (Maine trailers) only need the inspection. Each unit is a `compliance/{unitId}` doc (`web/compliance.js`), kept apart from the Samsara data. Expired or due units also show at the top of **Parts → Review**, on the truck or trailer page, and on the mechanic's trailer cards; sold or out-of-service units are left out of the mechanic's lists; the maintenance record PDF shows the plate, registration and inspection dates. Trailers with no GPS tracker can be added by hand (**+ Add a trailer**, `local: true`; the sync leaves them alone).
@@ -190,7 +203,7 @@ The office's trailer sheet was imported once with `scripts/import-compliance.mjs
 
 ## Analytics (admin)
 
-**Admin → Analytics** shows one truck or trailer for a **Month** (week by week), a **Year** (month by month), a **Range** of dates (week by week up to about two months, month by month after that) or **All** (month by month since its first record): what it cost (every use of a batch tied to its work, each with the receipt it came from; `costEvents` in `web/items.js`), miles driven from Samsara's daily odometer (`odometerDaily`; trailers have none), cost per mile, and the work logged. A chart shows spending per period; **Receipts behind $X** lists the receipts its costs came from, plus anything used with no receipt yet; tap a period to see the work and each cost in it. Every cost has a receipt button that opens the photo (one Firestore read, only when tapped). **Include a share of shop supplies and tools** adds each period's shop costs divided evenly by the number of trucks (`shopShare`; trailers get none). **Whole fleet** shows the same for every truck and trailer together, plus the shop's supplies and tools, with miles from every truck that has readings (one `odometerDaily` read per truck, once per visit), and lists the units by what they cost; tap one to see it alone. **aslog.dev/analytics** is the same Analytics on its own page for the office, in a softer look (light borders, rounded corners, sentence case) and with no other tabs. The deploy copies `index.html` to `analytics/index.html` and `app.js` opens Analytics only on that path. It takes the admin password or its own office password (`andrea`), which opens that page only. Like the other passwords, these are only there to keep each person on their own pages: anyone can read them in the code. The math is in `web/analytics.js` (`periodsFor`, `milesIn`, `unitBreakdown`, `fleetBreakdown`) and covered by `npm test`.
+**Admin → Analytics** shows one truck or trailer for a **Month** (week by week), a **Year** (month by month), a **Range** of dates (week by week up to about two months, month by month after that) or **All** (month by month since its first record): what it cost (every use of a batch tied to its work, each with the receipt it came from; `costEvents` in `web/items.js`), miles driven from Samsara's daily odometer (`odometerDaily`; trailers have none), cost per mile, and the work logged. A chart shows spending per period; **Receipts behind $X** lists the receipts its costs came from, plus anything used with no receipt yet; tap a period to see the work and each cost in it. Every cost has a receipt button that opens the photo (one Firestore read, only when tapped). **Include a share of shop supplies and tools** adds each period's shop costs divided evenly by the number of trucks (`shopShare`; trailers get none). **Whole fleet** shows the same for every truck and trailer together, plus the shop's supplies and tools, with miles from every truck that has readings (one `odometerDaily` read per truck, once per visit), and lists the units by what they cost; tap one to see it alone. **aslog.dev/analytics** is the same Analytics on its own page for the office, in a softer look (light borders, rounded corners, sentence case) and with no other tabs. It takes the admin password or its own office password (`andrea`), which opens that page only. Like the other passwords, these are only there to keep each person on their own pages: anyone can read them in the code. The math is in `web/analytics.js` (`periodsFor`, `milesIn`, `unitBreakdown`, `fleetBreakdown`) and covered by `npm test`.
 
 ## Paper work log import
 

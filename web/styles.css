@@ -1469,6 +1469,13 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
 .an-more { width: 100%; margin-top: 6px; }
 
+/* Admin's links to the other pages (aslog.dev, /receipts, /analytics) */
+.page-links { display: flex; border: 2px solid #fff; }
+.page-links a { display: flex; align-items: center; min-height: 38px; padding: 0 10px; color: #fff; font: 800 14px var(--cond); letter-spacing: .06em; text-transform: uppercase; text-decoration: none; }
+.page-links a + a { border-left: 2px solid #fff; }
+.page-links a:hover, .page-links a:focus-visible { background: var(--floor-yellow); color: #111; outline: none; }
+@media (max-width: 420px) { .page-links a { padding: 0 7px; font-size: 12px; letter-spacing: .03em; } }
+
 /* aslog.dev/analytics: Analytics only, no tabs or role switch */
 .page-analytics #admin-nav, .page-analytics #role-switch { display: none !important; }
 .an-page-links { display: flex; justify-content: flex-end; margin: 0 0 6px; }

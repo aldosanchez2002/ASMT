@@ -551,8 +551,11 @@ addEventListener('popstate', () => {
 // have a password (any capitals). Not real security (anyone can read them
 // here): it only keeps each person on their own pages. Each device remembers
 // a password once it's typed, and the admin one opens Inventory too.
+// Each role has its own address (deploy-pages.yml serves the same app at
+// each): aslog.dev (mechanic), /parts or /receipts (inventory), /admin, and
+// /analytics (the office's Analytics only).
 const ROLES = ['mechanic', 'inventory', 'admin'];
-const ROLE_HOME = { mechanic: '#', inventory: '#inventory', admin: '#trucks' };
+const ROLE_HOME = { mechanic: '/', inventory: '/receipts', admin: '/admin' };
 const ROLE_LOCKS = {
   inventory: { password: 'antonio', key: 'aslog.inventory' },
   admin: { password: 'Covington', key: 'aslog.admin' },
@@ -564,10 +567,26 @@ const adminUnlocked = () => remembered(ROLE_LOCKS.admin.key);
 const roleUnlocked = (role) => role === 'mechanic' || adminUnlocked() || (role === 'inventory' && remembered(ROLE_LOCKS.inventory.key))
   || (role === 'admin' && ANALYTICS_PAGE && remembered(ANALYTICS_LOCK.key));
 const roleOfTab = (tab) => (tab === 'shop' ? 'mechanic' : tab === 'inventory' ? 'inventory' : 'admin');
-// aslog.dev/analytics: the same app showing only Analytics (deploy-pages.yml
-// copies index.html there), for a bookmark or a screen on the wall.
-const ANALYTICS_PAGE = /\/analytics\/?$/.test(location.pathname);
-const wantedTab = () => (ANALYTICS_PAGE ? 'analytics' : location.hash.slice(1));
+const PAGE = (() => {
+  const last = location.pathname.replace(/\/+$/, '').split('/').pop();
+  return last === 'analytics' ? 'analytics' : last === 'admin' ? 'admin' : last === 'parts' || last === 'receipts' ? 'inventory' : 'mechanic';
+})();
+const ANALYTICS_PAGE = PAGE === 'analytics';
+const ADMIN_TABS = TABS.filter((x) => x !== 'shop' && x !== 'inventory');
+// The tab this page shows: its own view, or on /admin the admin tab in the hash.
+function wantedTab() {
+  if (PAGE === 'analytics') return 'analytics';
+  if (PAGE === 'inventory') return 'inventory';
+  const hash = location.hash.slice(1);
+  if (PAGE === 'admin') return ADMIN_TABS.includes(hash) ? hash : 'trucks';
+  return 'shop';
+}
+// Old links to aslog.dev/#inventory or /#trucks go to the new addresses.
+if (PAGE === 'mechanic') {
+  const hash = location.hash.slice(1);
+  if (hash === 'inventory') location.replace('/receipts');
+  else if (ADMIN_TABS.includes(hash)) location.replace(`/admin#${hash}`);
+}
 let lockRole = null; // the role the password popup is for
 let lastAllowedHash = ''; // where Cancel goes back to
 
@@ -606,7 +625,7 @@ function pickRole(role) {
   $('role-switch').classList.remove('open');
   $('role-current').setAttribute('aria-expanded', 'false');
   if (role === roleOfTab(currentTab())) return;
-  location.hash = ROLE_HOME[role];
+  location.href = ROLE_HOME[role];
 }
 
 function showTab() {
@@ -4604,8 +4623,8 @@ $('admin-lock').addEventListener('submit', (e) => {
 $('admin-pass-cancel').addEventListener('click', () => $('admin-lock').close());
 // Closed without the password (Cancel or Esc): back to where they were.
 $('admin-lock').addEventListener('close', () => {
-  // The Analytics page without the password: back to the app's start.
-  if (ANALYTICS_PAGE && !roleUnlocked('admin')) { location.href = '/'; return; }
+  // A page opened without its password: back to the mechanic's page.
+  if (PAGE !== 'mechanic' && !roleUnlocked(roleOfTab(wantedTab()))) { location.href = '/'; return; }
   if (!roleUnlocked(lockRole)) history.replaceState(null, '', location.pathname + location.search + lastAllowedHash);
   lockRole = null;
   showTab();
@@ -4683,11 +4702,16 @@ $('tires-form').addEventListener('submit', async (e) => {
   }
 });
 applyLogPeriod();
+// Each page is one person's: no role switch. Admin gets links to the others.
+document.body.dataset.page = PAGE;
+$('role-switch').hidden = true;
+$('page-links').hidden = PAGE !== 'admin';
+if (PAGE === 'inventory') document.title = 'Parts · aslog.dev';
+if (PAGE === 'admin') document.title = 'Admin · aslog.dev';
 if (ANALYTICS_PAGE) {
   document.body.classList.add('page-analytics');
   document.title = 'Analytics · aslog.dev';
   $('an-page-link').hidden = true;
-  $('an-home').hidden = false;
 }
 if (TABS.includes(wantedTab()) && !roleUnlocked(roleOfTab(wantedTab()))) askPassword(roleOfTab(wantedTab()));
 showTab();
