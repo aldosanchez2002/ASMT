@@ -645,7 +645,7 @@ function showTab() {
   renderRoleSwitch();
   // Admin's five groups; the open group's sections show in the bar under them.
   let group = null;
-  for (const a of document.querySelectorAll('#admin-nav a')) {
+  for (const a of document.querySelectorAll('#admin-nav a[data-tabs]')) {
     const on = a.dataset.tabs.split(' ').includes(tab);
     if (on) group = a;
     a.classList.toggle('active', on);
