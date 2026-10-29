@@ -139,22 +139,19 @@ export function upcomingWork(trucks, trailers, kits, schedules, parts) {
  * (most urgent first), so a line only appears for what's still missing.
  * Then:
  *   - bulk parts (counted in gallons: oil) are one line for the whole fleet,
- *     since they're bought by the drum, not per truck;
- *   - a part below its minimum gets a "keep on the shelf" line with no truck.
- * @returns [{ part, qty, unitId?, unitName?, trailer?, kind: 'unit'|'restock'|'bulk',
- *   packs? }] — truck lines (in truck order), then restock, then bulk
+ *     since they're bought by the drum, not per truck.
+ * @returns [{ part, qty, unitId?, unitName?, trailer?, kind: 'unit'|'bulk',
+ *   packs? }] — truck lines (in truck order), then bulk
  */
 export function shoppingList(parts, work, stock) {
   const unitLines = [];
-  const restock = [];
   const bulk = [];
   for (const part of parts) {
     if (part.archived) continue;
-    const min = Number(part.min) || 0;
     let shelf = Math.max(stock[part.id] ?? 0, 0);
     if (part.unit === 'gal') {
       const need = work.reduce((n, w) => n + (w.parts[part.id] ?? 0), 0);
-      const qty = round(Math.max(0, need + min - shelf));
+      const qty = round(Math.max(0, need - shelf));
       if (qty > 0) bulk.push({ part, qty, kind: 'bulk', packs: packsFor(part, qty) });
       continue;
     }
@@ -166,12 +163,11 @@ export function shoppingList(parts, work, stock) {
       const qty = round(want - fromShelf);
       if (qty > 0) unitLines.push({ part, qty, kind: 'unit', unitId: w.unitId, unitName: w.unitName, trailer: Boolean(w.trailer), order: unitLines.length });
     }
-    if (min > shelf) restock.push({ part, qty: round(min - shelf), kind: 'restock' });
   }
   // Group a truck's lines together, trucks in work order.
   const unitOrder = new Map(work.map((w, i) => [w.unitId, i]).reverse());
   unitLines.sort((a, b) => unitOrder.get(a.unitId) - unitOrder.get(b.unitId) || a.order - b.order);
-  return [...unitLines.map(({ order, ...x }) => x), ...restock, ...bulk];
+  return [...unitLines.map(({ order, ...x }) => x), ...bulk];
 }
 
 // How many of each pack (drum, case…) covers a quantity.

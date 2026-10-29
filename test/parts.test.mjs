@@ -15,8 +15,8 @@ const kits = {
   t680: { airFilter: [{ part: 'af', qty: 1 }] },
 };
 const parts = [
-  { id: 'oil', group: 'oil', unit: 'gal', min: 10, packs: [{ name: 'Drum', size: 55 }, { name: 'Case', size: 6 }] },
-  { id: 'of', group: 'filter', min: 2 },
+  { id: 'oil', group: 'oil', unit: 'gal', packs: [{ name: 'Drum', size: 55 }, { name: 'Case', size: 6 }] },
+  { id: 'of', group: 'filter' },
   { id: 'ff', group: 'filter' },
   { id: 'pf', group: 'filter' },
   { id: 'af', group: 'filter' },
@@ -68,23 +68,23 @@ test('upcoming work and the shopping list', () => {
   assert.equal(work.length, 2);
   assert.deepEqual(work[0].parts, { oil: 11, of: 1, ff: 1, pf: 1 });
   assert.deepEqual(work[1].parts, { steer: 1 });
-  const list = shoppingList(parts, work, { oil: 15, of: 4, ff: 0, steer: 3 });
+  const list = shoppingList(parts, work, { oil: 5, of: 4, ff: 0, steer: 3 });
   // Oil filter and steer tire come off the shelf; fuel filters are bought
-  // for T-01; oil is one bulk line: 11 needed + 10 minimum - 15 on hand.
+  // for T-01; oil is one bulk line: 11 needed - 5 on hand.
   assert.deepEqual(list.map((x) => [x.kind, x.part.id, x.qty, x.unitName]), [
     ['unit', 'ff', 1, 'T-01'], ['unit', 'pf', 1, 'T-01'], ['bulk', 'oil', 6, undefined],
   ]);
   assert.deepEqual(list[2].packs, [{ name: 'Drum', size: 55, count: 1 }, { name: 'Case', size: 6, count: 1 }]);
 });
 
-test('the shelf goes to the most urgent truck first; the minimum is restocked', () => {
-  const p = [{ id: 'of', min: 2 }];
+test('the shelf goes to the most urgent truck first', () => {
+  const p = [{ id: 'of' }];
   const work = [
     { unitId: 'a', unitName: 'T-01', parts: { of: 1 } },
     { unitId: 'b', unitName: 'T-02', parts: { of: 1 } },
   ];
   assert.deepEqual(shoppingList(p, work, { of: 1 }).map((x) => [x.kind, x.unitName ?? null, x.qty]), [
-    ['unit', 'T-02', 1], ['restock', null, 2],
+    ['unit', 'T-02', 1],
   ]);
 });
 

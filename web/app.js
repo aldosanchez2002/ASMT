@@ -2190,15 +2190,14 @@ const unitVin = (id, trailer) => (trailer ? null : vehicles.find((v) => v.id ===
 const shortPartName = (part) => String(part.name ?? '').split(' · ')[0];
 const packsText = (packs) => packs.map((p) => `${p.count} ${p.name.toLowerCase()}${p.count === 1 ? '' : 's'}`).join(` ${t('or')} `);
 
-// "Fuel filter kit", or "2 × Steer tire". Lines with no truck (keep on the
-// shelf, oil) have no VIN, so they use the full name ("Oil filter · DD15 Gen 5").
+// "Fuel filter kit", or "2 × Steer tire". Lines with no truck (oil) have no
+// VIN, so they use the full name ("Oil filter · DD15 Gen 5").
 const lineWhat = (x) => `${x.kind !== 'bulk' && x.qty !== 1 ? `${qtyText(x.qty)} × ` : ''}${x.kind === 'unit' ? shortPartName(x.part) : x.part.name}`;
 
 // One shopping list line as text: "Fuel filter kit for VIN 3AKJ…".
 function shoppingLineText(x) {
   const what = lineWhat(x);
   if (x.kind === 'bulk') return `${what}: ${amountText(x.part, x.qty)}${x.packs.length ? ` (${packsText(x.packs)})` : ''}`;
-  if (x.kind === 'restock') return t('keepOnShelf', what);
   const vin = unitVin(x.unitId, x.trailer);
   return vin ? t('lineForVin', what, vin) : t('lineForUnit', what, x.trailer ? `${t('trailer')} ${x.unitName}` : x.unitName);
 }
@@ -2317,13 +2316,12 @@ function partsStock(stock) {
     out.push(el('h3', 'shop-group parts-group', t('partGroups')[group] ?? group));
     for (const p of list) {
       const have = stock[p.id] ?? 0;
-      const low = p.min != null && p.min !== '' && have < Number(p.min);
-      const row = el('button', `stock-row${low ? ' low' : ''}${have < 0 ? ' negative' : ''}`);
+      const row = el('button', `stock-row${have < 0 ? ' negative' : ''}`);
       row.type = 'button';
       row.append(
         el('span', 'stock-name', p.name),
         el('span', 'stock-qty', amountText(p, have)),
-        el('span', 'stock-meta', [p.number, p.min ? t('keepMin', amountText(p, Number(p.min))) : null, p.countAt ? null : t('notCounted')].filter(Boolean).join(' · ')),
+        el('span', 'stock-meta', [p.number, p.countAt ? null : t('notCounted')].filter(Boolean).join(' · ')),
       );
       row.addEventListener('click', () => openPart(p.id));
       out.push(row);
@@ -3246,18 +3244,160 @@ function renderAnDates(choice, today, fleetFirst, first, fleet) {
   } else if (choice.mode === 'year') {
     pick.replaceChildren(yearSel(choice.year, (year) => saveAnSettings({ year })));
   } else if (choice.mode === 'range') {
-    const date = (label, value, key) => {
-      const input = Object.assign(el('input'), { type: 'date', value, max: today });
-      input.addEventListener('change', () => { if (input.value) saveAnSettings({ [key]: input.value }); });
-      const wrap = el('label', 'field');
-      wrap.append(el('span', null, label), input);
-      return wrap;
-    };
-    pick.replaceChildren(date('From', choice.from, 'from'), date('To', choice.to, 'to'));
+    pick.replaceChildren(rangePicker(choice, today));
   } else {
     pick.replaceChildren(el('p', 'an-since', `Since ${niceDate(first)}, the first record for ${fleet ? 'the fleet' : 'this unit'}`));
   }
 }
+
+// Range dates the way a plane ticket picks them: one bar (From | To); tap it
+// and a calendar opens, two months side by side (one on a phone). Tap the
+// first day, then the last, and the days between fill in. Quick picks cover
+// the usual spans. The picking survives a redraw of the page (Samsara
+// readings arriving), so it lives outside the picker.
+let anRange = null; // { pickEnd, start, end, hover, view } while the calendar is open
+const rpIso = (y, m, d) => new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10);
+const addMonths = (month, n) => { const [y, m] = month.split('-').map(Number); return rpIso(y, m - 1 + n, 1).slice(0, 7); };
+const rpDate = (iso, opts) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', opts);
+const rpDays = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / DAY_MS) + 1;
+
+function rangePicker(choice, today) {
+  const box = el('div', 'rp');
+  const months = () => (window.matchMedia('(min-width: 720px)').matches ? 2 : 1);
+  // From: the next tap starts a new range. To: it moves the last day.
+  const openAt = (pickEnd) => {
+    anRange = { pickEnd, start: choice.from, end: choice.to, hover: null, view: addMonths(choice.to.slice(0, 7), 1 - months()) };
+    draw();
+  };
+  const close = () => { anRange = null; draw(); };
+  const apply = (from, to) => { anRange = null; saveAnSettings({ from, to }); };
+
+  // The bar: From | To, and how many days.
+  const half = (label, iso, pickEnd) => {
+    const b = Object.assign(el('button', 'rp-half'), { type: 'button' });
+    const on = anRange && anRange.pickEnd === pickEnd;
+    b.classList.toggle('on', Boolean(on));
+    b.setAttribute('aria-expanded', String(Boolean(anRange)));
+    b.append(el('span', 'rp-label', label), el('span', 'rp-date', iso ? rpDate(iso, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Pick a day'),
+      el('span', 'rp-week', iso ? rpDate(iso, { weekday: 'long' }) : ' '));
+    b.addEventListener('click', () => (anRange && anRange.pickEnd === pickEnd ? close() : openAt(pickEnd)));
+    return b;
+  };
+
+  function draw() {
+    const r = anRange;
+    const from = r ? r.start : choice.from;
+    const to = r ? r.end : choice.to;
+    const bar = el('div', 'rp-bar');
+    bar.append(half('From', from, false), el('span', 'rp-arrow', '→'), half('To', to, true));
+    box.replaceChildren(bar);
+    if (!r) return;
+
+    const panel = el('div', 'rp-panel');
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Pick the dates');
+    const quick = el('div', 'rp-quick');
+    const y = today.slice(0, 4);
+    const ago = (n) => new Date(Date.parse(`${today}T12:00:00`) - n * DAY_MS).toLocaleDateString('en-CA');
+    for (const [label, a, b] of [
+      ['Last 30 days', ago(29), today], ['Last 90 days', ago(89), today],
+      ['This year', `${y}-01-01`, today], ['Last year', `${y - 1}-01-01`, `${y - 1}-12-31`],
+    ]) {
+      const q = Object.assign(el('button', `rp-chip${a === choice.from && b === choice.to ? ' on' : ''}`, label), { type: 'button' });
+      q.addEventListener('click', () => apply(a, b));
+      quick.append(q);
+    }
+
+    const head = el('div', 'rp-head');
+    const nav = (text, label, n, disabled) => {
+      const b = Object.assign(el('button', 'rp-nav', text), { type: 'button', disabled });
+      b.setAttribute('aria-label', label);
+      b.addEventListener('click', () => { r.view = addMonths(r.view, n); draw(); });
+      return b;
+    };
+    const count = months();
+    const last = addMonths(r.view, count - 1);
+    const grids = el('div', 'rp-months');
+    for (let i = 0; i < count; i += 1) grids.append(monthGrid(addMonths(r.view, i)));
+    head.append(nav('‹', 'Earlier months', -1, false), nav('›', 'Later months', 1, last >= today.slice(0, 7)));
+
+    const foot = el('div', 'rp-foot');
+    const hint = [r.pickEnd ? 'Tap the last day' : 'Tap the first day', r.start && r.end ? plural(rpDays(r.start, r.end), 'day') : null].filter(Boolean).join(' · ');
+    const cancel = Object.assign(el('button', 'btn btn-ghost rp-cancel', 'Cancel'), { type: 'button' });
+    cancel.addEventListener('click', close);
+    foot.append(el('span', 'rp-hint', hint), cancel);
+
+    panel.append(quick, head, grids, foot);
+    box.append(panel);
+    paint();
+  }
+
+  // One month: weekday letters, then the days, Sunday first.
+  function monthGrid(month) {
+    const [yy, mm] = month.split('-').map(Number);
+    const wrap = el('div', 'rp-month');
+    wrap.append(el('div', 'rp-month-name', rpDate(`${month}-01`, { month: 'long', year: 'numeric' })));
+    const grid = el('div', 'rp-grid');
+    for (const d of ['S', 'M', 'T', 'W', 'T', 'F', 'S']) grid.append(el('span', 'rp-dow', d));
+    const lead = new Date(Date.UTC(yy, mm - 1, 1)).getUTCDay();
+    for (let i = 0; i < lead; i += 1) grid.append(el('span', 'rp-blank'));
+    const days = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    for (let d = 1; d <= days; d += 1) {
+      const iso = rpIso(yy, mm - 1, d);
+      const b = Object.assign(el('button', 'rp-day', String(d)), { type: 'button', disabled: iso > today });
+      b.dataset.date = iso;
+      b.setAttribute('aria-label', rpDate(iso, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }));
+      if (iso === today) b.classList.add('today');
+      b.addEventListener('click', () => tap(iso));
+      b.addEventListener('mouseenter', () => { if (anRange?.pickEnd) { anRange.hover = iso; paint(); } });
+      grid.append(b);
+    }
+    grid.addEventListener('mouseleave', () => { if (anRange) { anRange.hover = null; paint(); } });
+    wrap.append(grid);
+    return wrap;
+  }
+
+  function tap(iso) {
+    const r = anRange;
+    if (!r.pickEnd) {
+      r.start = iso; r.end = null; r.pickEnd = true;
+    } else if (iso < r.start) {
+      r.start = iso;
+    } else {
+      return apply(r.start, iso);
+    }
+    draw();
+  }
+
+  // The chosen days: both ends filled, the days between shaded.
+  function paint() {
+    const r = anRange;
+    if (!r) return;
+    const a = r.start;
+    const hovering = r.pickEnd && r.hover && r.hover >= a;
+    const b = hovering ? r.hover : r.end;
+    for (const day of box.querySelectorAll('.rp-day')) {
+      const iso = day.dataset.date;
+      day.classList.toggle('start', iso === a);
+      day.classList.toggle('end', Boolean(b) && iso === b);
+      day.classList.toggle('between', Boolean(a && b) && iso > a && iso < b);
+      day.classList.toggle('preview', Boolean(hovering));
+      day.classList.toggle('solo', iso === a && !b);
+      day.setAttribute('aria-pressed', String(iso === a || iso === b));
+    }
+  }
+
+  draw();
+  return box;
+}
+
+// A tap outside the calendar, or Escape, closes it without changing the dates.
+document.addEventListener('pointerdown', (e) => {
+  if (anRange && !e.target.closest('.rp')) { anRange = null; renderAnalytics(); }
+});
+document.addEventListener('keydown', (e) => {
+  if (anRange && e.key === 'Escape') { anRange = null; renderAnalytics(); }
+});
 
 // The totals for the whole range: spent, miles, cost per mile, work. With no
 // unit, the fleet's (miles from every truck with readings).
@@ -3737,7 +3877,6 @@ function openPart(id) {
   const unit = selectOf([['each', t('unitEach')], ['gal', t('unitGal')]], p?.unit ?? 'each');
   const have = p ? onHand(p, receipts, serviceLog) : 0;
   const count = numberInput(p ? have : '');
-  const min = numberInput(p?.min ?? '');
   const auto = selectOf([['', t('autoNone')], ...AUTO_USES.map((u) => [u, t('autoUses')[u]])], p?.autoUse ?? '');
   // Packs: how it's bought (drum, case…), in gallons or units.
   const packs = (p?.packs ?? []).map((x) => ({ ...x }));
@@ -3764,7 +3903,6 @@ function openPart(id) {
   form.append(
     field(t('partName'), name), field(t('partNumber'), number), field(t('partGroup'), group), field(t('partUnit'), unit),
     field(p ? t('onHandCount') : t('onHandStart'), count),
-    field(t('keepAtLeast'), min),
     field(t('packs'), packBox),
     field(t('autoUse'), auto),
   );
@@ -3787,7 +3925,6 @@ function openPart(id) {
       number: number.value.trim(),
       group: group.value,
       unit: unit.value,
-      min: min.value === '' ? null : Number(min.value),
       autoUse: auto.value || null,
       packs: packs.filter((x) => x.name.trim() && Number(x.size) > 0).map((x) => ({ name: x.name.trim(), size: Number(x.size) })),
       updatedAt: serverTimestamp(),
