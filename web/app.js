@@ -1231,7 +1231,10 @@ function field(label, input) {
 // For mechanics: only the trucks that need work, most urgent first, each one
 // a tap away from "Record work". English / Spanish.
 
-const DUE = (r) => r.status === 'overdue' || r.status === 'soon';
+// The DOT annual inspection is tracked in Inspections (compliance.js), not as
+// work due, so it stays out of the mechanic's lists.
+const DOT_ANNUAL = (r) => r.schedule?.id === 'dot-annual';
+const DUE = (r) => (r.status === 'overdue' || r.status === 'soon') && !DOT_ANNUAL(r);
 const num = (n) => fmt.format(Math.abs(n));
 
 // "32,966 mi overdue" / "in 4,000 mi", whichever runs out first, in the current language.
@@ -1428,8 +1431,6 @@ function trailerCard({ c, status, worn, group }) {
   const info = el('span', 'trailer-info');
   info.append(el('span', 'trailer-miles', m ? `${fmt.format(Math.round(m.miles))} mi` : ''));
   if (worn.length) info.append(el('span', 'trailer-worn', t('tiresWorn', worn.length, worn[0], fmt.format(status[worn[0]].miles))));
-  const cp = unitCompliance(compliance[c.id], todayIso());
-  if (cp.inspection.state === 'expired') info.append(el('span', 'trailer-worn', t('cpInspExpired', dateText(cp.inspection.expires))));
   info.append(el('span', 'trailer-last', last ? t('lastWork', last.itemName, dateText(last.date)) : t('noHistory')));
   if ((group === 'away' || group === 'road') && c.location) info.append(el('span', 'trailer-where', c.location));
   if (group === 'quiet') info.append(el('span', 'trailer-where', t('noSignal', quietDays(c.lastReportedAt) ?? 7)));
@@ -1523,7 +1524,7 @@ function renderTruck(v) {
   if (due.length) due.forEach((r) => body.append(dueLine(r)));
   else body.append(el('div', 'due-none', v.rows.length ? t('nothingDue') : t('noSchedule')));
   if (v.local) body.append(el('p', 'item-meta', t('localTruck')));
-  body.append(complianceBox(v.id, admin));
+  if (admin) body.append(complianceBox(v.id, admin));
   // 3. The one button.
   const logBtn = el('button', 'btn btn-log', t('logWork'));
   logBtn.type = 'button';
@@ -1834,7 +1835,7 @@ function buildWork() {
       serviceBox.append(checkRow(shownName(itemNameFor(k) ?? k), true, () => { work.extra.delete(k); refresh(); }));
     }
     const shown = new Set([...dueKeys, ...workKeys(v, { includeUnticked: true })]);
-    const others = v.rows.filter((r) => !shown.has(r.key));
+    const others = v.rows.filter((r) => !shown.has(r.key) && !DOT_ANNUAL(r));
     if (others.length) {
       const add = el('select', 'add-item');
       add.append(Object.assign(el('option', null, t('addService')), { value: '' }));
@@ -4237,7 +4238,7 @@ function renderTrailer() {
   body.append(btn);
   const here = atShop({ lat: c.latitude, lon: c.longitude, speedMph: c.speedMph });
   body.append(el('p', 'muted truck-where', c.local ? t('cpNoTracker') : `📍 ${here ? t('atShop') : c.location || '—'} · ${timeAgo(c.lastReportedAt)}`));
-  body.append(complianceBox(c.id, currentTab() !== 'shop'));
+  if (currentTab() !== 'shop') body.append(complianceBox(c.id, true));
   body.append(el('h3', 'section-title', t('tiresTitle')), tireDiagram(tireStatus(trailerEntries(c.id), m)));
   if (m) body.append(el('p', 'item-meta', t('milesStart', dateText(m.startedAt))));
   body.append(el('h3', 'section-title', t('history')));
