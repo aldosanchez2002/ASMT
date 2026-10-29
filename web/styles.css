@@ -1658,3 +1658,7 @@ body.page-analytics .an-more { min-height: 44px; border: 1px solid var(--floor-l
 .cp-box .cp-expired { color: var(--floor-red); font-weight: 700; }
 .cp-box .cp-due { font-weight: 700; }
 @media (max-width: 560px) { .cp-add { margin-left: 0; } .cp-tile strong { font-size: 24px; } }
+
+/* Map links in the admin tables (trailer locations): the table's own ink, underlined, readable in light and dark */
+body:not(.shop-mode) .table-wrap td a { color: var(--floor-ink); text-decoration: underline; text-decoration-color: var(--floor-muted); text-underline-offset: 3px; }
+body:not(.shop-mode) .table-wrap td a:hover, body:not(.shop-mode) .table-wrap td a:focus-visible { text-decoration-color: var(--floor-yellow); text-decoration-thickness: 2px; }
