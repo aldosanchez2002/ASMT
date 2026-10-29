@@ -197,7 +197,7 @@ Old links (`aslog.dev/#inventory`, `aslog.dev/#trucks`) forward to the new addre
 
 ## Today (admin's home)
 
-**Admin → Today** is one list of everything that needs a person, worst first: paperwork expired or due in 30 days, trucks with service overdue or a stop lamp, receipts to check, matches the AI wasn't sure of, parts no work explains, stock on the shelf 60+ days, and repairs with no parts. Each item is the same card used elsewhere, with its fix on it; the Today tab shows the count. Paperwork coming up in 90 days is folded below. When nothing needs you it says so.
+**Admin → Today** follows what the admin checks, in order: **To do today** (the mechanics' own list: in the yard and needs service, plus paperwork that has expired), **Coming up** (needs service but not in the yard yet, paperwork expiring in 30 days), **Done today** (the work log), **Receipts today**, **To correct** (receipts the reader wasn't sure of, unsure matches, parts no work explains, old stock, repairs with no parts), then links to **Schedules, Settings and Inspections**. The tiles at the top count each section and jump to it; the Today tab shows how many need action.
 
 ## Inspections & registrations (admin)
 

@@ -1474,9 +1474,9 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
 .subtabs a { padding: 6px 12px; border: 2px solid var(--floor-line); background: var(--floor-paper); color: var(--floor-ink); font: 800 14px var(--cond); letter-spacing: .05em; text-transform: uppercase; text-decoration: none; }
 .subtabs a.active { background: #111; border-color: #111; color: var(--floor-yellow); }
-.today-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.today-head { display: grid; gap: 10px; margin-bottom: 4px; }
 .today-head .parts-title { margin: 0; }
-.today-tiles { min-width: min(100%, 520px); }
+.today-tiles { min-width: 0; }
 .cp-tile.cp-tile-clear { border-left-color: #2e7d32; }
 .today-clear { margin: 18px 0; padding: 18px; border: 2px solid var(--floor-line); border-left: 8px solid #2e7d32; background: var(--floor-paper); font: 800 20px var(--cond); }
 
@@ -1673,3 +1673,34 @@ body.page-analytics .an-more { min-height: 44px; border: 1px solid var(--floor-l
 /* Map links in the admin tables (trailer locations): the table's own ink, underlined, readable in light and dark */
 body:not(.shop-mode) .table-wrap td a { color: var(--floor-ink); text-decoration: underline; text-decoration-color: var(--floor-muted); text-underline-offset: 3px; }
 body:not(.shop-mode) .table-wrap td a:hover, body:not(.shop-mode) .table-wrap td a:focus-visible { text-decoration-color: var(--floor-yellow); text-decoration-thickness: 2px; }
+
+/* Admin's Today shows the mechanics' cards exactly as they see them (copies of the shop-look rules) */
+#today-view .shop-cards { gap: 12px; }
+#today-view .shop-card {
+  gap: 0; padding: 0; border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper);
+  color: var(--floor-ink); font-family: 'Barlow', sans-serif; overflow: hidden;
+}
+#today-view .shop-card:hover { background: var(--floor-paper); }
+#today-view .shop-card:active { transform: translateY(1px); }
+#today-view .shop-card-head { padding: 8px 12px; border-bottom: 2px solid var(--floor-line); align-items: center; }
+#today-view .trailer-row { border: 2px solid var(--floor-line); border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); padding: 0 0 0 12px; min-height: 64px; font-family: 'Barlow', sans-serif; }
+#today-view .trailer-row:active { transform: translateY(1px); }
+#today-view .trailer-name { font: 800 32px/1 var(--cond); }
+#today-view .trailer-miles { font: 700 14px var(--mono); }
+#today-view .trailer-last, #today-view .trailer-where { color: var(--floor-muted); font-size: 14px; }
+#today-view .trailer-go { align-self: stretch; display: flex; align-items: center; padding: 0 16px; background: #111; color: var(--floor-yellow); font: 800 32px var(--cond); }
+#today-view .shop-record { font: 800 14px var(--cond); letter-spacing: .06em; text-transform: uppercase; padding: 7px 10px; border: none; border-radius: 0; background: #111; color: var(--floor-yellow); }
+#today-view .shop-record:active { transform: translateY(1px); }
+#today-view .trailer-worn { color: var(--floor-red); font-size: 15px; }
+#today-view .trailer-row.needs-work { border-left: 10px solid var(--floor-red); }
+#today-view .today-row { border: 2px solid var(--floor-line); border-left: 8px solid #2e7d32; border-radius: 0; background: var(--floor-paper); color: var(--floor-ink); }
+#today-view .today-unit { font: 800 22px/1 var(--cond); }
+#today-view .today-meta { font: 700 13px var(--mono); color: var(--floor-muted); }
+.today-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 700px) { .today-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.today-tiles .cp-tile { cursor: pointer; color: var(--floor-ink); font: inherit; text-align: left; }
+.today-tiles .cp-tile:hover, .today-tiles .cp-tile:focus-visible { background: var(--floor-track); outline: none; }
+.today-section { scroll-margin-top: 12px; }
+.today-setup { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 30px; }
+.today-setup .btn { min-height: 46px; display: inline-flex; align-items: center; padding: 0 18px; text-decoration: none; }
+#today-view .shop-card, #today-view .trailer-row, #today-view .today-row { margin-top: 6px; }

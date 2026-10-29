@@ -1347,13 +1347,12 @@ function sectionList(side, entries, labels, cardFor, { forceOpen = false } = {})
 
 const trailerInYard = (c) => atShop({ lat: c.latitude, lon: c.longitude, speedMph: c.speedMph });
 
-function renderShop() {
-  if (currentTab() !== 'shop') return;
-  for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
-  // Sections, in the shop's order:
-  //   1. in the yard and needs service   2. no GPS signal lately
-  //   3. in the yard, nothing needed     4. needs service, not in the yard
-  // "Needs service" is worked out in withMaintenance (same rule as admin).
+// The mechanic's trucks, in the shop's order:
+//   1. in the yard and needs service   2. no GPS signal lately
+//   3. in the yard, nothing needed     4. needs service, not in the yard
+// "Needs service" is worked out in withMaintenance (same rule as admin).
+// Admin's Today shows the same lists.
+function shopTrucks() {
   const flag = (x) => Number(Boolean(x));
   const needsService = ({ v }) => v.needsService;
   const groupOf = (entry) => {
@@ -1363,7 +1362,7 @@ function renderShop() {
     return needsService(entry) ? 'away' : null;
   };
   const ORDER = { yardWork: 0, quiet: 1, yardIdle: 2, away: 3 };
-  const trucks = vehicles.filter(inService).map(withMaintenance)
+  return vehicles.filter(inService).map(withMaintenance)
     .map((v) => ({ v, due: v.rows.filter(DUE) }))
     .map((entry) => ({ ...entry, group: groupOf(entry) }))
     .filter((entry) => entry.group)
@@ -1373,6 +1372,14 @@ function renderShop() {
       || flag(b.due.length) - flag(a.due.length)
       || (a.due[0]?.urgency ?? 0) - (b.due[0]?.urgency ?? 0)
       || String(a.v.name).localeCompare(String(b.v.name), undefined, { numeric: true }));
+}
+
+function renderShop() {
+  if (currentTab() !== 'shop') return;
+  for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
+  const flag = (x) => Number(Boolean(x));
+  const needsService = ({ v }) => v.needsService;
+  const trucks = shopTrucks();
   const needWork = trucks.filter(needsService).length;
   const inYard = trucks.filter((e) => e.group === 'yardWork' || e.group === 'yardIdle').length;
 
@@ -1405,16 +1412,23 @@ function renderShop() {
 
 // "Done today" at the bottom of the shop list: the work recorded today, newest
 // first, so mechanics see it counted and nobody records the same job twice.
+// Work logged today, newest first (the mechanic's "Done today", and admin's).
+function doneToday() {
+  const today = new Date().toLocaleDateString('en-CA');
+  const isToday = (e) => (e.loggedAtMs ? new Date(e.loggedAtMs).toLocaleDateString('en-CA') === today : e.source === 'app' && e.date === today);
+  return serviceLog.filter((e) => e.type !== 'duty' && isToday(e))
+    .sort((a, b) => (b.loggedAtMs || Infinity) - (a.loggedAtMs || Infinity));
+}
+
 function renderToday() {
   const box = $('shop-today');
-  const now = new Date();
-  const today = now.toLocaleDateString('en-CA');
-  const isToday = (e) => (e.loggedAtMs ? new Date(e.loggedAtMs).toLocaleDateString('en-CA') === today : e.source === 'app' && e.date === today);
-  const done = serviceLog.filter((e) => e.type !== 'duty' && isToday(e))
-    .sort((a, b) => (b.loggedAtMs || Infinity) - (a.loggedAtMs || Infinity));
+  const done = doneToday();
   box.hidden = !done.length;
   if (!done.length) { box.replaceChildren(); return; }
-  box.replaceChildren(el('h3', 'shop-group today-title', t('doneToday', done.length)), ...done.map((e) => {
+  box.replaceChildren(el('h3', 'shop-group today-title', t('doneToday', done.length)), ...done.map(doneRow));
+}
+
+function doneRow(e) {
     const row = el('button', 'today-row');
     row.type = 'button';
     const time = e.loggedAtMs ? new Date(e.loggedAtMs).toLocaleTimeString(getLang() === 'es' ? 'es-MX' : 'en-US', { hour: 'numeric', minute: '2-digit' }) : '…';
@@ -1425,7 +1439,6 @@ function renderToday() {
       else if (vehicles.some((v) => v.id === e.vehicleId)) openTruck(e.vehicleId);
     });
     return row;
-  }));
 }
 
 // Trailers side: every trailer, in the yard first, then on the road, then the
@@ -2408,28 +2421,31 @@ function partsReceipts() {
   }
   const list = admin ? all.filter((x) => inFilter(x, receiptFilter)) : all;
   if (all.length && !list.length) out.push(el('p', 'parts-empty', t('noReceiptsHere')));
-  for (const { r, match } of list) {
-    const status = !admin && match.state === 'review' ? (match.open.length ? 'read' : 'matched') : match.state;
-    const card = el('div', `receipt-card status-${status}`);
-    const row = el('button', 'receipt-row');
-    row.type = 'button';
-    row.append(
-      el('span', 'receipt-vendor', r.vendor || t('noVendor')),
-      el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
-      el('span', 'receipt-status', status === 'read' ? t('readOf', match.placed, match.total) : t('receiptStatus')[status] ?? status),
-      el('span', 'receipt-meta', receiptMeta(r, r.lines?.length ? t('lineCount', r.lines.length) : null)),
-    );
-    // Admin fixes and sorts lines; the buyer sees what was read.
-    row.addEventListener('click', () => (admin ? openReceipt(r.id) : viewReceipt(r.id)));
-    card.append(row);
-    if (r.hasPhoto) {
-      const photo = Object.assign(el('button', 'receipt-photo-link', t('seePhoto')), { type: 'button' });
-      photo.addEventListener('click', () => showReceiptPhoto(r));
-      card.append(photo);
-    }
-    out.push(card);
-  }
+  out.push(...list.map((x) => receiptCard(x, admin)));
   return out;
+}
+
+// One receipt in a list: vendor, total, how far it got, when it came in.
+function receiptCard({ r, match }, admin) {
+  const status = !admin && match.state === 'review' ? (match.open.length ? 'read' : 'matched') : match.state;
+  const card = el('div', `receipt-card status-${status}`);
+  const row = el('button', 'receipt-row');
+  row.type = 'button';
+  row.append(
+    el('span', 'receipt-vendor', r.vendor || t('noVendor')),
+    el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
+    el('span', 'receipt-status', status === 'read' ? t('readOf', match.placed, match.total) : t('receiptStatus')[status] ?? status),
+    el('span', 'receipt-meta', receiptMeta(r, r.lines?.length ? t('lineCount', r.lines.length) : null)),
+  );
+  // Admin fixes and sorts lines; the buyer sees what was read.
+  row.addEventListener('click', () => (admin ? openReceipt(r.id) : viewReceipt(r.id)));
+  card.append(row);
+  if (r.hasPhoto) {
+    const photo = Object.assign(el('button', 'receipt-photo-link', t('seePhoto')), { type: 'button' });
+    photo.addEventListener('click', () => showReceiptPhoto(r));
+    card.append(photo);
+  }
+  return card;
 }
 
 // In the history the buyer sees a receipt as read once it's read; the lines
@@ -3389,81 +3405,75 @@ function anFleetDetails(r, events) {
 }
 
 // ---- Today (admin's home) ----------------------------------------------------------
-// Everything that needs a person, in one list, worst first: paperwork expired
-// or due, trucks overdue or with a stop lamp, receipts to check, matches the AI
-// wasn't sure of, parts no work explains, repairs with no parts, old stock.
-// Each item is the same card the rest of admin uses, with its fix on it.
+// In the order the admin cares about: work to do today and soon (the same
+// lists the mechanics see, plus paperwork expired or due), work done today,
+// receipts that came in today, anything to correct in what the AI read or
+// matched, then schedules and settings.
 
-let todaySoonOpen = false;
 function renderAdminToday() {
   const today = todayIso();
-  const units = complianceList(cpUnits(), compliance, today);
-  const paper = units.filter((x) => x.group === 'action');
-  const soon = units.filter((x) => x.group === 'soon');
-  const trucks = vehicles.filter(inService).map(withMaintenance)
-    .map((v) => ({ v, overdue: v.rows.filter((r) => r.status === 'overdue' && !DOT_ANNUAL(r)) }))
-    .filter((x) => x.overdue.length || x.v.faults?.stop);
+  const trucks = shopTrucks();
+  const trailerRows = trailerList();
+  const paper = complianceList(cpUnits(), compliance, today).filter((x) => x.group === 'action');
+  const now = {
+    trucks: trucks.filter((x) => x.group === 'yardWork'),
+    trailers: trailerRows.filter((x) => x.group === 'yardWork'),
+    paper: paper.filter((x) => x.worst === 'expired'),
+  };
+  const soon = {
+    trucks: trucks.filter((x) => x.group === 'away'),
+    trailers: trailerRows.filter((x) => x.group === 'away'),
+    paper: paper.filter((x) => x.worst !== 'expired'),
+  };
+  const done = doneToday();
+  const inToday = receipts.filter((r) => r.createdMs && new Date(r.createdMs).toLocaleDateString('en-CA') === today)
+    .sort((a, b) => b.createdMs - a.createdMs).map((r) => ({ r, match: receiptMatch(r, itemUses) }));
   const q = matchQueue();
-  const checks = receiptsToCheck();
-  const old = oldStock(receipts, itemUses, today);
-  const now = paper.length + trucks.length + checks.length + q.doubts.length + q.noWork.length + q.noParts.length + old.length;
+  const fix = [...receiptsToCheck(), ...q.doubts.map((x) => matchCard(x)), ...q.noWork.map(noWorkCard),
+    ...oldStock(receipts, itemUses, today).map(oldStockCard), ...q.noParts.map(noPartsCard)];
+  const count = (o) => o.trucks.length + o.trailers.length + o.paper.length;
   const badge = $('today-badge');
-  badge.textContent = now ? String(now) : '';
-  badge.hidden = !now;
+  const urgent = count(now) + fix.length;
+  badge.textContent = urgent ? String(urgent) : '';
+  badge.hidden = !urgent;
   if (currentTab() !== 'today') return;
 
-  $('today-date').textContent = `${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} · everything that needs you, worst first. Tap one to fix it.`;
-  const issues = new Set([...paper, ...soon].map((x) => x.id).concat(trucks.map((x) => x.v.id)));
-  // All clear: paperwork on file and up to date, and nothing overdue.
-  const clear = units.filter((x) => x.group === 'ok' && !issues.has(x.id)).length;
-  const tile = (n, label, kind) => {
-    const t2 = el('div', `cp-tile cp-tile-${kind}${n ? '' : ' cp-zero'}`);
-    t2.append(el('strong', null, String(n)), el('span', null, label));
-    return t2;
+  $('today-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const tile = (n, label, kind, target) => {
+    const b = el('button', `cp-tile cp-tile-${kind}${n ? '' : ' cp-zero'}`);
+    b.type = 'button';
+    b.addEventListener('click', () => $(`today-${target}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    b.append(el('strong', null, String(n)), el('span', null, label));
+    return b;
   };
-  $('today-tiles').replaceChildren(tile(now, 'Needs you now', 'action'), tile(soon.length, 'Coming up', 'soon'), tile(clear, 'Units all clear', 'clear'));
+  $('today-tiles').replaceChildren(
+    tile(count(now), 'To do today', 'action', 'now'), tile(count(soon), 'Coming up', 'soon', 'soon'),
+    tile(done.length, 'Done today', 'clear', 'done'), tile(inToday.length, 'Receipts today', 'missing', 'receipts'),
+    tile(fix.length, 'To correct', fix.length ? 'action' : 'clear', 'fix'),
+  );
 
   const out = [];
-  const group = (title, hint, rows) => {
-    if (!rows.length) return;
-    out.push(el('h3', 'shop-group parts-group', `${title} · ${rows.length}`));
+  const section = (id, title, hint, rows, empty) => {
+    const h = el('h3', 'shop-group parts-group today-section', `${title}${rows.length ? ` · ${rows.length}` : ''}`);
+    h.id = `today-${id}`;
+    out.push(h);
     if (hint) out.push(el('p', 'parts-hint', hint));
-    out.push(...rows);
+    out.push(...(rows.length ? rows : [el('p', 'parts-empty parts-good', empty)]));
   };
-  group('Paperwork', 'Inspection or registration expired, or expiring in the next 30 days.', paper.map(cpRow));
-  group('Trucks', 'Service overdue, or a stop lamp on.', trucks.map(todayTruckRow));
-  group(t('checkTitle'), t('checkIntro'), checks);
-  group(t('secDoubts'), t('secDoubtsHint'), q.doubts.map((x) => matchCard(x)));
-  group(t('secNoWork'), t('secNoWorkHint'), q.noWork.map(noWorkCard));
-  group(t('secOldStock'), t('secOldStockHint'), old.map(oldStockCard));
-  group(t('secNoParts'), t('secNoPartsHint'), q.noParts.map(noPartsCard));
-  if (!out.length) out.push(el('p', 'today-clear', 'All clear ✓  Nothing needs you right now.'));
-  if (soon.length) {
-    const head = el('button', `shop-group section-toggle parts-work-head cp-head${todaySoonOpen ? ' open' : ''}`);
-    head.type = 'button';
-    head.setAttribute('aria-expanded', String(todaySoonOpen));
-    head.append(el('span', 'section-label', 'Coming up (90 days)'), el('span', 'section-count', String(soon.length)), el('span', 'section-chevron', todaySoonOpen ? '▾' : '▸'));
-    head.addEventListener('click', () => { todaySoonOpen = !todaySoonOpen; renderAdminToday(); });
-    out.push(head);
-    if (todaySoonOpen) out.push(...soon.map(cpRow));
+  const work = (o) => [...o.trucks.map(shopCard), ...o.trailers.map(trailerCard), ...o.paper.map(cpRow)];
+  section('now', 'To do today', 'In the yard and needs service, as the mechanics see it, plus paperwork that has expired.', work(now), 'Nothing in the yard needs service.');
+  section('soon', 'Coming up', 'Needs service but not in the yard yet, and paperwork expiring in the next 30 days.', work(soon), 'Nothing coming up.');
+  section('done', 'Done today', null, done.map(doneRow), 'No work logged yet today.');
+  section('receipts', 'Receipts today', null, inToday.map((x) => receiptCard(x, true)), 'No receipts in yet today.');
+  section('fix', 'To correct', 'What the AI read or matched that needs a person: receipts it wasn\'t sure of, unsure matches, parts no work explains, old stock, repairs with no parts.', fix, 'Nothing to correct.');
+  const setup = el('div', 'today-setup');
+  for (const [href, label] of [['#schedules', 'Schedules'], ['#settings', 'Settings'], ['#compliance', 'Inspections']]) {
+    const a = el('a', 'btn btn-ghost', label);
+    a.href = href;
+    setup.append(a);
   }
+  out.push(el('h3', 'shop-group parts-group today-section', 'Schedules & settings'), setup);
   $('today-body').replaceChildren(...out);
-}
-
-// A truck that needs attention: what's overdue, or its stop lamp.
-function todayTruckRow({ v, overdue }) {
-  const row = el('button', 'cp-row cp-action');
-  row.type = 'button';
-  const top = el('span', 'cp-top');
-  top.append(el('span', 'cp-name', v.name), el('span', 'cp-kind', 'Truck'));
-  row.append(top);
-  if (v.faults?.stop) row.append(el('span', 'cp-line cp-expired', 'Stop lamp on'));
-  if (overdue.length) {
-    const names = overdue.map((r) => r.item.name);
-    row.append(el('span', 'cp-line', `Overdue: ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` +${names.length - 2} more` : ''}`));
-  }
-  row.addEventListener('click', () => openTruck(v.id));
-  return row;
 }
 
 // ---- Inspections & registrations (admin) -----------------------------------------
@@ -4644,11 +4654,13 @@ function watchFleet() {
       });
       renderParts();
       renderAnalytics();
+      renderAdminToday();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'itemUses'), (snap) => {
       itemUses = snap.docs.map((d) => ({ ...d.data({ serverTimestamps: 'estimate' }), id: d.id }));
       renderParts();
       renderAnalytics();
+      renderAdminToday();
     }, (err) => console.error(err)),
     onSnapshot(doc(db, 'meta', 'aiMemory'), (snap) => {
       aiMemory = snap.data() ?? {};
