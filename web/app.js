@@ -35,6 +35,7 @@ import {
   lineKind, oldStock, openItems, receiptItems, receiptMatch, receiptWork, repairText, shopShare, spending, stockLots,
 } from './items.js';
 import { fleetBreakdown, periodsFor, unitBreakdown, workKind } from './analytics.js';
+import { complianceList, nextInspection, unitCompliance } from './compliance.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -63,6 +64,7 @@ const truckTireLimits = () => ({
 let serviceLog = []; // serviceLog docs: visits (services and repairs) and duty changes
 let visitsByTruck = new Map(); // vehicleId -> that truck's serviceLog entries
 let trailers = []; // trailers docs
+let compliance = {}; // compliance docs by unit id: inspection and registration (compliance.js)
 let trailerMilesById = {}; // trailerId -> trailerMiles doc (GPS miles)
 let truckTireStarts = {}; // vehicleId -> truckTires doc (where tire miles start)
 let openTrailerId = null; // trailer shown in the detail dialog
@@ -278,6 +280,7 @@ function render() {
   renderShop();
   renderParts();
   renderAnalytics();
+  renderCompliance();
 }
 
 // ---- Trailers tab --------------------------------------------------------
@@ -338,6 +341,8 @@ function renderTrailers() {
     status.append(el('span', `dot ${isMoving(c) ? 'dot-ok' : ''}`), document.createTextNode(statusText));
     // On phones the status column is hidden and shown under the unit name instead.
     const unit = el('td', 'strong', c.name || '—');
+    const st = compliance[c.id]?.status;
+    if (st === 'out' || st === 'sold') unit.append(' ', el('span', 'cp-tag', st === 'sold' ? 'Sold' : 'Out of service'));
     const unitStatus = el('div', 'item-meta show-sm');
     unitStatus.append(el('span', `dot ${isMoving(c) ? 'dot-ok' : ''}`), document.createTextNode(statusText));
     unit.append(unitStatus);
@@ -436,6 +441,7 @@ function exportTruck(v, btn, from = '', to = '') {
     entries,
     dutyText: v.local && !v.scheduleIds?.length ? 'Local truck (not in Samsara); no schedule assigned yet' : dutyText(v),
     company: company(),
+    compliance: compliance[v.id] ?? null,
     from,
     to,
   }));
@@ -508,7 +514,7 @@ function renderLog() {
 // ---- Schedules tab ---------------------------------------------------------
 
 // The shop view is the main page; the rest is the admin side.
-const TABS = ['shop', 'inventory', 'trucks', 'trailers', 'parts', 'analytics', 'schedules', 'log', 'settings'];
+const TABS = ['shop', 'inventory', 'trucks', 'trailers', 'parts', 'analytics', 'compliance', 'schedules', 'log', 'settings'];
 // The inventory person's page is the admin Parts tab, in the shop look.
 const viewOf = (tab) => (tab === 'inventory' ? 'parts' : tab);
 const VIEWS = TABS.filter((x) => x !== 'inventory');
@@ -1317,7 +1323,7 @@ function renderShop() {
     return needsService(entry) ? 'away' : null;
   };
   const ORDER = { yardWork: 0, quiet: 1, yardIdle: 2, away: 3 };
-  const trucks = vehicles.map(withMaintenance)
+  const trucks = vehicles.filter(inService).map(withMaintenance)
     .map((v) => ({ v, due: v.rows.filter(DUE) }))
     .map((entry) => ({ ...entry, group: groupOf(entry) }))
     .filter((entry) => entry.group)
@@ -1404,7 +1410,7 @@ function renderShopTrailers() {
 
 // Every trailer with its tires and its section. Needs work = a tire over the miles limit.
 function trailerList() {
-  return trailers.map((c) => {
+  return trailers.filter(inService).map((c) => {
     const status = tireStatus(trailerEntries(c.id), trailerMilesById[c.id]);
     const worn = tiresOverLimit(status, tireLimit());
     const here = trailerInYard(c);
@@ -1422,6 +1428,8 @@ function trailerCard({ c, status, worn, group }) {
   const info = el('span', 'trailer-info');
   info.append(el('span', 'trailer-miles', m ? `${fmt.format(Math.round(m.miles))} mi` : ''));
   if (worn.length) info.append(el('span', 'trailer-worn', t('tiresWorn', worn.length, worn[0], fmt.format(status[worn[0]].miles))));
+  const cp = unitCompliance(compliance[c.id], todayIso());
+  if (cp.inspection.state === 'expired') info.append(el('span', 'trailer-worn', t('cpInspExpired', dateText(cp.inspection.expires))));
   info.append(el('span', 'trailer-last', last ? t('lastWork', last.itemName, dateText(last.date)) : t('noHistory')));
   if ((group === 'away' || group === 'road') && c.location) info.append(el('span', 'trailer-where', c.location));
   if (group === 'quiet') info.append(el('span', 'trailer-where', t('noSignal', quietDays(c.lastReportedAt) ?? 7)));
@@ -1515,6 +1523,7 @@ function renderTruck(v) {
   if (due.length) due.forEach((r) => body.append(dueLine(r)));
   else body.append(el('div', 'due-none', v.rows.length ? t('nothingDue') : t('noSchedule')));
   if (v.local) body.append(el('p', 'item-meta', t('localTruck')));
+  body.append(complianceBox(v.id, admin));
   // 3. The one button.
   const logBtn = el('button', 'btn btn-log', t('logWork'));
   logBtn.type = 'button';
@@ -2587,6 +2596,8 @@ function partsReview(queue) {
     if (!rows.length && empty) out.push(el('p', 'parts-empty parts-good', empty));
     out.push(...rows);
   };
+  const papers = complianceList(cpUnits(), compliance, todayIso()).filter((x) => x.group === 'action');
+  section('Inspections & registrations', 'Expired, or expiring in the next 30 days. Tap one to update it, or see them all in Inspections.', papers.map(cpRow), t('nothingToCheck'));
   section(t('checkTitle'), t('checkIntro'), receiptsToCheck(), t('nothingToCheck'));
   const typed = Object.assign(el('button', 'link-btn type-receipt-link', t('typeReceipt')), { type: 'button' });
   typed.addEventListener('click', () => openReceipt(null));
@@ -3339,6 +3350,214 @@ function anFleetDetails(r, events) {
   return box;
 }
 
+// ---- Inspections & registrations (admin) -----------------------------------------
+// Every truck and trailer with its annual inspection and registration
+// (compliance.js): what's expired or due first, then what's coming up, units
+// with no dates on file, the ones that are fine, and those out of service.
+
+// Sold or out-of-service units stay out of the mechanic's lists.
+const inService = (u) => !['out', 'sold'].includes(compliance[u.id]?.status);
+
+// A unit's inspection and registration, on its truck or trailer page.
+function complianceBox(id, admin) {
+  const x = unitCompliance(compliance[id], todayIso());
+  const box = el('div', `cp-box cp-${x.group}`);
+  box.append(el('h3', 'section-title', t('cpTitle')));
+  if (x.group === 'out') box.append(el('p', 'item-meta', x.status === 'sold' ? t('cpSold') : t('cpOut')));
+  else {
+    const line = (label, item, multi) => el('div', `cp-line cp-${item.state}`, `${label}: ${!item.expires ? t('cpNone')
+      : item.state === 'expired' ? t('cpExpired', dateText(item.expires)) : t('cpExpires', dateText(item.expires))}${multi ? ` · ${t('cpMulti')}` : ''}`);
+    box.append(line(t('cpInspection'), x.inspection), line(t('cpRegistration'), x.registration, x.registration.multiYear));
+  }
+  if (admin) {
+    const unit = cpUnits().find((u) => u.id === id);
+    const edit = Object.assign(el('button', 'link-btn', 'Update'), { type: 'button' });
+    edit.addEventListener('click', () => unit && openCompliance(unit));
+    box.append(edit);
+  }
+  return box;
+}
+
+const CP_GROUPS = [
+  ['action', 'Needs action', 'Expired, or expiring in the next 30 days.'],
+  ['soon', 'Coming up', 'Expiring in the next 90 days.'],
+  ['missing', 'No dates on file', 'Add the inspection and registration dates from the sticker and the cab card.'],
+  ['ok', 'Up to date', null],
+  ['out', 'Out of service or sold', 'Nothing to renew. Renew both before one goes back into service.'],
+];
+let cpScope = 'all'; // all | truck | trailer
+let cpState = 'all'; // all | TX | OK | ME | none
+let cpOpen = new Set(['action', 'soon']);
+
+const cpUnits = () => [
+  ...vehicles.filter((v) => v.name).map((v) => ({ id: v.id, name: v.name, unitType: 'truck' })),
+  ...trailers.filter((c) => c.name).map((c) => ({ id: c.id, name: c.name, unitType: 'trailer', local: Boolean(c.local) })),
+];
+const cpWhen = (x) => {
+  if (!x.expires) return 'not on file';
+  const d = x.days;
+  if (d < 0) return `expired ${niceDate(x.expires)} (${fmt.format(-d)} days ago)`;
+  if (d === 0) return `expires today`;
+  return `${niceDate(x.expires)} · in ${fmt.format(d)} day${d === 1 ? '' : 's'}`;
+};
+
+function renderCompliance() {
+  if (currentTab() !== 'compliance') return;
+  const today = todayIso();
+  const all = complianceList(cpUnits(), compliance, today);
+  const stateOf = (x) => x.rec?.registrationState || x.rec?.plateState || 'none';
+  const list = all.filter((x) => (cpScope === 'all' || x.unitType === cpScope) && (cpState === 'all' || stateOf(x) === cpState));
+
+  // Filters: trucks/trailers, and the state the unit is registered in.
+  const scope = el('div', 'cp-scope');
+  for (const [k, label] of [['all', 'All'], ['truck', 'Trucks'], ['trailer', 'Trailers']]) {
+    const b = Object.assign(el('button', cpScope === k ? 'active' : '', `${label} ${all.filter((x) => k === 'all' || x.unitType === k).length}`), { type: 'button' });
+    b.addEventListener('click', () => { cpScope = k; renderCompliance(); });
+    scope.append(b);
+  }
+  const state = selectOf([['all', 'All states'], ['TX', 'Texas'], ['OK', 'Oklahoma'], ['ME', 'Maine'], ['none', 'State not on file']], cpState);
+  state.setAttribute('aria-label', 'State');
+  state.addEventListener('change', () => { cpState = state.value; renderCompliance(); });
+  const add = Object.assign(el('button', 'btn btn-ghost cp-add', '+ Add a trailer'), { type: 'button' });
+  add.addEventListener('click', () => openAddTrailer());
+  $('cp-filters').replaceChildren(scope, state, add);
+
+  const body = $('cp-body');
+  const out = [];
+  const tileWrap = el('div', 'cp-tiles');
+  for (const [g, label] of CP_GROUPS.slice(0, 3)) {
+    const n = list.filter((x) => x.group === g).length;
+    const t2 = el('div', `cp-tile cp-tile-${g}${n ? '' : ' cp-zero'}`);
+    t2.append(el('strong', null, String(n)), el('span', null, label));
+    tileWrap.append(t2);
+  }
+  out.push(tileWrap);
+  for (const [g, label, hint] of CP_GROUPS) {
+    const rows = list.filter((x) => x.group === g);
+    if (!rows.length) continue;
+    const open = cpOpen.has(g);
+    const head = el('button', `shop-group section-toggle parts-work-head cp-head${open ? ' open' : ''}`);
+    head.type = 'button';
+    head.setAttribute('aria-expanded', String(open));
+    head.append(el('span', 'section-label', label), el('span', 'section-count', String(rows.length)), el('span', 'section-chevron', open ? '▾' : '▸'));
+    head.addEventListener('click', () => { if (open) cpOpen.delete(g); else cpOpen.add(g); renderCompliance(); });
+    out.push(head);
+    if (!open) continue;
+    if (hint) out.push(el('p', 'parts-hint', hint));
+    out.push(...rows.map(cpRow));
+  }
+  if (!list.length) out.push(el('p', 'parts-empty', 'No trucks or trailers match.'));
+  body.replaceChildren(...out);
+}
+
+function cpRow(x) {
+  const row = el('button', `cp-row cp-${x.group}`);
+  row.type = 'button';
+  const top = el('span', 'cp-top');
+  top.append(
+    el('span', 'cp-name', x.name),
+    el('span', 'cp-kind', [x.unitType === 'truck' ? 'Truck' : 'Trailer', x.rec?.plate ? `${x.rec.plate}${x.rec.plateState ? ` (${x.rec.plateState})` : ''}` : null, x.local ? 'no GPS tracker' : null].filter(Boolean).join(' · ')),
+  );
+  row.append(top);
+  if (x.group === 'out') {
+    row.append(el('span', 'cp-line', [x.status === 'sold' ? 'Sold' : 'Out of service', x.rec?.note && x.rec.note !== 'SOLD' ? x.rec.note : null].filter(Boolean).join(' · ')));
+  } else {
+    const line = (label, item, extra) => {
+      const l = el('span', `cp-line cp-${item.state}`);
+      l.append(el('span', 'cp-chip', item.state === 'expired' ? 'Expired' : item.state === 'due' ? 'Due' : item.state === 'soon' ? 'Soon' : item.state === 'missing' ? 'Missing' : 'OK'),
+        el('span', null, `${label}: ${extra ?? cpWhen(item)}`));
+      return l;
+    };
+    row.append(line('Inspection', x.inspection));
+    row.append(line('Registration', x.registration, x.registration.multiYear && x.registration.state === 'ok'
+      ? `${niceDate(x.registration.expires)} (multi-year plate)` : null));
+  }
+  if (x.rec?.checkDates?.length) row.append(el('span', 'cp-check', `Check: ${x.rec.checkDates.join('; ')}`));
+  row.addEventListener('click', () => openCompliance(x));
+  return row;
+}
+
+// Update one unit: dates, plate, status. "Inspected today" fills in next year.
+function openCompliance(x) {
+  const rec = compliance[x.id] ?? {};
+  const body = partsDialog(`${x.unitType === 'truck' ? 'Truck' : 'Trailer'} ${x.name}`, 'Inspection & registration');
+  const form = pform();
+  const date = (value) => Object.assign(el('input'), { type: 'date', value: value ?? '' });
+  const text = (value, ph) => Object.assign(el('input'), { type: 'text', value: value ?? '', placeholder: ph ?? '' });
+  const insp = date(rec.inspectionExpires);
+  const inspToday = Object.assign(el('button', 'link-btn', 'Inspected today → good to ' + niceDate(nextInspection(todayIso()))), { type: 'button' });
+  inspToday.addEventListener('click', () => { insp.value = nextInspection(todayIso()); });
+  const inspWrap = el('div', 'cp-field');
+  inspWrap.append(insp, inspToday);
+  const reg = date(rec.registrationExpires);
+  const multi = Object.assign(el('input'), { type: 'checkbox', checked: Boolean(rec.multiYear) });
+  const multiLabel = el('label', 'cp-check-label');
+  multiLabel.append(multi, document.createTextNode(' Multi-year plate (several years, like Maine trailer plates)'));
+  const regWrap = el('div', 'cp-field');
+  regWrap.append(reg, multiLabel);
+  const states = [['', '—'], ['TX', 'Texas'], ['OK', 'Oklahoma'], ['ME', 'Maine'], ['NM', 'New Mexico'], ['IRP', 'Apportioned (IRP cab card)']];
+  const regState = selectOf(states, rec.registrationState ?? rec.plateState ?? '');
+  const plate = text(rec.plate, 'Plate number');
+  const status = selectOf([['active', 'In service'], ['out', 'Out of service'], ['sold', 'Sold']], rec.status ?? 'active');
+  const note = Object.assign(el('textarea'), { rows: 2, value: rec.note ?? '', placeholder: 'Anything to remember (title missing, waiting on plates…)' });
+  form.append(
+    field('Inspection expires', inspWrap), field('Registration expires', regWrap), field('Registered in', regState),
+    field('Plate', plate), field('Status', status), field('Note', note),
+  );
+  let checked = null;
+  if (rec.checkDates?.length) {
+    checked = Object.assign(el('input'), { type: 'checkbox' });
+    const l = el('label', 'cp-check-label cp-check');
+    l.append(checked, document.createTextNode(` The dates are right (${rec.checkDates.join('; ')})`));
+    form.append(l);
+  }
+  const { save, fail } = formActions(form, t('save'));
+  body.append(form);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    save.disabled = true;
+    const data = {
+      unitId: x.id, unitType: x.unitType, name: x.name, inspectionExpires: insp.value || null, registrationExpires: reg.value || null,
+      multiYear: multi.checked, registrationState: regState.value || null, plateState: regState.value || null, plate: plate.value.trim(),
+      status: status.value, note: note.value.trim() || null, updatedAt: serverTimestamp(),
+    };
+    if (checked?.checked) data.checkDates = [];
+    try {
+      await setDoc(doc(db, 'compliance', x.id), data, { merge: true });
+      $('pdlg').close();
+    } catch (err) {
+      save.disabled = false;
+      fail(t('couldNotSave', err.message));
+    }
+  });
+}
+
+// A trailer with no GPS tracker, entered by hand (the Samsara sync leaves it alone).
+function openAddTrailer() {
+  const body = partsDialog('Add a trailer', 'For a trailer with no GPS tracker');
+  const form = pform();
+  const name = Object.assign(el('input'), { type: 'text', required: true, placeholder: 'Trailer number, like 121' });
+  form.append(field('Trailer number', name));
+  const { save, fail } = formActions(form, t('save'));
+  body.append(form);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const n = name.value.trim();
+    if (!n) return fail('Type the trailer number.');
+    if (trailers.some((c) => String(c.name).trim() === n)) return fail(`Trailer ${n} is already in the app.`);
+    save.disabled = true;
+    const ref = doc(collection(db, 'trailers'));
+    try {
+      await setDoc(ref, { id: ref.id, name: n, local: true, updatedAt: serverTimestamp() });
+      $('pdlg').close();
+      openCompliance({ id: ref.id, name: n, unitType: 'trailer' });
+    } catch (err) {
+      save.disabled = false;
+      fail(t('couldNotSave', err.message));
+    }
+  });
+}
+
 // ---- Parts popups: a part, a kit, a receipt -------------------------------------
 
 function partsDialog(title, sub) {
@@ -4017,7 +4236,8 @@ function renderTrailer() {
   btn.addEventListener('click', () => openTrailerWork(c.id));
   body.append(btn);
   const here = atShop({ lat: c.latitude, lon: c.longitude, speedMph: c.speedMph });
-  body.append(el('p', 'muted truck-where', `📍 ${here ? t('atShop') : c.location || '—'} · ${timeAgo(c.lastReportedAt)}`));
+  body.append(el('p', 'muted truck-where', c.local ? t('cpNoTracker') : `📍 ${here ? t('atShop') : c.location || '—'} · ${timeAgo(c.lastReportedAt)}`));
+  body.append(complianceBox(c.id, currentTab() !== 'shop'));
   body.append(el('h3', 'section-title', t('tiresTitle')), tireDiagram(tireStatus(trailerEntries(c.id), m)));
   if (m) body.append(el('p', 'item-meta', t('milesStart', dateText(m.startedAt))));
   body.append(el('h3', 'section-title', t('history')));
@@ -4253,6 +4473,10 @@ function watchFleet() {
       renderAnalytics();
       renderShop();
       if (openTrailerId) renderTrailer();
+    }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'compliance'), (snap) => {
+      compliance = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+      render();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'truckTires'), (snap) => {
       truckTireStarts = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));

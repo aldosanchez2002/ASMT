@@ -104,7 +104,7 @@ function nextDueText(r) {
 const STATUS = { overdue: 'OVERDUE', soon: 'Due soon', ok: 'OK', done: 'Done', 'n/a': 'N/A', 'as-needed': 'As needed', 'no-record': '—' };
 
 /** Adds one truck's maintenance record to `doc` starting on the current page. */
-function addTruckRecord(doc, { vehicle: v, rows, intervalText, entries, dutyText, company, from, to, startY }) {
+function addTruckRecord(doc, { vehicle: v, rows, intervalText, entries, dutyText, company, compliance = null, from, to, startY }) {
   let y = startY ?? header(doc, 'Vehicle Maintenance Record', company,
     `Unit ${v.name}  ·  Records ${from || to ? `${from ? niceDate(from) : 'start'} to ${to ? niceDate(to) : 'today'}` : 'all dates'}`);
 
@@ -117,8 +117,9 @@ function addTruckRecord(doc, { vehicle: v, rows, intervalText, entries, dutyText
     body: [
       ['Company unit number', v.name || '—', 'VIN (serial number)', v.vin || '—'],
       ['Year / make', `${v.year || '—'} ${v.make || ''}`.trim(), 'Model', v.model || '—'],
-      ['License plate', v.plate || '—', 'Odometer', `${num(v.odometerMiles)} mi${v.odometerTime ? ` (${niceDate(v.odometerTime)})` : ''}`],
+      ['License plate', (v.plate || compliance?.plate) ? `${v.plate || compliance.plate}${compliance?.plateState ? ` (${compliance.plateState})` : ''}` : '—', 'Odometer', `${num(v.odometerMiles)} mi${v.odometerTime ? ` (${niceDate(v.odometerTime)})` : ''}`],
       ['Engine hours', num(v.engineHours), 'Schedule basis', dutyText || 'Manufacturer schedule'],
+      ['Registration expires', compliance?.registrationExpires ? niceDate(compliance.registrationExpires) : '—', 'Inspection expires', compliance?.inspectionExpires ? niceDate(compliance.inspectionExpires) : '—'],
     ],
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 110 }, 2: { fontStyle: 'bold', cellWidth: 110 } },
   });
@@ -172,7 +173,7 @@ function addTruckRecord(doc, { vehicle: v, rows, intervalText, entries, dutyText
       ? `Last annual inspection: ${niceDate(lastRec.date)}${lastRec.note ? ` (${lastRec.note})` : ''}.`
       : 'Last annual inspection: not on record in aslog.dev.';
     const lines = doc.splitTextToSize(
-      `${last} Next due: ${annual.dueDate ? niceDate(annual.dueDate) : '—'}. Keep the signed inspection report for 14 months; `
+      `${last} Next due: ${compliance?.inspectionExpires ? niceDate(compliance.inspectionExpires) : annual.dueDate ? niceDate(annual.dueDate) : '—'}. Keep the signed inspection report for 14 months; `
       + 'the report or a decal must be carried on the vehicle.',
       doc.internal.pageSize.getWidth() - 80,
     );
