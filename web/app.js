@@ -665,7 +665,7 @@ function showTab() {
 }
 
 const SECTION_NAMES = {
-  trucks: 'Trucks', trailers: 'Trailers', compliance: 'Inspections', '/analytics': 'Analytics', parts: 'Receipts & parts',
+  trucks: 'Trucks', trailers: 'Trailers', compliance: 'Inspections', '/analytics': 'Analytics', parts: 'Parts',
   settings: 'Settings', schedules: 'Schedules',
 };
 
@@ -2146,19 +2146,17 @@ function buildWork() {
 }
 
 // ---- Parts: the buyer's page ---------------------------------------------------
-// Tabs: Receipts, To buy (what upcoming work needs minus what's on the
-// shelf), To check (receipts the reader wasn't sure of), Matches (admin:
-// which repair each bought part went into) and Stock (admin: every part,
-// its count, and the service kits). The buyer opens it at aslog.dev/#inventory;
-// admin has it as a tab too.
+// The buyer (aslog.dev/receipts): Receipts and To buy (what upcoming work
+// needs minus what's on the shelf). Admin (Admin → Parts): Receipts, which
+// opens on what to review (receipts the reader wasn't sure of, matches the
+// AI doubted), and Stock (every part, its count, and the service kits).
 
 const PART_GROUPS = ['oil', 'filter', 'tire', 'battery', 'fluid', 'other'];
-const PARTS_SIDES = ['receipts', 'buy', 'review', 'stock'];
+const PARTS_SIDES = ['receipts', 'buy', 'stock'];
 const PARTS_SIDE_KEY = 'aslog.partsSide';
 let partsSide = (() => {
   try {
     const s = localStorage.getItem(PARTS_SIDE_KEY);
-    if (s === 'check' || s === 'matches') return 'review'; // the tabs Review replaced
     return PARTS_SIDES.includes(s) ? s : 'receipts';
   } catch { return 'receipts'; }
 })();
@@ -2220,16 +2218,14 @@ function renderParts() {
     buy: list.length, stock: activeParts().length, receipts: receipts.length,
     review: toCheck().length + queue.doubts.length + queue.noWork.length + queue.noParts.length,
   };
-  // The buyer's job is the list and sending the receipts; checking what the
-  // AI read and matched, the shelf count and the kits are admin's
-  // (Admin → Parts).
+  // The buyer's job is the list and sending the receipts. Admin's is checking
+  // what the AI read and matched (inside Receipts), the shelf count and the kits.
   const buyer = roleOfTab(currentTab()) === 'inventory';
-  const adminOnly = ['review', 'stock'];
-  if (buyer && adminOnly.includes(partsSide)) partsSide = 'buy';
+  const sides = buyer ? ['receipts', 'buy'] : ['receipts', 'stock'];
+  if (!sides.includes(partsSide)) partsSide = 'receipts';
   const tabs = document.querySelectorAll('#parts-side button');
-  $('parts-side').classList.toggle('many', !buyer);
   for (const b of tabs) {
-    b.hidden = buyer && adminOnly.includes(b.dataset.side);
+    b.hidden = !sides.includes(b.dataset.side);
     const on = b.dataset.side === partsSide;
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
@@ -2238,8 +2234,7 @@ function renderParts() {
   }
   const body = $('parts-body');
   if (partsSide === 'stock') body.replaceChildren(...partsStock(stock));
-  else if (partsSide === 'receipts') body.replaceChildren(...partsReceipts());
-  else if (partsSide === 'review') body.replaceChildren(...partsReview(queue));
+  else if (partsSide === 'receipts') body.replaceChildren(...partsReceipts(queue, counts.review));
   else body.replaceChildren(...partsBuy(list, work, stock));
 }
 
@@ -2386,7 +2381,7 @@ function kitCards() {
 // Receipts: one button to upload photos (each becomes a receipt that the
 // "Read receipts" GitHub Action fills in), then the history, newest first,
 // each with its photo.
-function partsReceipts() {
+function partsReceipts(queue, toReview) {
   const admin = roleOfTab(currentTab()) === 'admin';
   const picker = Object.assign(el('input'), { type: 'file', accept: 'image/*', multiple: true, hidden: true });
   const upload = Object.assign(el('button', 'btn parts-add upload-receipts', t('uploadReceipts')), { type: 'button' });
@@ -2411,25 +2406,27 @@ function partsReceipts() {
   // Newest upload first, so a receipt just uploaded is always on top.
   const all = [...receipts].sort((a, b) => b.createdMs - a.createdMs || (b.date ?? '').localeCompare(a.date ?? ''))
     .map((r) => ({ r, match: receiptMatch(r, itemUses) }));
-  if (!all.length) out.push(el('p', 'parts-empty', t('noReceipts')));
-  // Admin can narrow the list: needs a look, not matched yet, matched.
-  const inFilter = (x, f) => f === 'all' || (f === 'review' ? ['review', 'unreadable', 'error'].includes(x.match.state)
-    : f === 'open' ? ['waiting', 'read'].includes(x.match.state) : x.match.state === 'matched');
-  if (admin && all.length) {
+  if (!all.length && !admin) out.push(el('p', 'parts-empty', t('noReceipts')));
+  // Admin starts on what to review (what the AI wasn't sure of), then can
+  // see every receipt, the ones not matched yet, or the matched ones.
+  const filter = receiptFilter ?? (toReview ? 'review' : 'all');
+  const inFilter = (x, f) => f === 'all' || (f === 'open' ? ['waiting', 'read'].includes(x.match.state) : x.match.state === 'matched');
+  if (admin) {
     const bar = el('div', 'receipt-filter');
     bar.setAttribute('role', 'tablist');
     for (const f of RECEIPT_FILTERS) {
-      const b = el('button', receiptFilter === f ? 'active' : '');
+      const b = el('button', filter === f ? 'active' : '');
       b.type = 'button';
       b.setAttribute('role', 'tab');
-      b.setAttribute('aria-selected', String(receiptFilter === f));
-      b.append(el('span', null, t('receiptFilter')[f]), el('span', 'receipt-filter-count', String(all.filter((x) => inFilter(x, f)).length)));
+      b.setAttribute('aria-selected', String(filter === f));
+      b.append(el('span', null, t('receiptFilter')[f]), el('span', 'receipt-filter-count', String(f === 'review' ? toReview : all.filter((x) => inFilter(x, f)).length)));
       b.addEventListener('click', () => { receiptFilter = f; renderParts(); });
       bar.append(b);
     }
     out.push(bar);
+    if (filter === 'review') return [...out, ...partsReview(queue)];
   }
-  const list = admin ? all.filter((x) => inFilter(x, receiptFilter)) : all;
+  const list = admin ? all.filter((x) => inFilter(x, filter)) : all;
   if (all.length && !list.length) out.push(el('p', 'parts-empty', t('noReceiptsHere')));
   out.push(...list.map((x) => receiptCard(x, admin)));
   return out;
@@ -2461,8 +2458,8 @@ function receiptCard({ r, match }, admin) {
 // In the history the buyer sees a receipt as read once it's read; the lines
 // that still need placing are admin's (Review tab).
 const shownStatus = (r, admin) => (!admin && r.status === 'review' ? 'read' : r.status ?? 'read');
-const RECEIPT_FILTERS = ['all', 'review', 'open', 'matched'];
-let receiptFilter = 'all';
+const RECEIPT_FILTERS = ['review', 'all', 'open', 'matched'];
+let receiptFilter = null; // admin's first look: what to review, when there is any
 
 // The lines of a receipt not tied to work yet, and why.
 function openLinesBox(r) {
@@ -2479,7 +2476,7 @@ function openLinesBox(r) {
 }
 
 // Receipts with lines the reader couldn't place (or whose math is off).
-const toCheck = () => receipts.filter((r) => r.status === 'review').sort((a, b) => b.createdMs - a.createdMs);
+const toCheck = () => receipts.filter((r) => ['review', 'unreadable', 'error'].includes(r.status)).sort((a, b) => b.createdMs - a.createdMs);
 
 // Receipts to check: the ones the reader wasn't sure of, each opening the
 // receipt form (what was read, the best guess, pick where each line goes).
@@ -2493,7 +2490,7 @@ function receiptsToCheck() {
     row.append(
       el('span', 'receipt-vendor', r.vendor || t('noVendor')),
       el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
-      el('span', 'receipt-status', open ? t('linesToPlace', open) : t('checkTotal')),
+      el('span', 'receipt-status', r.status !== 'review' ? t('receiptStatus')[r.status] : open ? t('linesToPlace', open) : t('checkTotal')),
       el('span', 'receipt-meta', receiptMeta(r)),
     );
     row.addEventListener('click', () => openReceipt(r.id));
@@ -2650,7 +2647,7 @@ const receiptOf = (item) => receipts.find((r) => r.id === item.receiptId);
 // explains, repairs with no parts — then where the money went and the notes
 // for the AI.
 function partsReview(queue) {
-  const out = [el('h2', 'parts-title', t('reviewTitle')), el('p', 'parts-intro', t('reviewIntro'))];
+  const out = [el('p', 'parts-intro', t('reviewIntro'))];
   const month = todayIso().slice(0, 7);
   const score = accuracy(itemUses, month);
   if (score.made) out.push(el('p', 'match-score', t('accuracyLine', score)));
@@ -2660,8 +2657,6 @@ function partsReview(queue) {
     if (!rows.length && empty) out.push(el('p', 'parts-empty parts-good', empty));
     out.push(...rows);
   };
-  const papers = complianceList(cpUnits(), compliance, todayIso()).filter((x) => x.group === 'action');
-  section('Inspections & registrations', 'Expired, or expiring in the next 30 days. Tap one to update it, or see them all in Inspections.', papers.map(cpRow), t('nothingToCheck'));
   section(t('checkTitle'), t('checkIntro'), receiptsToCheck(), t('nothingToCheck'));
   const typed = Object.assign(el('button', 'link-btn type-receipt-link', t('typeReceipt')), { type: 'button' });
   typed.addEventListener('click', () => openReceipt(null));

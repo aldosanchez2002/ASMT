@@ -1373,7 +1373,6 @@ body:not(.shop-mode) #parts-view .shop-group.section-toggle.open { margin-bottom
 body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); border-radius: 0; background: var(--floor-track); color: var(--floor-ink); }
 
 /* Admin's Parts tabs: four in a row */
-.parts-side.many button { font-size: 15px !important; letter-spacing: .02em !important; padding: 0 4px; gap: 4px; }
 .type-receipt-link { display: block; margin-top: 6px; }
 
 /* Matches: where the bought parts went (admin) */
