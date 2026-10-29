@@ -3453,7 +3453,7 @@ function renderAdminToday() {
   $('today-tiles').replaceChildren(
     tile(count(now), 'To do today', 'action', 'now'), tile(count(soon), 'Coming up', 'soon', 'soon'),
     tile(done.length, 'Done today', 'clear', 'done'), tile(inToday.length, 'Receipts today', 'missing', 'receipts'),
-    tile(fix.length, 'To correct', fix.length ? 'action' : 'clear', 'fix'),
+    tile(fix.length, 'Receipts to review', fix.length ? 'action' : 'clear', 'fix'),
   );
 
   const out = [];
@@ -3469,7 +3469,7 @@ function renderAdminToday() {
   section('soon', 'Coming up', 'Needs service but not in the yard yet, and paperwork expiring in the next 30 days.', work(soon), 'Nothing coming up.');
   section('done', 'Done today', null, done.map(doneRow), 'No work logged yet today.');
   section('receipts', 'Receipts today', null, inToday.map((x) => receiptCard(x, true)), 'No receipts in yet today.');
-  section('fix', 'To correct', 'What the AI read or matched that needs a person: receipts it wasn\'t sure of, unsure matches, parts no work explains, old stock, repairs with no parts.', fix, 'Nothing to correct.');
+  section('fix', 'Receipts to review', 'What the AI read or matched that needs a person: receipts it wasn\'t sure of, unsure matches, parts no work explains, old stock, repairs with no parts.', fix, 'Nothing to review.');
   const setup = el('div', 'today-setup');
   for (const [href, label] of [['#schedules', 'Schedules'], ['#settings', 'Settings'], ['#compliance', 'Inspections']]) {
     const a = el('a', 'btn btn-ghost', label);
