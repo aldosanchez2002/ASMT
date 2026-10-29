@@ -1469,6 +1469,17 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
 .an-more { width: 100%; margin-top: 6px; }
 
+/* Admin: five groups (Today · Fleet · Money · Records · Setup), sections under them */
+.nav-badge { margin-left: 8px; padding: 0 7px; background: var(--floor-red); color: #fff; font: 800 14px/1.4 var(--cond); }
+.subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
+.subtabs a { padding: 6px 12px; border: 2px solid var(--floor-line); background: var(--floor-paper); color: var(--floor-ink); font: 800 14px var(--cond); letter-spacing: .05em; text-transform: uppercase; text-decoration: none; }
+.subtabs a.active { background: #111; border-color: #111; color: var(--floor-yellow); }
+.today-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.today-head .parts-title { margin: 0; }
+.today-tiles { min-width: min(100%, 520px); }
+.cp-tile.cp-tile-clear { border-left-color: #2e7d32; }
+.today-clear { margin: 18px 0; padding: 18px; border: 2px solid var(--floor-line); border-left: 8px solid #2e7d32; background: var(--floor-paper); font: 800 20px var(--cond); }
+
 /* Admin's links to the other pages (aslog.dev, /receipts, /analytics) */
 .page-links { display: flex; border: 2px solid #fff; }
 .page-links a { display: flex; align-items: center; min-height: 38px; padding: 0 10px; color: #fff; font: 800 14px var(--cond); letter-spacing: .06em; text-transform: uppercase; text-decoration: none; }

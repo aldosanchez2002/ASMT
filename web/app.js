@@ -281,6 +281,7 @@ function render() {
   renderParts();
   renderAnalytics();
   renderCompliance();
+  renderAdminToday();
 }
 
 // ---- Trailers tab --------------------------------------------------------
@@ -514,7 +515,7 @@ function renderLog() {
 // ---- Schedules tab ---------------------------------------------------------
 
 // The shop view is the main page; the rest is the admin side.
-const TABS = ['shop', 'inventory', 'trucks', 'trailers', 'parts', 'analytics', 'compliance', 'schedules', 'log', 'settings'];
+const TABS = ['shop', 'inventory', 'today', 'trucks', 'trailers', 'parts', 'analytics', 'compliance', 'schedules', 'log', 'settings'];
 // The inventory person's page is the admin Parts tab, in the shop look.
 const viewOf = (tab) => (tab === 'inventory' ? 'parts' : tab);
 const VIEWS = TABS.filter((x) => x !== 'inventory');
@@ -578,7 +579,7 @@ function wantedTab() {
   if (PAGE === 'analytics') return 'analytics';
   if (PAGE === 'inventory') return 'inventory';
   const hash = location.hash.slice(1);
-  if (PAGE === 'admin') return ADMIN_TABS.includes(hash) ? hash : 'trucks';
+  if (PAGE === 'admin') return ADMIN_TABS.includes(hash) ? hash : 'today';
   return 'shop';
 }
 // Old links to aslog.dev/#inventory or /#trucks go to the new addresses.
@@ -639,13 +640,30 @@ function showTab() {
   $('lang').hidden = !shop;
   lastAllowedHash = tab === 'shop' ? '' : `#${tab}`;
   renderRoleSwitch();
-  for (const a of document.querySelectorAll('.tabs a')) {
-    a.classList.toggle('active', a.dataset.tab === tab);
-    a.setAttribute('aria-current', a.dataset.tab === tab ? 'page' : 'false');
+  // Admin's five groups; the open group's sections show in the bar under them.
+  let group = null;
+  for (const a of document.querySelectorAll('#admin-nav a')) {
+    const on = a.dataset.tabs.split(' ').includes(tab);
+    if (on) group = a;
+    a.classList.toggle('active', on);
+    a.setAttribute('aria-current', on ? 'page' : 'false');
   }
+  const sections = group ? group.dataset.tabs.split(' ') : [];
+  $('admin-subnav').hidden = shop || sections.length < 2;
+  $('admin-subnav').replaceChildren(...sections.map((x) => {
+    const a = el('a', x === tab ? 'active' : '', SECTION_NAMES[x] ?? x);
+    a.href = `#${x}`;
+    if (x === tab) a.setAttribute('aria-current', 'page');
+    return a;
+  }));
   // On a phone the tab row scrolls; keep the open tab in view.
   document.querySelector('.tabs a.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
+
+const SECTION_NAMES = {
+  trucks: 'Trucks', trailers: 'Trailers', compliance: 'Inspections', analytics: 'Analytics', parts: 'Receipts & parts',
+  settings: 'Settings', schedules: 'Schedules',
+};
 
 const yearRange = (min, max) => (min === max ? `${min}` : `${min}–${max}`);
 
@@ -3368,6 +3386,84 @@ function anFleetDetails(r, events) {
     }
   }
   return box;
+}
+
+// ---- Today (admin's home) ----------------------------------------------------------
+// Everything that needs a person, in one list, worst first: paperwork expired
+// or due, trucks overdue or with a stop lamp, receipts to check, matches the AI
+// wasn't sure of, parts no work explains, repairs with no parts, old stock.
+// Each item is the same card the rest of admin uses, with its fix on it.
+
+let todaySoonOpen = false;
+function renderAdminToday() {
+  const today = todayIso();
+  const units = complianceList(cpUnits(), compliance, today);
+  const paper = units.filter((x) => x.group === 'action');
+  const soon = units.filter((x) => x.group === 'soon');
+  const trucks = vehicles.filter(inService).map(withMaintenance)
+    .map((v) => ({ v, overdue: v.rows.filter((r) => r.status === 'overdue' && !DOT_ANNUAL(r)) }))
+    .filter((x) => x.overdue.length || x.v.faults?.stop);
+  const q = matchQueue();
+  const checks = receiptsToCheck();
+  const old = oldStock(receipts, itemUses, today);
+  const now = paper.length + trucks.length + checks.length + q.doubts.length + q.noWork.length + q.noParts.length + old.length;
+  const badge = $('today-badge');
+  badge.textContent = now ? String(now) : '';
+  badge.hidden = !now;
+  if (currentTab() !== 'today') return;
+
+  $('today-date').textContent = `${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} · everything that needs you, worst first. Tap one to fix it.`;
+  const issues = new Set([...paper, ...soon].map((x) => x.id).concat(trucks.map((x) => x.v.id)));
+  // All clear: paperwork on file and up to date, and nothing overdue.
+  const clear = units.filter((x) => x.group === 'ok' && !issues.has(x.id)).length;
+  const tile = (n, label, kind) => {
+    const t2 = el('div', `cp-tile cp-tile-${kind}${n ? '' : ' cp-zero'}`);
+    t2.append(el('strong', null, String(n)), el('span', null, label));
+    return t2;
+  };
+  $('today-tiles').replaceChildren(tile(now, 'Needs you now', 'action'), tile(soon.length, 'Coming up', 'soon'), tile(clear, 'Units all clear', 'clear'));
+
+  const out = [];
+  const group = (title, hint, rows) => {
+    if (!rows.length) return;
+    out.push(el('h3', 'shop-group parts-group', `${title} · ${rows.length}`));
+    if (hint) out.push(el('p', 'parts-hint', hint));
+    out.push(...rows);
+  };
+  group('Paperwork', 'Inspection or registration expired, or expiring in the next 30 days.', paper.map(cpRow));
+  group('Trucks', 'Service overdue, or a stop lamp on.', trucks.map(todayTruckRow));
+  group(t('checkTitle'), t('checkIntro'), checks);
+  group(t('secDoubts'), t('secDoubtsHint'), q.doubts.map((x) => matchCard(x)));
+  group(t('secNoWork'), t('secNoWorkHint'), q.noWork.map(noWorkCard));
+  group(t('secOldStock'), t('secOldStockHint'), old.map(oldStockCard));
+  group(t('secNoParts'), t('secNoPartsHint'), q.noParts.map(noPartsCard));
+  if (!out.length) out.push(el('p', 'today-clear', 'All clear ✓  Nothing needs you right now.'));
+  if (soon.length) {
+    const head = el('button', `shop-group section-toggle parts-work-head cp-head${todaySoonOpen ? ' open' : ''}`);
+    head.type = 'button';
+    head.setAttribute('aria-expanded', String(todaySoonOpen));
+    head.append(el('span', 'section-label', 'Coming up (90 days)'), el('span', 'section-count', String(soon.length)), el('span', 'section-chevron', todaySoonOpen ? '▾' : '▸'));
+    head.addEventListener('click', () => { todaySoonOpen = !todaySoonOpen; renderAdminToday(); });
+    out.push(head);
+    if (todaySoonOpen) out.push(...soon.map(cpRow));
+  }
+  $('today-body').replaceChildren(...out);
+}
+
+// A truck that needs attention: what's overdue, or its stop lamp.
+function todayTruckRow({ v, overdue }) {
+  const row = el('button', 'cp-row cp-action');
+  row.type = 'button';
+  const top = el('span', 'cp-top');
+  top.append(el('span', 'cp-name', v.name), el('span', 'cp-kind', 'Truck'));
+  row.append(top);
+  if (v.faults?.stop) row.append(el('span', 'cp-line cp-expired', 'Stop lamp on'));
+  if (overdue.length) {
+    const names = overdue.map((r) => r.item.name);
+    row.append(el('span', 'cp-line', `Overdue: ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` +${names.length - 2} more` : ''}`));
+  }
+  row.addEventListener('click', () => openTruck(v.id));
+  return row;
 }
 
 // ---- Inspections & registrations (admin) -----------------------------------------

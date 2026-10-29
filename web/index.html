@@ -85,15 +85,24 @@
       </div>
 
       <nav id="admin-nav" class="tabs" aria-label="Views" hidden>
-        <a href="#trucks" data-tab="trucks">Trucks</a>
-        <a href="#trailers" data-tab="trailers">Trailers</a>
-        <a href="#parts" data-tab="parts">Parts</a>
-        <a href="#analytics" data-tab="analytics">Analytics</a>
-        <a href="#compliance" data-tab="compliance"><span class="hide-sm">Inspections</span><span class="show-sm-inline">Inspect.</span></a>
-        <a href="#log" data-tab="log"><span class="hide-sm">Service log</span><span class="show-sm-inline">Log</span></a>
-        <a href="#settings" data-tab="settings">Settings</a>
-        <a href="#schedules" data-tab="schedules">Schedules</a>
+        <a href="#today" data-tabs="today">Today<span id="today-badge" class="nav-badge" hidden></span></a>
+        <a href="#trucks" data-tabs="trucks trailers compliance">Fleet</a>
+        <a href="#analytics" data-tabs="analytics parts">Money</a>
+        <a href="#log" data-tabs="log">Records</a>
+        <a href="#settings" data-tabs="settings schedules">Setup</a>
       </nav>
+      <nav id="admin-subnav" class="subtabs" aria-label="Section" hidden></nav>
+
+      <div id="today-view" hidden>
+        <div class="today-head">
+          <div>
+            <h2 class="parts-title">Today</h2>
+            <p id="today-date" class="parts-intro"></p>
+          </div>
+          <div id="today-tiles" class="cp-tiles today-tiles"></div>
+        </div>
+        <div id="today-body"></div>
+      </div>
 
       <div id="trucks-view">
       <div class="toolbar">
