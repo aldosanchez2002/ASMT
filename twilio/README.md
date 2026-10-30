@@ -62,6 +62,27 @@ right away; replies need the number registered for US texting (A2P 10DLC,
 texted receipts without answering; once it's registered, add the environment
 variable `SMS_REPLIES` = `yes`.
 
+### Texting registration (A2P 10DLC)
+
+Registered as a Sole Proprietor brand (Aldo Sanchez) with a Sole Proprietor
+campaign for the program "aslog" (verbal consent from employees, no
+marketing). The campaign points to https://aslog.dev/privacy/ and
+https://aslog.dev/terms/ (`web/privacy`, `web/terms`); keep them in step with
+what the campaign says.
+
+Once `SMS_REPLIES` is `yes`, text replies start with "aslog:", and each
+sender's first answered text also gets the registered opt-in confirmation
+(remembered by name in `meta/smsOptIn`, never by number). STOP, START and
+HELP are answered by Twilio, not the Function: in the number's Messaging
+Service, **Opt-Out Management** has the registered messages:
+
+- **STOP**: "aslog: You are unsubscribed and will get no more messages from this number. Reply START to resume."
+- **START**: "aslog: You're enrolled to send parts receipts to this number. Message frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out."
+- **HELP**: "aslog: Text a photo of a parts receipt to send it. For help, ask the office or email aldosanchez2002@gmail.com. Message frequency varies. Msg & data rates may apply. Reply STOP to cancel."
+
+The Messaging Service's **Integration** is "Defer to sender's webhook", so
+texts still reach this Function.
+
 ## Read on arrival
 
 The Function starts the "Read receipts" Action as soon as it saves a photo.

@@ -8,7 +8,11 @@
 // replies so the buyer knows it arrived. Then it starts the "Read receipts"
 // GitHub Action, which reads it within a few minutes (without GITHUB_TOKEN,
 // the Action's timer picks it up instead). Texts get no reply until the number is registered
-// for US texting (A2P 10DLC): carriers block the reply until then.
+// for US texting (A2P 10DLC): carriers block the reply until then. Once they
+// do, text replies start with "aslog:", and each sender's first text also
+// gets the opt-in confirmation the campaign registration promises. STOP,
+// START and HELP texts are left to Twilio's Opt-Out Management (it answers
+// them with the registered messages), so they get nothing from here.
 //
 // Lives in Twilio (Functions & Assets), not on the website; this copy is kept
 // here so changes are tracked. Setup: twilio/README.md.
@@ -35,6 +39,14 @@ const TIME_ZONE = 'America/Denver'; // El Paso
 const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 const WORKFLOW = 'https://api.github.com/repos/aldosanchez2002/ASMT/actions/workflows/read-receipts.yml/dispatches';
+
+// The texts registered with the A2P campaign (keep them the same there).
+const OPT_IN_MESSAGE = "aslog: You're enrolled to send parts receipts to this number. Message frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out.";
+const HELP_MESSAGE = 'aslog: Text a photo of a parts receipt to send it. For help, ask the office or email aldosanchez2002@gmail.com. Message frequency varies. Msg & data rates may apply. Reply STOP to cancel.';
+// Twilio's opt-out and help keywords. By text, Twilio answers them; by
+// WhatsApp (no Opt-Out Management there) HELP is answered here.
+const KEYWORDS = ['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'START', 'YES', 'UNSTOP', 'HELP', 'INFO'];
+const HELP_WORDS = ['HELP', 'INFO', 'AYUDA'];
 
 // "Maria:+19155551234,Aldo:+19155550000" -> Map(+19155551234 => "Maria")
 function parseSenders(value = '') {
@@ -107,6 +119,40 @@ async function saveReceipt(context, { photo, uploadedBy, note, trucks, source, f
   return id;
 }
 
+// Who has had the opt-in confirmation, in meta/smsOptIn, keyed by the
+// sender's name from ALLOWED_SENDERS (never the phone number: the database
+// isn't private).
+const optInKey = (name, from) => `k_${name ? name.replace(/[^A-Za-z0-9_]/g, '_') : require('crypto').createHash('sha256').update(from).digest('hex').slice(0, 16)}`;
+
+async function welcomedAlready(context, key, fetchFn) {
+  try {
+    const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+    const res = await fetchFn(`https://firestore.googleapis.com/v1/${docs}/meta/smsOptIn?key=${context.FIREBASE_API_KEY}`);
+    if (!res.ok) return false;
+    return Boolean((await res.json()).fields?.welcomed?.mapValue?.fields?.[key]);
+  } catch {
+    return false; // unsure: a second confirmation is better than none
+  }
+}
+
+async function markWelcomed(context, key, fetchFn) {
+  const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  try {
+    await fetchFn(`https://firestore.googleapis.com/v1/${docs}:commit?key=${context.FIREBASE_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        writes: [{
+          update: { name: `${docs}/meta/smsOptIn`, fields: { welcomed: { mapValue: { fields: { [key]: { timestampValue: new Date().toISOString() } } } } } },
+          updateMask: { fieldPaths: [`welcomed.${key}`] },
+        }],
+      }),
+    });
+  } catch (err) {
+    console.error(`opt-in: ${err.message}`);
+  }
+}
+
 // Starts the "Read receipts" Action now. Several photos in a row start one
 // run each, but GitHub keeps only one waiting behind the running one, which
 // then reads everything that came in. If this fails the timer still runs.
@@ -127,21 +173,40 @@ async function startReading(context, fetchFn) {
 }
 
 exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => {
-  const twiml = new Twilio.twiml.MessagingResponse();
   const source = String(event.From ?? '').startsWith('whatsapp:') ? 'whatsapp' : 'sms';
   const from = String(event.From ?? '').replace(/^whatsapp:/, '');
   const senders = parseSenders(context.ALLOWED_SENDERS);
   // Not the buyer (or anyone allowed): no answer at all.
   if (!senders.has(from)) return callback(null, new Twilio.twiml.MessagingResponse());
-  // Texts are answered only once the number may send them.
-  const answer = (response) => callback(null, source === 'sms' && context.SMS_REPLIES !== 'yes' ? new Twilio.twiml.MessagingResponse() : response);
-
   const count = Number(event.NumMedia ?? 0);
   const note = String(event.Body ?? '').trim().slice(0, 500) || null;
+  const keyword = !count && KEYWORDS.concat(HELP_WORDS).includes((note ?? '').toUpperCase()) ? note.toUpperCase() : null;
+  // Texts are answered only once the number may send them, starting with
+  // "aslog:"; a sender's first answered text also gets the opt-in confirmation.
+  const texting = source === 'sms' && context.SMS_REPLIES === 'yes';
+  const answer = async (texts) => {
+    const out = new Twilio.twiml.MessagingResponse();
+    if (source === 'whatsapp') {
+      texts.forEach((text) => out.message(text));
+    } else if (texting) {
+      const key = optInKey(senders.get(from), from);
+      if (!(await welcomedAlready(context, key, fetchFn))) {
+        out.message(OPT_IN_MESSAGE);
+        await markWelcomed(context, key, fetchFn);
+      }
+      texts.forEach((text) => out.message(`aslog: ${text}`));
+    }
+    return callback(null, out);
+  };
+  // STOP, START, HELP…: Twilio answers texts; WhatsApp gets the help message.
+  if (keyword) {
+    const reply = new Twilio.twiml.MessagingResponse();
+    if (source === 'whatsapp' && HELP_WORDS.includes(keyword)) reply.message(HELP_MESSAGE);
+    return callback(null, reply);
+  }
   const trucks = trucksFrom(note ?? '');
   if (!count) {
-    twiml.message('Send a photo of the receipt. Add which truck the parts are for, like T-28, or for several: T-28 drums, T-31 headlight. You can also write the truck next to each item on the receipt.');
-    return answer(twiml);
+    return answer(['Send a photo of the receipt. Add which truck the parts are for, like T-28, or for several: T-28 drums, T-31 headlight. You can also write the truck next to each item on the receipt.']);
   }
   let saved = 0;
   let skipped = 0;
@@ -171,10 +236,12 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   const notes = [];
   if (wrongType) notes.push(`${saved ? `${wrongType} ${wrongType === 1 ? 'was a file' : 'were files'}` : 'That was sent as a file'} (like .heic) that can't be read. Send it as a photo instead: tap + then Photos, not Document.`);
   if (skipped) notes.push(saved || wrongType ? `${skipped} could not be saved; please send it again.` : 'That photo could not be saved. Please send it again.');
-  twiml.message([saved ? `Got it: ${what}${trucks.length ? ` for ${listText(trucks)}` : ''}. It will be read automatically.` : '', ...notes].filter(Boolean).join(' '));
-  return answer(twiml);
+  const stop = source === 'sms' ? ' Reply STOP to opt out.' : '';
+  return answer([[saved ? `Got it: ${what}${trucks.length ? ` for ${listText(trucks)}` : ''}. It will be read automatically.` : '', ...notes].filter(Boolean).join(' ') + (saved ? stop : '')]);
 };
 
 // For the tests (test/whatsapp-receipt.test.mjs); Twilio only calls handler.
 exports.parseSenders = parseSenders;
 exports.trucksFrom = trucksFrom;
+exports.OPT_IN_MESSAGE = OPT_IN_MESSAGE;
+exports.HELP_MESSAGE = HELP_MESSAGE;

@@ -99,9 +99,53 @@ test('a text (MMS) is saved the same way; it gets a reply only once texting is r
   assert.deepEqual([f.source.stringValue, f.uploadedBy.stringValue, f.note.stringValue], ['sms', 'Maria', 'T-28']);
   assert.deepEqual(text.twiml.messages, []);
   const registered = await new Promise((resolve) => {
-    fn.handler({ ...context, SMS_REPLIES: 'yes' }, { From: '+19155551234', NumMedia: '0' }, (err, twiml) => resolve(twiml), { fetchFn: async () => ({ ok: true }) });
+    fn.handler({ ...context, SMS_REPLIES: 'yes' }, { From: '+19155551234', NumMedia: '0' }, (err, twiml) => resolve(twiml), { fetchFn: async () => ({ ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: { k_Maria: {} } } } } }) }) });
   });
-  assert.match(registered.messages[0], /Send a photo of the receipt/);
+  assert.match(registered.messages[0], /^aslog: Send a photo of the receipt/);
+});
+
+// A texting run where meta/smsOptIn already lists `welcomed` names.
+const textRun = (event, welcomed = []) => {
+  const writes = [];
+  const fetchFn = async (url, opts = {}) => {
+    if (url.startsWith('https://media')) return { ok: true, arrayBuffer: async () => Buffer.from('jpegbytes') };
+    if (!opts.body) return { ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: Object.fromEntries(welcomed.map((k) => [k, {}])) } } } }) };
+    writes.push(JSON.parse(opts.body).writes);
+    return { ok: true };
+  };
+  return new Promise((resolve) => {
+    fn.handler({ ...context, SMS_REPLIES: 'yes' }, event, (err, twiml) => resolve({ twiml, writes }), { fetchFn });
+  });
+};
+const photoText = { From: '+19155551234', Body: 'T-24', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg' };
+
+test('a sender\'s first answered text gets the opt-in confirmation once, remembered by name (not number)', async () => {
+  const first = await textRun(photoText);
+  assert.deepEqual(first.twiml.messages, [fn.OPT_IN_MESSAGE, 'aslog: Got it: 1 receipt for T-24. It will be read automatically. Reply STOP to opt out.']);
+  const optIn = first.writes.flat().find((w) => w.update.name.endsWith('/meta/smsOptIn'));
+  assert.deepEqual(optIn.updateMask, { fieldPaths: ['welcomed.k_Maria'] });
+  assert.ok(!JSON.stringify(optIn).includes('5551234'));
+  const later = await textRun(photoText, ['k_Maria']);
+  assert.deepEqual(later.twiml.messages, ['aslog: Got it: 1 receipt for T-24. It will be read automatically. Reply STOP to opt out.']);
+  assert.ok(!later.writes.flat().some((w) => w.update.name.endsWith('/meta/smsOptIn')));
+  // Before texting is registered: no reply, and nobody is marked as confirmed.
+  const early = await run(photoText);
+  assert.deepEqual(early.twiml.messages, []);
+  assert.ok(!early.writes.flat().some((w) => w.update.name.endsWith('/meta/smsOptIn')));
+});
+
+test('STOP, START and HELP texts are left to Twilio; WhatsApp HELP gets the help message', async () => {
+  for (const word of ['STOP', 'stop', 'Start', 'HELP', 'unsubscribe']) {
+    const r = await textRun({ From: '+19155551234', Body: ` ${word} `, NumMedia: '0' });
+    assert.deepEqual([r.twiml.messages, r.writes.length], [[], 0], word);
+  }
+  const help = await run({ From: 'whatsapp:+19155551234', Body: 'help', NumMedia: '0' });
+  assert.deepEqual(help.twiml.messages, [fn.HELP_MESSAGE]);
+  const ayuda = await run({ From: 'whatsapp:+19155551234', Body: 'Ayuda', NumMedia: '0' });
+  assert.deepEqual(ayuda.twiml.messages, [fn.HELP_MESSAGE]);
+  // A photo whose note happens to say "help" is still a receipt.
+  const photo = await run({ From: 'whatsapp:+19155551234', Body: 'help', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg' });
+  assert.equal(photo.writes.length, 1);
 });
 
 test('strangers get no answer; a text without a photo gets a hint', async () => {
