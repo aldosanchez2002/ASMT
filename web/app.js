@@ -641,7 +641,6 @@ function showTab() {
   useEnglish(!shop);
   document.body.classList.toggle('shop-mode', shop);
   $('admin-nav').hidden = shop;
-  $('inv-nav').hidden = roleOfTab(tab) !== 'inventory';
   $('lang').hidden = !shop;
   lastAllowedHash = tab === 'shop' ? '' : `#${tab}`;
   renderRoleSwitch();
@@ -2212,7 +2211,6 @@ function setPartsSide(side) {
 function renderParts() {
   if (viewOf(currentTab()) !== 'parts') return;
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
-  $('inv-tab').textContent = t('invTab');
   const stock = stockNow();
   const work = fleetWork();
   const list = shoppingList(partsList, work, stock);
@@ -2227,6 +2225,8 @@ function renderParts() {
   const sides = buyer ? ['receipts', 'buy'] : ['receipts', 'stock'];
   if (!sides.includes(partsSide)) partsSide = 'receipts';
   const tabs = document.querySelectorAll('#parts-side button');
+  // The buyer's third choice opens the Analytics page.
+  $('side-analytics').hidden = !buyer;
   for (const b of tabs) {
     b.hidden = !sides.includes(b.dataset.side);
     const on = b.dataset.side === partsSide;

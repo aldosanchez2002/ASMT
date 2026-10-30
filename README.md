@@ -189,7 +189,7 @@ Each person has their own address. It's the same app (`web/index.html`); the dep
 | Address | Who | Password |
 |---|---|---|
 | `aslog.dev` | Mechanic (EN/ES) | none |
-| `aslog.dev/receipts` or `aslog.dev/parts` | Inventory: receipts, to buy (EN/ES), and an **Analytics ↗** tab | `antonio` (or admin's) |
+| `aslog.dev/receipts` or `aslog.dev/parts` | Inventory: receipts, to buy (EN/ES), and **Analytics ↗** (opens the Analytics page) | `antonio` (or admin's) |
 | `aslog.dev/admin` | Admin tabs: **Overview** (home), **Fleet** (trucks, trailers, inspections), **Parts** (receipts, with what to review, and stock), **Records** (service log), **Setup** (settings, schedules), and **Analytics ↗**, which opens the Analytics page; links to the other pages in the header | `Covington` |
 | `aslog.dev/analytics` | Analytics, in a softer look: the office's page, and admin's and the buyer's too (`/admin#analytics` forwards here) | `andrea`, `antonio` or admin's |
 
