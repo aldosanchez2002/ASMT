@@ -101,7 +101,7 @@ test('a text (MMS) is saved the same way; it gets a reply only once texting is r
   const registered = await new Promise((resolve) => {
     fn.handler({ ...context, SMS_REPLIES: 'yes' }, { From: '+19155551234', NumMedia: '0' }, (err, twiml) => resolve(twiml), { fetchFn: async () => ({ ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: { k_Maria: {} } } } } }) }) });
   });
-  assert.match(registered.messages[0], /^aslog: Send a photo of the receipt/);
+  assert.deepEqual(registered.messages, ['aslog: Send a photo of the receipt. Add which truck the parts are for, like T-28, or for several: T-28 drums, T-31 headlight. Reply HELP for help, STOP to opt out.']);
 });
 
 // A texting run where meta/smsOptIn already lists `welcomed` names.
@@ -128,6 +128,12 @@ test('a sender\'s first answered text gets the opt-in confirmation once, remembe
   const later = await textRun(photoText, ['k_Maria']);
   assert.deepEqual(later.twiml.messages, ['aslog: Got it: 1 receipt for T-24. It will be read automatically. Reply STOP to opt out.']);
   assert.ok(!later.writes.flat().some((w) => w.update.name.endsWith('/meta/smsOptIn')));
+  // The registered samples: a photo that couldn't be saved also says how to opt out.
+  const failed = await new Promise((resolve) => {
+    const fetchFn = async (url, opts = {}) => (url.startsWith('https://media') ? { ok: false, status: 500 } : opts.body ? { ok: true } : { ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: { k_Maria: {} } } } } }) });
+    fn.handler({ ...context, SMS_REPLIES: 'yes' }, photoText, (err, twiml) => resolve(twiml), { fetchFn });
+  });
+  assert.deepEqual(failed.messages, ['aslog: That photo could not be saved. Please send it again. Reply STOP to opt out.']);
   // Before texting is registered: no reply, and nobody is marked as confirmed.
   const early = await run(photoText);
   assert.deepEqual(early.twiml.messages, []);

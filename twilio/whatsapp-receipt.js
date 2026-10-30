@@ -206,7 +206,8 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   }
   const trucks = trucksFrom(note ?? '');
   if (!count) {
-    return answer(['Send a photo of the receipt. Add which truck the parts are for, like T-28, or for several: T-28 drums, T-31 headlight. You can also write the truck next to each item on the receipt.']);
+    const after = source === 'sms' ? 'Reply HELP for help, STOP to opt out.' : 'You can also write the truck next to each item on the receipt.';
+    return answer([`Send a photo of the receipt. Add which truck the parts are for, like T-28, or for several: T-28 drums, T-31 headlight. ${after}`]);
   }
   let saved = 0;
   let skipped = 0;
@@ -237,7 +238,7 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   if (wrongType) notes.push(`${saved ? `${wrongType} ${wrongType === 1 ? 'was a file' : 'were files'}` : 'That was sent as a file'} (like .heic) that can't be read. Send it as a photo instead: tap + then Photos, not Document.`);
   if (skipped) notes.push(saved || wrongType ? `${skipped} could not be saved; please send it again.` : 'That photo could not be saved. Please send it again.');
   const stop = source === 'sms' ? ' Reply STOP to opt out.' : '';
-  return answer([[saved ? `Got it: ${what}${trucks.length ? ` for ${listText(trucks)}` : ''}. It will be read automatically.` : '', ...notes].filter(Boolean).join(' ') + (saved ? stop : '')]);
+  return answer([[saved ? `Got it: ${what}${trucks.length ? ` for ${listText(trucks)}` : ''}. It will be read automatically.` : '', ...notes].filter(Boolean).join(' ') + stop]);
 };
 
 // For the tests (test/whatsapp-receipt.test.mjs); Twilio only calls handler.
