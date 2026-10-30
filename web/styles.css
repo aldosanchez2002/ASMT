@@ -879,9 +879,11 @@ dialog#work { background: var(--floor-bg); color: var(--floor-ink); font-family:
 body:not(.shop-mode) { font-family: 'Barlow', system-ui, sans-serif; }
 
 /* Tabs */
-body:not(.shop-mode) .tabs a { font: 800 17px var(--cond); text-transform: uppercase; letter-spacing: .06em; }
-body:not(.shop-mode) .tabs a.active { color: var(--floor-ink); box-shadow: inset 0 -4px 0 var(--floor-ink); border-bottom-color: transparent; }
-body:not(.shop-mode) .tabs { border-bottom: 2px solid var(--floor-line); }
+body:not(.shop-mode) .tabs a, #inv-nav a { font: 800 17px var(--cond); text-transform: uppercase; letter-spacing: .06em; }
+body:not(.shop-mode) .tabs a.active, #inv-nav a.active { color: var(--floor-ink); box-shadow: inset 0 -4px 0 var(--floor-ink); border-bottom-color: transparent; }
+body:not(.shop-mode) .tabs, #inv-nav { border-bottom: 2px solid var(--floor-line); }
+#inv-nav { gap: 12px; }
+#inv-nav a { color: var(--floor-muted); }
 
 /* Inputs and buttons */
 body:not(.shop-mode) .toolbar input[type="search"], body:not(.shop-mode) select, body:not(.shop-mode) .field input,
@@ -1048,7 +1050,7 @@ body.shop-mode .trailer-row.needs-work { border-left: 10px solid var(--floor-red
 .tabs::-webkit-scrollbar { display: none; }
 .tabs a { white-space: nowrap; flex: none; }
 @media (max-width: 560px) {
-  body:not(.shop-mode) .tabs a { font-size: 15px; letter-spacing: .04em; padding: 12px 8px; }
+  body:not(.shop-mode) .tabs a, #inv-nav a { font-size: 15px; letter-spacing: .04em; padding: 12px 8px; }
 }
 .sf-work.has .sf-n { color: var(--red); }
 body:not(.shop-mode) .sf-work.has .sf-n { color: var(--floor-red); }
@@ -1130,7 +1132,7 @@ body.shop-mode .fault-line.fault-soft::before, #truck .fault-line.fault-soft::be
 /* Admin tabs: all five fit on a phone without scrolling sideways */
 @media (max-width: 560px) {
   body:not(.shop-mode) .tabs { justify-content: space-between; gap: 0; }
-  body:not(.shop-mode) .tabs a { font-size: 14px; letter-spacing: .02em; padding: 12px 4px; }
+  body:not(.shop-mode) .tabs a, #inv-nav a { font-size: 14px; letter-spacing: .02em; padding: 12px 4px; }
 }
 
 /* Tire brands (required for each tire changed) */

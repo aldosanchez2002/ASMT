@@ -159,6 +159,7 @@ const TEXT = {
     lastWork: (what, d) => `Last: ${what} · ${d}`,
     ago: { now: 'just now', min: (n) => `${n} min ago`, h: (n) => `${n} h ago`, d: (n) => `${n} ${n === 1 ? 'day' : 'days'} ago` },
     // Parts (the buyer's page) and parts from the shelf in Record work
+    invTab: 'Parts',
     partsSide_buy: 'To buy',
     partsSide_stock: 'Stock',
     partsSide_receipts: 'Receipts',
@@ -495,6 +496,7 @@ const TEXT = {
     lastWork: (what, d) => `Último: ${what} · ${d}`,
     ago: { now: 'ahora', min: (n) => `hace ${n} min`, h: (n) => `hace ${n} h`, d: (n) => `hace ${n} ${n === 1 ? 'día' : 'días'}` },
     // Partes (página de compras) y partes del estante en Registrar trabajo
+    invTab: 'Partes',
     partsSide_buy: 'Comprar',
     partsSide_stock: 'Inventario',
     partsSide_receipts: 'Recibos',

@@ -562,11 +562,12 @@ const ROLE_LOCKS = {
   admin: { password: 'Covington', key: 'aslog.admin' },
 };
 // The office's own password for aslog.dev/analytics; it opens that page only.
+// The buyer's password opens it too (their Analytics ↗ tab).
 const ANALYTICS_LOCK = { password: 'andrea', key: 'aslog.analyticsPage' };
 const remembered = (key) => { try { return localStorage.getItem(key) === 'yes'; } catch { return false; } };
 const adminUnlocked = () => remembered(ROLE_LOCKS.admin.key);
 const roleUnlocked = (role) => role === 'mechanic' || adminUnlocked() || (role === 'inventory' && remembered(ROLE_LOCKS.inventory.key))
-  || (role === 'admin' && ANALYTICS_PAGE && remembered(ANALYTICS_LOCK.key));
+  || (role === 'admin' && ANALYTICS_PAGE && (remembered(ANALYTICS_LOCK.key) || remembered(ROLE_LOCKS.inventory.key)));
 const roleOfTab = (tab) => (tab === 'shop' ? 'mechanic' : tab === 'inventory' ? 'inventory' : 'admin');
 const PAGE = (() => {
   const last = location.pathname.replace(/\/+$/, '').split('/').pop();
@@ -640,6 +641,7 @@ function showTab() {
   useEnglish(!shop);
   document.body.classList.toggle('shop-mode', shop);
   $('admin-nav').hidden = shop;
+  $('inv-nav').hidden = roleOfTab(tab) !== 'inventory';
   $('lang').hidden = !shop;
   lastAllowedHash = tab === 'shop' ? '' : `#${tab}`;
   renderRoleSwitch();
@@ -2210,6 +2212,7 @@ function setPartsSide(side) {
 function renderParts() {
   if (viewOf(currentTab()) !== 'parts') return;
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
+  $('inv-tab').textContent = t('invTab');
   const stock = stockNow();
   const work = fleetWork();
   const list = shoppingList(partsList, work, stock);
@@ -4855,8 +4858,8 @@ addEventListener('hashchange', () => {
 $('admin-lock').addEventListener('submit', (e) => {
   e.preventDefault();
   const typed = $('admin-pass').value.trim().toLowerCase();
-  // On the Analytics page the office password works as well as admin's.
-  const locks = [ROLE_LOCKS[lockRole], ...(ANALYTICS_PAGE && lockRole === 'admin' ? [ANALYTICS_LOCK] : [])].filter(Boolean);
+  // On the Analytics page the office's and the buyer's passwords work as well as admin's.
+  const locks = [ROLE_LOCKS[lockRole], ...(ANALYTICS_PAGE && lockRole === 'admin' ? [ANALYTICS_LOCK, ROLE_LOCKS.inventory] : [])].filter(Boolean);
   const lock = locks.find((l) => typed === l.password.toLowerCase());
   if (!lock) {
     $('admin-pass-error').hidden = false;
