@@ -14,6 +14,13 @@
 // START and HELP texts are left to Twilio's Opt-Out Management (it answers
 // them with the registered messages), so they get nothing from here.
 //
+// A text with no photo that names a truck ("T-24", "24", "camión 24")
+// answers the "Which truck?" or "Wrong truck?" in the reading reply
+// (twilio/receipt-read.js): it goes on the sender's latest receipt from the
+// last 2 days, which is read again with that truck. A receipt already matched
+// to repairs or edited by the office keeps its matches; the truck goes in its
+// note for the office.
+//
 // Lives in Twilio (Functions & Assets), not on the website; this copy is kept
 // here so changes are tracked. Setup: twilio/README.md.
 //
@@ -80,6 +87,14 @@ function toValue(v) {
   return { stringValue: String(v) };
 }
 const toFields = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, toValue(v)]));
+function fromValue(v) {
+  const [type, x] = Object.entries(v)[0];
+  if (type === 'mapValue') return Object.fromEntries(Object.entries(x.fields ?? {}).map(([k, y]) => [k, fromValue(y)]));
+  if (type === 'arrayValue') return (x.values ?? []).map(fromValue);
+  if (type === 'integerValue') return Number(x);
+  if (type === 'nullValue') return null;
+  return x;
+}
 
 const newId = () => Array.from({ length: 20 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 62)]).join('');
 
@@ -153,6 +168,55 @@ async function markWelcomed(context, key, fetchFn) {
   }
 }
 
+// A whole text that's just a number ("24", "#24") is a truck too.
+const bareTruck = (text = '') => {
+  const m = text.match(/^\s*#?\s*(\d{1,3})\s*$/);
+  return m ? [`T-${m[1].padStart(2, '0')}`] : [];
+};
+const FIX_DAYS = 2;
+
+// Documents in a collection whose `field` equals `value`, as { id, ...data }.
+async function findDocs(context, collection, field, value, fetchFn) {
+  const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  const res = await fetchFn(`https://firestore.googleapis.com/v1/${docs}:runQuery?key=${context.FIREBASE_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: collection }], where: { fieldFilter: { field: { fieldPath: field }, op: 'EQUAL', value: toValue(value) } } } }),
+  });
+  if (!res.ok) throw new Error(`Firestore ${res.status}`);
+  return (await res.json()).filter((x) => x.document).map((x) => ({
+    id: x.document.name.split('/').pop(), ...fromValue({ mapValue: { fields: x.document.fields ?? {} } }),
+  }));
+}
+
+// The truck(s) a sender texted go on their latest receipt. Returns the reply,
+// or null when they have no recent receipt (then it's just a stray text).
+async function truckReply(context, { name, trucks, note, fetchFn }) {
+  const since = Date.now() - FIX_DAYS * 24 * 60 * 60 * 1000;
+  const latest = (await findDocs(context, 'receipts', 'uploadedBy', name, fetchFn))
+    .filter((r) => Date.parse(r.createdAt) >= since)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+  if (!latest) return null;
+  const known = await Promise.all(trucks.map(async (t) => (await findDocs(context, 'vehicles', 'name', t, fetchFn)).length > 0));
+  const unknown = trucks.filter((t, i) => !known[i]);
+  if (unknown.length) return `There's no truck ${listText(unknown)}. Reply with the truck number, like T-24.`;
+  const store = latest.vendor ? `${latest.vendor} receipt` : 'receipt';
+  const settled = latest.updatedAt || (await findDocs(context, 'itemUses', 'receiptId', latest.id, fetchFn)).length;
+  // Already matched or edited: the matches stay, the office moves them.
+  const change = settled ? { note: [latest.note, `Truck from text: ${note}`].filter(Boolean).join(' · ') }
+    : { note, trucks, status: 'waiting', readTries: 0, readError: null, replySentAt: null };
+  const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  const res = await fetchFn(`https://firestore.googleapis.com/v1/${docs}:commit?key=${context.FIREBASE_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes: [{ update: { name: `${docs}/receipts/${latest.id}`, fields: toFields(change) }, updateMask: { fieldPaths: Object.keys(change) } }] }),
+  });
+  if (!res.ok) throw new Error(`Firestore ${res.status}`);
+  if (settled) return `Thanks. The ${store} is already matched to repairs, so the office will move it to ${listText(trucks)}.`;
+  await startReading(context, fetchFn);
+  return `Got it: the ${store} is for ${listText(trucks)}. Reading it again now.`;
+}
+
 // Starts the "Read receipts" Action now. Several photos in a row start one
 // run each, but GitHub keeps only one waiting behind the running one, which
 // then reads everything that came in. If this fails the timer still runs.
@@ -206,6 +270,16 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   }
   const trucks = trucksFrom(note ?? '');
   if (!count) {
+    const named = note && note.length <= 60 ? (trucks.length ? trucks : bareTruck(note)) : [];
+    if (named.length) {
+      try {
+        const fixed = await truckReply(context, { name: senders.get(from), trucks: named, note, fetchFn });
+        if (fixed) return answer([fixed]);
+      } catch (err) {
+        console.error(`truck reply: ${err.message}`);
+        return answer(['That could not be saved. Please try again, or tell the office which truck it is for.']);
+      }
+    }
     const after = source === 'sms' ? 'Reply HELP for help, STOP to opt out.' : 'You can also write the truck next to each item on the receipt.';
     return answer([`Send a photo of the receipt. Add which truck the parts are for, like T-28, or for several: T-28 drums, T-31 headlight. ${after}`]);
   }
@@ -244,5 +318,6 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
 // For the tests (test/whatsapp-receipt.test.mjs); Twilio only calls handler.
 exports.parseSenders = parseSenders;
 exports.trucksFrom = trucksFrom;
+exports.bareTruck = bareTruck;
 exports.OPT_IN_MESSAGE = OPT_IN_MESSAGE;
 exports.HELP_MESSAGE = HELP_MESSAGE;

@@ -35,6 +35,8 @@ jobs:
       - run: node scripts/read-receipts.mjs
         env:
           ANTHROPIC_API_KEY: ${{ secrets.AS_LOG_KEY }}
+          # Lets the Twilio Function /receipt-read text the sender what was read.
+          READ_REPLY_SECRET: ${{ secrets.READ_REPLY_SECRET }}
       # Then tie the bought repair parts to the repairs they were used in.
       - run: node scripts/match-items.mjs
         env:

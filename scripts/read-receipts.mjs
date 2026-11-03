@@ -3,7 +3,8 @@
 // tax and total. Run by the "Read receipts" GitHub Action.
 //
 // Needs ANTHROPIC_API_KEY (the workflow passes the AS_LOG_KEY GitHub secret
-// as it). Without it, it does nothing.
+// as it). Without it, it does nothing. With READ_REPLY_SECRET, a texted
+// receipt's sender gets a text saying what was read (scripts/receipt-reply.mjs).
 // Usage: node scripts/read-receipts.mjs [--dry-run]   (dry run: read, don't
 // save; what was read goes to dry-run-receipts.json for match-items --dry-run)
 
@@ -12,6 +13,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { commit, getDoc, listDocs, mergeWrite, queryDocs } from './firestore-rest.mjs';
 import { memoryText } from './ai-memory.mjs';
 import { RECEIPT_SCHEMA, SYSTEM_PROMPT, contextText, receiptFromReading } from './receipt-reader.mjs';
+import { readReplyText, sendReadReply } from './receipt-reply.mjs';
 
 const MAX_TRIES = 3;
 
@@ -41,6 +43,13 @@ export async function readPhoto(client, photo, context) {
   if (!text) throw new Error('No answer came back');
   console.log(`  tokens: ${response.usage.input_tokens} in, ${response.usage.output_tokens} out`);
   return JSON.parse(text);
+}
+
+// Texted receipts only: the sender hears back what was read.
+async function replyToSender(receipt, text) {
+  if (receipt.source !== 'sms') return;
+  const { sent, why } = await sendReadReply(receipt.id, text);
+  console.log(`  reply ${sent ? 'sent' : `not sent (${why ?? 'no reason given'})`}: ${text}`);
 }
 
 async function main() {
@@ -83,6 +92,7 @@ async function main() {
         console.log(`    ${l.text}${l.partNumber ? ` [${l.partNumber}]` : ''} x${l.qty} ${l.price ?? '?'} (real ${l.cost ?? '?'}) ${l.kind} -> ${where}${choices}${l.truckFrom ? ` via ${l.truckFrom}` : ''}${l.flags.length ? ` [${l.flags.join(', ')}]` : ''}`);
       }
       if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...result, readAt: new Date().toISOString(), readError: null })]);
+      if (!dryRun) await replyToSender(r, readReplyText(result, vehicles));
       others.push({ ...result, id: r.id }); // two photos of one receipt in the same batch
       readNow.push({ ...r, ...result });
       done += 1;
@@ -95,6 +105,7 @@ async function main() {
         await commit([mergeWrite(`receipts/${r.id}`, {
           readTries: tries, readError: message, ...(tries >= MAX_TRIES ? { status: 'error' } : {}),
         })]);
+        if (tries >= MAX_TRIES) await replyToSender(r, readReplyText({ status: 'error' }));
       }
     }
   }

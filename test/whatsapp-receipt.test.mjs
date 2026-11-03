@@ -171,3 +171,67 @@ test('saved receipts start the reader right away, once per message; it still ans
   const failed = await run(photos, { ...context, GITHUB_TOKEN: 'bad' });
   assert.match(failed.twiml.messages[0], /^Got it: 2 receipts/);
 });
+
+// A texting run with receipts, vehicles and item uses in the database.
+const fixRun = (body, { receipts = [], vehicles = ['T-24', 'T-31'], uses = [], ctx = {} } = {}) => {
+  const writes = [];
+  const started = [];
+  const queries = [];
+  const docOf = (id, data) => ({ document: { name: `x/${id}`, fields: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, { stringValue: v }])) } });
+  const fetchFn = async (url, opts = {}) => {
+    if (url.startsWith('https://api.github.com')) { started.push(url); return { ok: true }; }
+    if (url.includes(':runQuery')) {
+      const q = JSON.parse(opts.body).structuredQuery;
+      const [coll, field, value] = [q.from[0].collectionId, q.where.fieldFilter.field.fieldPath, q.where.fieldFilter.value.stringValue];
+      queries.push(`${coll}.${field}=${value}`);
+      const rows = coll === 'receipts' ? receipts.filter((r) => r.uploadedBy === value).map((r) => docOf(r.id, r))
+        : coll === 'vehicles' ? vehicles.filter((n) => n === value).map((n) => docOf(n, { name: n }))
+          : uses.filter((u) => u.receiptId === value).map((u) => docOf('u1', u));
+      return { ok: true, json: async () => rows };
+    }
+    if (!opts.body) return { ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: { k_Maria: {} } } } } }) };
+    writes.push(JSON.parse(opts.body).writes);
+    return { ok: true };
+  };
+  return new Promise((resolve) => {
+    fn.handler({ ...context, SMS_REPLIES: 'yes', GITHUB_TOKEN: 'gh', ...ctx }, { From: '+19155551234', Body: body, NumMedia: '0' }, (err, twiml) => resolve({ twiml, writes, started, queries }), { fetchFn });
+  });
+};
+const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+
+test('a truck texted back goes on the sender\'s latest receipt, which is read again', async () => {
+  assert.deepEqual(fn.bareTruck(' 24 '), ['T-24']);
+  assert.deepEqual(fn.bareTruck('#7'), ['T-07']);
+  assert.deepEqual(fn.bareTruck('2400'), []);
+  const receipts = [
+    { id: 'old', uploadedBy: 'Maria', vendor: 'NAPA', createdAt: ago(60 * 24 * 5) },
+    { id: 'new', uploadedBy: 'Maria', vendor: 'FleetPride', status: 'read', createdAt: ago(3) },
+  ];
+  const r = await fixRun('24', { receipts });
+  assert.deepEqual(r.twiml.messages, ['aslog: Got it: the FleetPride receipt is for T-24. Reading it again now.']);
+  const w = r.writes.flat().find((x) => x.update.name.endsWith('/receipts/new'));
+  assert.deepEqual(w.updateMask.fieldPaths, ['note', 'trucks', 'status', 'readTries', 'readError', 'replySentAt']);
+  assert.deepEqual([w.update.fields.status.stringValue, w.update.fields.trucks.arrayValue.values], ['waiting', [{ stringValue: 'T-24' }]]);
+  assert.equal(r.started.length, 1);
+});
+
+test('a receipt already matched or edited keeps its matches; the truck goes in its note', async () => {
+  const receipts = [{ id: 'new', uploadedBy: 'Maria', vendor: 'FleetPride', note: 'brakes', createdAt: ago(10) }];
+  const r = await fixRun('T-31', { receipts, uses: [{ receiptId: 'new' }] });
+  assert.deepEqual(r.twiml.messages, ['aslog: Thanks. The FleetPride receipt is already matched to repairs, so the office will move it to T-31.']);
+  const w = r.writes.flat().find((x) => x.update.name.endsWith('/receipts/new'));
+  assert.deepEqual([w.updateMask.fieldPaths, w.update.fields.note.stringValue], [['note'], 'brakes · Truck from text: T-31']);
+  assert.equal(r.started.length, 0);
+  const edited = await fixRun('T-31', { receipts: [{ ...receipts[0], updatedAt: ago(5) }] });
+  assert.match(edited.twiml.messages[0], /already matched/);
+});
+
+test('an unknown truck, no recent receipt, or a long text: no change', async () => {
+  const receipts = [{ id: 'new', uploadedBy: 'Maria', vendor: 'FleetPride', createdAt: ago(10) }];
+  const typo = await fixRun('T-99', { receipts });
+  assert.deepEqual([typo.twiml.messages, typo.writes.flat().filter((x) => x.update.name.includes('/receipts/')).length], [["aslog: There's no truck T-99. Reply with the truck number, like T-24."], 0]);
+  const none = await fixRun('24', { receipts: [{ ...receipts[0], createdAt: ago(60 * 24 * 3) }] });
+  assert.match(none.twiml.messages[0], /^aslog: Send a photo of the receipt/);
+  const chatty = await fixRun(`T-24 ${'x'.repeat(80)}`, { receipts });
+  assert.deepEqual(chatty.queries, []);
+});

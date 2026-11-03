@@ -1,0 +1,59 @@
+// The text a buyer gets back once their texted receipt is read: the store,
+// the total, the items, and the truck (or a question, when a repair part has
+// no truck). The reader (scripts/read-receipts.mjs) builds it and hands it to
+// the Twilio Function /receipt-read, which knows the sender's number (phone
+// numbers live only in Twilio) and sends it. The wording follows the samples
+// registered with the texting campaign (twilio/README.md).
+
+export const READ_REPLY_URL = 'https://receipts-4564.twil.io/receipt-read';
+const MAX_CHARS = 320;
+
+// "HEADLIGHT ASSY LH Halogen, DOT approved" -> "HEADLIGHT ASSY LH Halogen"
+const shortItem = (text = '') => {
+  const first = String(text).split(/[,;(]/)[0].trim();
+  return first.length > 32 ? `${first.slice(0, 32).replace(/\s+\S*$/, '')}…` : first;
+};
+const listText = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0] ?? '');
+const money = (n) => `$${Number(n).toFixed(2)}`;
+
+/**
+ * @param receipt  what the reader saved: { status, vendor, total, lines }
+ * @param vehicles [{ id, name }] to name the trucks the lines are tied to
+ * @returns the text, starting with "aslog:"
+ */
+export function readReplyText(receipt, vehicles = []) {
+  if (receipt.status === 'unreadable' || receipt.status === 'error') {
+    return 'aslog: That photo could not be read. Please send a clearer photo of the whole receipt. Reply STOP to opt out.';
+  }
+  const lines = receipt.lines ?? [];
+  const nameOf = (id) => vehicles.find((v) => v.id === id)?.name ?? null;
+  const trucks = [...new Set(lines.flatMap((l) => [nameOf(l.vehicleId), ...(l.for ?? []).map((u) => u.name)]).filter(Boolean))];
+  // A repair part or labor with no truck is the one thing only the buyer can tell us.
+  const needsTruck = lines.some((l) => (l.kind === 'part' || l.kind === 'labor') && !l.vehicleId && !l.for?.length);
+  const items = lines.filter((l) => l.kind !== 'credit').map((l) => `${Number(l.qty) > 1 ? `${l.qty} × ` : ''}${shortItem(l.text)}`);
+  const shown = items.length > 2 ? [...items.slice(0, 2), `${items.length - 2} more`] : items;
+  const what = [receipt.vendor || 'the receipt', receipt.total != null ? money(receipt.total) : null].filter(Boolean).join(' ');
+  let text = `aslog: Read ${what}${shown.length ? `: ${listText(shown)}` : ''}${trucks.length ? ` for ${listText(trucks)}` : ''}.`;
+  if (receipt.status === 'review') text += ' The office will check part of it.';
+  text += needsTruck && !trucks.length ? ' Which truck is it for? Reply with the truck number.'
+    : trucks.length ? ' Wrong truck? Reply with the truck number.'
+      : ' Reply STOP to opt out.';
+  return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS - 1)}…` : text;
+}
+
+// Asks the Twilio Function to text the sender. Never throws: a reply that
+// can't be sent shouldn't stop the reading.
+export async function sendReadReply(receiptId, text, { secret = process.env.READ_REPLY_SECRET, fetchFn = fetch } = {}) {
+  if (!secret) return { sent: false, why: 'no READ_REPLY_SECRET' };
+  try {
+    const res = await fetchFn(READ_REPLY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ receiptId, text, secret }),
+    });
+    const body = await res.json().catch(() => ({}));
+    return { sent: Boolean(body.sent), why: body.why ?? (res.ok ? null : `HTTP ${res.status}`) };
+  } catch (err) {
+    return { sent: false, why: err.message };
+  }
+}
