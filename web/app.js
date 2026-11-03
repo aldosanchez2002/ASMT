@@ -2444,7 +2444,7 @@ function receiptCard({ r, match }, admin) {
   row.append(
     el('span', 'receipt-vendor', r.vendor || (r.noReceipt ? (r.lines ?? []).map((l) => l.text).join(', ') || t('noVendor') : t('noVendor'))),
     el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
-    el('span', 'receipt-status', [r.noReceipt ? noReceiptLabel(r) : null, status === 'read' ? t('readOf', match.placed, match.total) : t('receiptStatus')[status] ?? status].filter(Boolean).join(' · ')),
+    el('span', 'receipt-status', [r.paperwork ? paperLabel(r) : null, r.noReceipt ? noReceiptLabel(r) : null, status === 'read' ? t('readOf', match.placed, match.total) : t('receiptStatus')[status] ?? status].filter(Boolean).join(' · ')),
     el('span', 'receipt-meta', receiptMeta(r, r.lines?.length ? t('lineCount', r.lines.length) : null)),
   );
   // Admin fixes and sorts lines; the buyer sees what was read.
@@ -2481,6 +2481,9 @@ function openLinesBox(r) {
 // Receipts with lines the reader couldn't place (or whose math is off).
 // A purchase waiting for approval is reviewed there instead.
 const toCheck = () => receipts.filter((r) => ['review', 'unreadable', 'error'].includes(r.status) && !needsApproval(r)).sort((a, b) => b.createdMs - a.createdMs);
+
+// A registration or inspection paper texted in: "Registration · 54231".
+const paperLabel = (r) => `${r.paperwork.kind === 'inspection' ? 'Inspection' : 'Registration'}${r.paperwork.unitName ? ` · ${r.paperwork.unitName}` : ''}`;
 
 // Purchases with no store receipt (texted "cash … $350", or a payment
 // screenshot): "No receipt · cash", "Payment screenshot · Cash App".
@@ -3832,6 +3835,23 @@ function openCompliance(x) {
     field('Inspection expires', inspWrap), field('Registration expires', regWrap), field('Registered in', regState),
     field('Plate', plate), field('Status', status), field('Note', note),
   );
+  // Renewals texted in (scripts/paperwork-reader.mjs), newest first.
+  if (rec.history?.length) {
+    const box = el('div', 'cp-history');
+    box.append(el('div', 'section-title', 'History'));
+    for (const h of [...rec.history].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))) {
+      const row = el('div', 'cp-history-row');
+      row.append(el('span', null, [`${h.kind === 'inspection' ? 'Inspected' : 'Registered'}${h.date ? ` ${niceDate(h.date)}` : ''}`, h.expires ? `good to ${niceDate(h.expires)}` : null, h.fee != null ? money(h.fee) : null].filter(Boolean).join(' · ')));
+      const paper = receipts.find((r) => r.id === h.receiptId);
+      if (paper?.hasPhoto) {
+        const see = Object.assign(el('button', 'link-btn', 'See paper'), { type: 'button' });
+        see.addEventListener('click', () => showReceiptPhoto(paper));
+        row.append(see);
+      }
+      box.append(row);
+    }
+    form.append(box);
+  }
   let checked = null;
   if (rec.checkDates?.length) {
     checked = Object.assign(el('input'), { type: 'checkbox' });
@@ -4166,7 +4186,7 @@ function openReceipt(id) {
   // Where a line goes: a stock part, a kind (repair parts go to the pool,
   // where the AI finds their repair), or a repair part for a known truck.
   const truckOptions = [...vehicles].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true })).map((v) => [`truck:${v.id}`, v.name]);
-  const kindOptions = ['part', 'labor', 'core', 'fee', 'supplies', 'tool', 'credit'].map((k) => [`kind:${k}`, t('kindOpt')[k]]);
+  const kindOptions = ['part', 'labor', 'core', 'fee', 'supplies', 'tool', 'credit', 'paperwork'].map((k) => [`kind:${k}`, t('kindOpt')[k]]);
   const partOptions = [['', t('choosePart')], ...activeParts().map((p) => [`part:${p.id}`, [p.name, p.number].filter(Boolean).join(' · ')]), ...kindOptions, ...truckOptions.map(([v, n]) => [v, t('forTruck', n)])];
   const linesBox = el('div', 'receipt-lines');
   const tax = numberInput(r?.tax ?? '');

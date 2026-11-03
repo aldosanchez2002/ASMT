@@ -278,7 +278,7 @@ const TEXT = {
     noVendorsYet: 'Type the store name',
     kindOpt: {
       part: 'Repair part (the AI finds the repair)', labor: 'Outside labor', core: 'Core charge', fee: 'Fee for an item (battery, tire, disposal)',
-      supplies: 'Shop supplies', tool: 'Tool', credit: 'Return / credit',
+      supplies: 'Shop supplies', tool: 'Tool', credit: 'Return / credit', paperwork: 'Registration or inspection fee',
     },
     forTruck: (n) => `Repair part for ${n}`,
     feesLabel: 'Fees ($)',
@@ -617,7 +617,7 @@ const TEXT = {
     noVendorsYet: 'Escribe el nombre de la tienda',
     kindOpt: {
       part: 'Parte de reparación (la IA busca la reparación)', labor: 'Mano de obra de fuera', core: 'Cargo de core', fee: 'Cargo de una pieza (batería, llanta, desecho)',
-      supplies: 'Material del taller', tool: 'Herramienta', credit: 'Devolución / crédito',
+      supplies: 'Material del taller', tool: 'Herramienta', credit: 'Devolución / crédito', paperwork: 'Registro o inspección',
     },
     forTruck: (n) => `Parte de reparación para ${n}`,
     feesLabel: 'Cargos ($)',

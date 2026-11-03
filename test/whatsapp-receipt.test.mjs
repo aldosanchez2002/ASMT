@@ -290,3 +290,15 @@ test('a truck texted after a cash purchase goes straight on it (nothing to read 
   assert.deepEqual([line.to.stringValue, line.vehicleId.stringValue], ['truck', 'T-24']);
   assert.equal(r.started.length, 0);
 });
+
+test('a photo with "registration" or "inspection" is saved as paperwork for the unit', async () => {
+  assert.deepEqual(['54231 registration', 'registro T-24', 'cab card T-31', 'T-24 inspection', 'inspección 4002', 'T-28 drums'].map((t) => fn.docTypeFrom(t)),
+    ['registration', 'registration', 'registration', 'inspection', 'inspection', null]);
+  const reg = await run({ From: 'whatsapp:+19155551234', Body: '54231 registration', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg' });
+  assert.equal(reg.writes[0][0].update.fields.docType.stringValue, 'registration');
+  assert.deepEqual(reg.twiml.messages, ['Got the registration for 54231.']);
+  const insp = await run({ From: 'whatsapp:+19155551234', Body: 'T-24 inspection', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg' });
+  assert.deepEqual(insp.twiml.messages, ['Got the inspection for T-24.']);
+  const plain = await run({ From: 'whatsapp:+19155551234', Body: 'T-28', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/jpeg' });
+  assert.equal(plain.writes[0][0].update.fields.docType, undefined);
+});

@@ -252,3 +252,10 @@ test('a purchase with no store receipt counts only once approved; rejected never
   const shelf = { ...cash('pending'), lines: [{ id: 's', kind: 'stock', part: 'of5', qty: 2, cost: 40 }] };
   assert.deepEqual(stockLots([shelf]), []);
 });
+
+test('a registration or inspection fee counts straight toward its unit, with no repair to match', () => {
+  const paper = { id: 'p1', status: 'read', date: '2026-11-03', lines: [{ id: 'l1', kind: 'paperwork', text: 'Registration · 54231', qty: 1, price: 85.5, cost: 85.5, to: 'truck', vehicleId: 't54231', assetType: 'trailer' }] };
+  assert.deepEqual(costEvents({ receipts: [paper], uses: [], log: [] }).map((e) => [e.kind, e.amount, e.unitId, e.assetType, e.paperwork]), [['parts', 85.5, 't54231', 'trailer', true]]);
+  assert.equal(receiptMatch(paper, []).state, 'matched');
+  assert.deepEqual(auditQueue({ items: receiptItems([paper]), uses: [], log: [], today: '2026-12-31' }).noWork, []);
+});

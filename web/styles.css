@@ -1794,3 +1794,7 @@ body:not(.shop-mode) .table-wrap td a:hover, body:not(.shop-mode) .table-wrap td
 .today-setup { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 30px; }
 .today-setup .btn { min-height: 46px; display: inline-flex; align-items: center; padding: 0 18px; text-decoration: none; }
 #today-view .shop-card, #today-view .trailer-row, #today-view .today-row { margin-top: 6px; }
+
+/* A unit's renewals texted in, in its Inspections popup */
+.cp-history { display: grid; gap: 6px; margin-top: 12px; }
+.cp-history-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; padding: 8px 10px; border: 1px solid var(--floor-line); font-size: 15px; }

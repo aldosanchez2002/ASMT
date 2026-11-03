@@ -32,7 +32,8 @@
 
 export const POOL_KINDS = ['part', 'labor', 'core'];
 export const SHOP_KINDS = ['supplies', 'tool'];
-export const KINDS = ['stock', ...POOL_KINDS, 'fee', ...SHOP_KINDS, 'credit'];
+// paperwork: a registration or inspection fee, counted straight toward its unit.
+export const KINDS = ['stock', ...POOL_KINDS, 'fee', ...SHOP_KINDS, 'credit', 'paperwork'];
 // Uses that hold an item (it isn't free to match again).
 export const HOLDING = ['auto', 'doubt', 'confirmed'];
 // Uses that count in what a truck cost.
@@ -149,7 +150,7 @@ export function receiptItems(receipts) {
       out.push({
         key: itemKey(r.id, lineId), receiptId: r.id, lineId, text: l.text ?? '', partNumber: l.partNumber ?? null,
         kind, qty, cost, unitCost: cost == null ? null : cost / qty, date: r.date ?? null, vendor: r.vendor ?? '',
-        vehicleId: l.to === 'truck' ? l.vehicleId ?? null : null, truckChoices: l.truckChoices ?? null, note: r.note ?? null,
+        vehicleId: l.to === 'truck' ? l.vehicleId ?? null : null, truckChoices: l.truckChoices ?? null, note: r.note ?? null, assetType: l.assetType ?? null,
       });
     });
   }
@@ -437,6 +438,11 @@ export function costEvents({ receipts, uses, log }) {
           before = upTo;
         }
       } else out.push({ date: it.date, kind, amount: round2(it.cost), unitId: null, text: it.text, ...ref2 });
+      continue;
+    }
+    // A registration or inspection fee: that unit's cost, the day it was paid.
+    if (it.kind === 'paperwork') {
+      if (it.vehicleId) out.push({ date: it.date, kind: 'parts', amount: round2(it.cost), unitId: it.vehicleId, unitName: null, assetType: it.assetType ?? 'truck', text: it.text, qty: 1, logId: null, ...ref2, by: 'receipt', sure: true, paperwork: true });
       continue;
     }
     const mine = usesFor(it.key, counted);

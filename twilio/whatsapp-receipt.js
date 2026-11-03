@@ -114,12 +114,12 @@ async function photoDataUrl(buffer, contentType) {
 }
 
 // One receipt and its photo, written together.
-async function saveReceipt(context, { photo, uploadedBy, note, trucks, source, fetchFn }) {
+async function saveReceipt(context, { photo, uploadedBy, note, trucks, source, docType = null, fetchFn }) {
   const id = newId();
   const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
   const receipt = {
     id, status: 'waiting', date: new Date().toLocaleDateString('en-CA', { timeZone: TIME_ZONE }),
-    vendor: '', lines: [], tax: null, total: null, hasPhoto: true, uploadedBy, note, trucks, source,
+    vendor: '', lines: [], tax: null, total: null, hasPhoto: true, uploadedBy, note, trucks, source, ...(docType ? { docType } : {}),
   };
   const res = await fetchFn(`https://firestore.googleapis.com/v1/${docs}:commit?key=${context.FIREBASE_API_KEY}`, {
     method: 'POST',
@@ -134,6 +134,17 @@ async function saveReceipt(context, { photo, uploadedBy, note, trucks, source, f
   if (!res.ok) throw new Error(`Firestore ${res.status}: ${await res.text()}`);
   return id;
 }
+
+// A registration or inspection paper: the text with the photo says so ("54231
+// registration", "inspección T-24"). The reader reads it as paperwork
+// (scripts/paperwork-reader.mjs) and updates that unit's dates.
+function docTypeFrom(text = '') {
+  if (/(?<![\p{L}\d])(regist\w*|registro|registraci[oó]n|placas?|cab\s*card|tags?)(?![\p{L}\d])/iu.test(text)) return 'registration';
+  if (/(?<![\p{L}\d])(inspec\w*|inspecci[oó]n|dot\s*annual)(?![\p{L}\d])/iu.test(text)) return 'inspection';
+  return null;
+}
+// A trailer number in the text ("54231", "LC106"), to say it back.
+const unitTokenFrom = (text = '') => text.match(/(?<![\p{L}\d])([A-Z]{0,3}\d{3,6})(?![\p{L}\d])/iu)?.[1].toUpperCase() ?? null;
 
 // A purchase with no receipt, texted: "cash drive axle T-24 $350", "paid
 // cash brake chamber $45", "cash app starter t31 180". It needs an amount:
@@ -380,6 +391,8 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
     }
     return answer(['Send a photo of the receipt. Add the truck, like T-28, or for several: T-28 drums, T-31 headlight.']);
   }
+  // "54231 registration", "T-24 inspection": a paper, read as paperwork.
+  const docType = docTypeFrom(note ?? '');
   let saved = 0;
   let skipped = 0;
   let wrongType = 0;
@@ -396,7 +409,7 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
       const media = await fetchFn(event[`MediaUrl${i}`], { headers: { Authorization: `Basic ${auth}` } });
       if (!media.ok) throw new Error(`media ${media.status}`);
       const photo = await photoDataUrl(Buffer.from(await media.arrayBuffer()), type);
-      await saveReceipt(context, { photo, uploadedBy: senders.get(from), note, trucks, source, fetchFn });
+      await saveReceipt(context, { photo, uploadedBy: senders.get(from), note, trucks, source, docType, fetchFn });
       saved += 1;
     } catch (err) {
       console.error(`receipt ${i + 1}: ${err.message}`);
@@ -408,7 +421,9 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   const notes = [];
   if (wrongType) notes.push(`${saved ? `${wrongType} ${wrongType === 1 ? 'was a file' : 'were files'}` : 'That was sent as a file'} (like .heic) that can't be read. Send it as a photo instead: tap + then Photos, not Document.`);
   if (skipped) notes.push(saved || wrongType ? `${skipped} could not be saved; please send it again.` : 'That photo could not be saved. Please send it again.');
-  return answer([[saved ? `Got ${what}${trucks.length ? ` for ${listText(trucks)}` : ''}.` : '', ...notes].filter(Boolean).join(' ')], { remind: true });
+  const unit = trucks.length ? listText(trucks) : docType ? unitTokenFrom(note ?? '') : null;
+  const got = docType && saved === 1 ? `Got the ${docType}` : `Got ${what}`;
+  return answer([[saved ? `${got}${unit ? ` for ${unit}` : ''}.` : '', ...notes].filter(Boolean).join(' ')], { remind: true });
 };
 
 // For the tests (test/whatsapp-receipt.test.mjs); Twilio only calls handler.
@@ -416,5 +431,6 @@ exports.parseSenders = parseSenders;
 exports.trucksFrom = trucksFrom;
 exports.bareTruck = bareTruck;
 exports.cashFrom = cashFrom;
+exports.docTypeFrom = docTypeFrom;
 exports.OPT_IN_MESSAGE = OPT_IN_MESSAGE;
 exports.HELP_MESSAGE = HELP_MESSAGE;

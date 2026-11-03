@@ -176,3 +176,12 @@ text, and the reading reply names the app ("Read Juan's Truck Parts $180.00
 Both wait for admin's approval (`approval: 'pending'`, Admin → Parts →
 Receipts → To review → Without a receipt) and count toward the truck only
 once approved (`web/items.js`).
+
+## Registration and inspection papers
+
+A photo whose text says registration (registro, placas, cab card, tags) or
+inspection (inspección), with the unit ("54231 registration", "T-24
+inspection"), is saved with `docType` and answered "Got the registration for
+54231." The reader reads it as paperwork (`scripts/paperwork-reader.mjs`),
+updates `compliance/{unitId}` (dates, plate, state, and a `history` entry),
+adds the fee as that unit's cost, and texts back what was read.

@@ -14,11 +14,12 @@ import { commit, getDoc, listDocs, mergeWrite, queryDocs } from './firestore-res
 import { memoryText } from './ai-memory.mjs';
 import { RECEIPT_SCHEMA, SYSTEM_PROMPT, contextText, receiptFromReading } from './receipt-reader.mjs';
 import { readReplyText, sendReadReply } from './receipt-reply.mjs';
+import { PAPERWORK_PROMPT, PAPERWORK_SCHEMA, paperworkContext, paperworkFromReading, paperworkReplyText } from './paperwork-reader.mjs';
 
 const MAX_TRIES = 3;
 
 // One photo (a data URL) -> Claude's reading, in RECEIPT_SCHEMA's shape.
-export async function readPhoto(client, photo, context) {
+export async function readPhoto(client, photo, context, { system = SYSTEM_PROMPT, schema = RECEIPT_SCHEMA } = {}) {
   const [, mediaType, data] = photo.match(/^data:(image\/[a-z+]+);base64,(.+)$/) ?? [];
   if (!data) throw new Error('The saved photo is not an image');
   const response = await client.beta.messages.create({
@@ -27,8 +28,8 @@ export async function readPhoto(client, photo, context) {
     // If Claude Sonnet 5.5 declines, Anthropic's recommended model takes over.
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
-    system: SYSTEM_PROMPT,
-    output_config: { effort: 'medium', format: { type: 'json_schema', schema: RECEIPT_SCHEMA } },
+    system,
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema } },
     messages: [{
       role: 'user',
       content: [
@@ -43,6 +44,37 @@ export async function readPhoto(client, photo, context) {
   if (!text) throw new Error('No answer came back');
   console.log(`  tokens: ${response.usage.input_tokens} in, ${response.usage.output_tokens} out`);
   return JSON.parse(text);
+}
+
+// Every truck and trailer with the VIN and plate on file, to tell which unit a paper is for.
+async function paperworkUnits(vehicles) {
+  const [trailers, compliance] = await Promise.all([listDocs('trailers'), listDocs('compliance')]);
+  const unit = (x, unitType) => ({ id: x.id, name: x.name, unitType, vin: x.vin ?? compliance[x.id]?.vin ?? null, plate: compliance[x.id]?.plate ?? null });
+  return [...vehicles.filter((v) => v.name).map((v) => unit(v, 'truck')), ...Object.values(trailers).filter((x) => x.name).map((x) => unit(x, 'trailer'))];
+}
+
+// A registration or inspection paper: read it, then update that unit's dates
+// (keeping what they were, so a re-read for another unit puts them back).
+async function readPaperwork(client, r, photo, units) {
+  const reading = await readPhoto(client, photo, paperworkContext(units, r.note), { system: PAPERWORK_PROMPT, schema: PAPERWORK_SCHEMA });
+  const { receipt, change } = paperworkFromReading(reading, units, { note: r.note, docType: r.docType, today: r.date });
+  console.log(`  paperwork: ${receipt.paperwork.kind} for ${receipt.paperwork.unitName ?? '?'} · expires ${receipt.paperwork.expires ?? '?'} · fee ${receipt.total ?? '-'}${receipt.problems.length ? ` · ${receipt.problems.join('; ')}` : ''}`);
+  const writes = [];
+  const was = r.paperwork?.applied ? r.paperwork : null;
+  if (was && was.unitId !== change?.unitId) {
+    const before = await getDoc(`compliance/${was.unitId}`);
+    writes.push(mergeWrite(`compliance/${was.unitId}`, { ...was.before, history: (before?.history ?? []).filter((h) => h.receiptId !== r.id), updatedAt: new Date().toISOString() }));
+  }
+  if (change) {
+    const current = (await getDoc(`compliance/${change.unitId}`)) ?? {};
+    const beforeFields = was?.unitId === change.unitId ? was.before : Object.fromEntries(Object.keys(change.fields).map((k) => [k, current[k] ?? null]));
+    const history = [...(current.history ?? []).filter((h) => h.receiptId !== r.id), { ...change.entry, receiptId: r.id }];
+    writes.push(mergeWrite(`compliance/${change.unitId}`, {
+      unitId: change.unitId, name: change.unitName, unitType: change.unitType, ...change.fields, history, updatedAt: new Date().toISOString(),
+    }));
+    receipt.paperwork = { ...receipt.paperwork, applied: true, before: beforeFields };
+  }
+  return { receipt, writes };
 }
 
 // Texted receipts only: the sender hears back what was read.
@@ -75,12 +107,20 @@ async function main() {
   const others = (await queryDocs('receipts', [['date', '>=', yearAgo]])).filter((r) => r.status === 'read' || r.status === 'review');
 
   let done = 0;
+  let units = null; // trucks and trailers, loaded once if a paper comes in
   const readNow = [];
   for (const r of receipts) {
     console.log(`Receipt ${r.id} (uploaded ${r.date ?? '?'}${r.note ? `, note "${r.note}"` : ''})`);
     try {
       const photo = (await getDoc(`receiptPhotos/${r.id}`))?.data;
       if (!photo) throw new Error('No photo saved for this receipt');
+      if (r.docType) {
+        const { receipt, writes } = await readPaperwork(client, r, photo, units ??= await paperworkUnits(vehicles));
+        if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...receipt, readAt: new Date().toISOString(), readError: null }), ...writes]);
+        if (!dryRun) await replyToSender(r, paperworkReplyText(receipt));
+        done += 1;
+        continue;
+      }
       const reading = await readPhoto(client, photo, contextText(parts, vehicles, r.note, memory));
       const result = receiptFromReading(reading, parts, vehicles, { uploadedDate: r.date, trucks: r.trucks ?? [], others });
       const feeText = result.fees.length ? ` · fees ${result.fees.map((f) => `${f.label} ${f.amount}`).join(', ')}` : '';
