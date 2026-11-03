@@ -197,7 +197,7 @@ Old links (`aslog.dev/#inventory`, `aslog.dev/#trucks`) forward to the new addre
 
 ## Overview (admin's home)
 
-**Admin → Overview** follows what the admin checks, in order: **To do today** (the mechanics' own list: in the yard and needs service, plus paperwork that has expired), **Coming up** (needs service but not in the yard yet, paperwork expiring in 30 days), **Done today** (the work log), **Receipts today**, **Receipts to review** (receipts the reader wasn't sure of, unsure matches, parts no work explains, old stock, repairs with no parts). The tiles at the top count each section and jump to it; the Overview tab shows how many need action.
+**Admin → Overview** follows what the admin checks, in order: **To do today** (the mechanics' own list: in the yard and needs service, plus paperwork that has expired), **Coming up** (needs service but not in the yard yet, paperwork expiring in 30 days) and **Done today** (the work log). The tiles at the top count each section and jump to it; the Overview tab's badge counts what's to do today. Receipts live in **Parts**, whose tab badge counts what's waiting in To review (purchases to approve, receipts to check, unsure matches, parts no work explains, repairs with no parts).
 
 ## Inspections & registrations (admin)
 

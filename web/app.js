@@ -2217,7 +2217,7 @@ function renderParts() {
   const queue = matchQueue();
   const counts = {
     buy: list.length, stock: activeParts().length, receipts: receipts.length,
-    review: toApprove().length + toCheck().length + queue.doubts.length + queue.noWork.length + queue.noParts.length,
+    review: partsToReview(queue),
   };
   // The buyer's job is the list and sending the receipts. Admin's is checking
   // what the AI read and matched (inside Receipts), the shelf count and the kits.
@@ -2693,6 +2693,9 @@ function viewReceipt(id) {
 
 const todayIso = () => new Date().toLocaleDateString('en-CA');
 const matchQueue = () => auditQueue({ items: receiptItems(receipts), uses: itemUses, log: serviceLog, today: todayIso() });
+// How many things wait in Parts → Receipts → To review: purchases to approve,
+// receipts to check, unsure matches, parts no work explains, repairs with no parts.
+const partsToReview = (queue = matchQueue()) => toApprove().length + toCheck().length + queue.doubts.length + queue.noWork.length + queue.noParts.length;
 const unitName = (id) => vehicles.find((v) => v.id === id)?.name ?? trailers.find((c) => c.id === id)?.name ?? id;
 const SPEND_PERIODS = ['month', 'd90', 'year'];
 let spendPeriod = 'month';
@@ -3636,16 +3639,15 @@ function renderAdminToday() {
     paper: paper.filter((x) => x.worst !== 'expired'),
   };
   const done = doneToday();
-  const inToday = receipts.filter((r) => r.createdMs && new Date(r.createdMs).toLocaleDateString('en-CA') === today)
-    .sort((a, b) => b.createdMs - a.createdMs).map((r) => ({ r, match: receiptMatch(r, itemUses) }));
-  const q = matchQueue();
-  const fix = [...approvalCards(), ...receiptsToCheck(), ...q.doubts.map((x) => matchCard(x)), ...q.noWork.map(noWorkCard),
-    ...oldStock(receipts, itemUses, today).map(oldStockCard), ...q.noParts.map(noPartsCard)];
   const count = (o) => o.trucks.length + o.trailers.length + o.paper.length;
-  const badge = $('today-badge');
-  const urgent = count(now) + fix.length;
-  badge.textContent = urgent ? String(urgent) : '';
-  badge.hidden = !urgent;
+  // Overview's badge: what needs doing today. Parts' badge: what's waiting in
+  // its To review (receipts and matches only admin can settle).
+  const setBadge = (id, n) => {
+    $(id).textContent = n ? String(n) : '';
+    $(id).hidden = !n;
+  };
+  setBadge('today-badge', count(now));
+  setBadge('parts-badge', partsToReview());
   if (currentTab() !== 'today') return;
 
   $('today-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -3658,8 +3660,7 @@ function renderAdminToday() {
   };
   $('today-tiles').replaceChildren(
     tile(count(now), 'To do today', 'action', 'now'), tile(count(soon), 'Coming up', 'soon', 'soon'),
-    tile(done.length, 'Done today', 'clear', 'done'), tile(inToday.length, 'Receipts today', 'missing', 'receipts'),
-    tile(fix.length, 'Receipts to review', fix.length ? 'action' : 'clear', 'fix'),
+    tile(done.length, 'Done today', 'clear', 'done'),
   );
 
   const out = [];
@@ -3674,8 +3675,6 @@ function renderAdminToday() {
   section('now', 'To do today', 'In the yard and needs service, as the mechanics see it, plus paperwork that has expired.', work(now), 'Nothing in the yard needs service.');
   section('soon', 'Coming up', 'Needs service but not in the yard yet, and paperwork expiring in the next 30 days.', work(soon), 'Nothing coming up.');
   section('done', 'Done today', null, done.map(doneRow), 'No work logged yet today.');
-  section('receipts', 'Receipts today', null, inToday.map((x) => receiptCard(x, true)), 'No receipts in yet today.');
-  section('fix', 'Receipts to review', 'What the AI read or matched that needs a person: receipts it wasn\'t sure of, unsure matches, parts no work explains, old stock, repairs with no parts.', fix, 'Nothing to review.');
   $('today-body').replaceChildren(...out);
 }
 
