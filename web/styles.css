@@ -1332,6 +1332,10 @@ body.shop-mode .parts-side button, #parts-view .parts-side button, #parts-view .
 .receipt-card.status-read { border-left-color: var(--floor-ink); }
 .status-read .receipt-status { background: var(--floor-paper); color: var(--floor-ink); box-shadow: inset 0 0 0 2px var(--floor-line); }
 .status-matched .receipt-status { background: #2e7d32; color: #fff; }
+.receipt-card.status-pending { border-left-color: var(--floor-yellow); }
+.status-pending .receipt-status { background: var(--floor-yellow); color: #111; }
+.receipt-card.status-rejected { opacity: .65; }
+.status-rejected .receipt-status { background: var(--floor-track); color: var(--floor-muted); text-decoration: line-through; }
 /* Admin's receipt filter: square tabs like the rest of admin */
 .receipt-filter { display: grid; grid-template-columns: repeat(4, 1fr); margin: 12px 0 4px; border: 2px solid var(--floor-line); }
 .receipt-filter button { display: grid; align-content: center; justify-items: center; gap: 2px; min-height: 52px; padding: 4px; border: none; background: var(--floor-paper); color: var(--floor-ink); font: 800 14px/1.05 var(--cond); letter-spacing: .04em; text-transform: uppercase; text-align: center; cursor: pointer; }

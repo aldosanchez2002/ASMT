@@ -41,3 +41,8 @@ test('sending asks the Twilio Function, and never throws', async () => {
   const down = await sendReadReply('r1', 'hi', { secret: 's3', fetchFn: async () => { throw new Error('offline'); } });
   assert.deepEqual(down, { sent: false, why: 'offline' });
 });
+
+test('a payment screenshot names the app in the reading reply', () => {
+  const shot = { status: 'read', vendor: "Juan's Truck Parts", total: 180, paidWith: 'cashapp', lines: [{ text: 'Starter', qty: 1, kind: 'part', vehicleId: 'v31' }] };
+  assert.equal(readReplyText(shot, vehicles), "Read Juan's Truck Parts $180.00 (Cash App): Starter for T-31. Wrong truck? Reply with the truck number.");
+});

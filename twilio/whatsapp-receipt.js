@@ -135,6 +135,67 @@ async function saveReceipt(context, { photo, uploadedBy, note, trucks, source, f
   return id;
 }
 
+// A purchase with no receipt, texted: "cash drive axle T-24 $350", "paid
+// cash brake chamber $45", "cash app starter t31 180". It needs an amount:
+// a "$" number, or a number with a way of paying (cash, Cash App, Zelle…).
+// The item is what's left once the truck, amount and payment words are out.
+const PAY_WORDS = [
+  ['cashapp', /\bcash\s*app\b/i], ['zelle', /\bzelle\b/i], ['venmo', /\bvenmo\b/i], ['paypal', /\bpay\s*pal\b/i],
+  ['card', /\b(card|tarjeta|debit|credit)\b/i], ['cash', /\b(cash|efectivo)\b/i],
+];
+const PAID_LABEL = { cash: 'cash', cashapp: 'Cash App', zelle: 'Zelle', venmo: 'Venmo', paypal: 'PayPal', card: 'card' };
+const TRUCK_WORDS = /(?:^|[^\p{L}\d])(?:t|truck|cami[oó]n|unidad)\s*-?\s*\d{1,3}(?!\d)/giu;
+
+function cashFrom(text = '') {
+  const method = PAY_WORDS.find(([, re]) => re.test(text))?.[0] ?? null;
+  const rest = text.replace(TRUCK_WORDS, ' ');
+  const dollar = rest.match(/\$\s*(\d[\d,]*(?:\.\d{1,2})?)/);
+  // With no "$", the amount is the last number ("2 hoses 40 cash" is $40).
+  const plain = method ? [...rest.matchAll(/(?:^|\s)(\d[\d,]*(?:\.\d{1,2})?)(?:\s*(?:dollars|dls|usd))?(?=\s|$|[.,!])/gi)].at(-1) : null;
+  const found = dollar ?? plain;
+  if (!found) return null;
+  const amount = Number(found[1].replace(/,/g, ''));
+  if (!(amount > 0)) return null;
+  const item = (rest.slice(0, found.index) + ' ' + rest.slice(found.index + found[0].length))
+    .replace(/\bcash\s*app\b|\bpay\s*pal\b/gi, ' ')
+    .replace(/(?<![\p{L}\d])(paid|pay|pague|pagué|purchase|compra|cash|efectivo|zelle|venmo|card|tarjeta|debit|credit|with|con|en|for|para|by|dollars|dls|usd)(?![\p{L}\d])/giu, ' ')
+    .replace(/[$:;,]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return { amount, method: method ?? 'cash', item: item ? item[0].toUpperCase() + item.slice(1) : 'Purchase' };
+}
+
+// Saves a texted purchase with no receipt. It waits for admin's approval
+// before it counts toward any truck (web/items.js).
+async function saveCash(context, { cash, uploadedBy, note, trucks, source, fetchFn }) {
+  const id = newId();
+  const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  const ids = trucks.map((t) => t.id);
+  const receipt = {
+    id, status: 'read', date: new Date().toLocaleDateString('en-CA', { timeZone: TIME_ZONE }),
+    vendor: '', invoiceNumber: null, time: null, fees: [], feesTotal: 0, tax: null, total: cash.amount, problems: [],
+    lines: [{
+      id: newId().slice(0, 8).toLowerCase(), text: cash.item, partNumber: null, qty: 1, price: cash.amount, cost: cash.amount,
+      kind: 'part', part: null, suggestedPart: null, for: null, flags: [],
+      to: ids.length === 1 ? 'truck' : null, vehicleId: ids.length === 1 ? ids[0] : null,
+      truckFrom: ids.length ? 'note' : null, truckChoices: ids.length > 1 ? ids : null,
+    }],
+    hasPhoto: false, uploadedBy, note, trucks: trucks.map((t) => t.name), source,
+    paidWith: cash.method, noReceipt: true, approval: 'pending', readAt: new Date().toISOString(),
+  };
+  const res = await fetchFn(`https://firestore.googleapis.com/v1/${docs}:commit?key=${context.FIREBASE_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes: [{ update: { name: `${docs}/receipts/${id}`, fields: toFields(receipt) }, updateTransforms: [{ fieldPath: 'createdAt', setToServerValue: 'REQUEST_TIME' }] }] }),
+  });
+  if (!res.ok) throw new Error(`Firestore ${res.status}: ${await res.text()}`);
+  return id;
+}
+
+// The trucks a text names that are in the truck list ({ id, name }), and the ones that aren't.
+async function knownTrucks(context, names, fetchFn) {
+  const found = await Promise.all(names.map(async (n) => (await findDocs(context, 'vehicles', 'name', n, fetchFn))[0] ?? null));
+  return { known: found.filter(Boolean).map((v) => ({ id: v.id, name: v.name })), unknown: names.filter((n, i) => !found[i]) };
+}
+
 // Who has had the opt-in confirmation, and when each was last told how to
 // stop, in meta/smsOptIn, keyed by the sender's name from ALLOWED_SENDERS
 // (never the phone number: the database isn't private).
@@ -204,14 +265,22 @@ async function truckReply(context, { name, trucks, note, fetchFn }) {
     .filter((r) => Date.parse(r.createdAt) >= since)
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
   if (!latest) return null;
-  const known = await Promise.all(trucks.map(async (t) => (await findDocs(context, 'vehicles', 'name', t, fetchFn)).length > 0));
-  const unknown = trucks.filter((t, i) => !known[i]);
+  const { known, unknown } = await knownTrucks(context, trucks, fetchFn);
   if (unknown.length) return `There's no truck ${listText(unknown)}. Reply with the truck number, like T-24.`;
-  const store = latest.vendor ? `${latest.vendor} receipt` : 'receipt';
+  // A purchase texted with no photo (saveCash) has nothing to read again.
+  const texted = latest.noReceipt && latest.hasPhoto === false;
+  const store = texted ? `${PAID_LABEL[latest.paidWith] ?? 'cash'} purchase`
+    : latest.vendor ? `${latest.vendor} receipt` : 'receipt';
   const settled = latest.updatedAt || (await findDocs(context, 'itemUses', 'receiptId', latest.id, fetchFn)).length;
+  // A texted purchase has no photo to read again: the truck goes straight on its lines.
+  const ids = known.map((t) => t.id);
+  const onLines = (latest.lines ?? []).map((l) => ({
+    ...l, to: ids.length === 1 ? 'truck' : null, vehicleId: ids.length === 1 ? ids[0] : null, truckFrom: 'note', truckChoices: ids.length > 1 ? ids : null,
+  }));
   // Already matched or edited: the matches stay, the office moves them.
   const change = settled ? { note: [latest.note, `Truck from text: ${note}`].filter(Boolean).join(' · ') }
-    : { note, trucks, status: 'waiting', readTries: 0, readError: null, replySentAt: null };
+    : texted ? { note: [latest.note, note].filter(Boolean).join(' · '), trucks, lines: onLines }
+      : { note, trucks, status: 'waiting', readTries: 0, readError: null, replySentAt: null };
   const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
   const res = await fetchFn(`https://firestore.googleapis.com/v1/${docs}:commit?key=${context.FIREBASE_API_KEY}`, {
     method: 'POST',
@@ -220,6 +289,7 @@ async function truckReply(context, { name, trucks, note, fetchFn }) {
   });
   if (!res.ok) throw new Error(`Firestore ${res.status}`);
   if (settled) return `Thanks. The ${store} is already matched to repairs, so the office will move it to ${listText(trucks)}.`;
+  if (texted) return `Got it, the ${store} is for ${listText(trucks)}.`;
   await startReading(context, fetchFn);
   return `Got it, the ${store} is for ${listText(trucks)}. Reading it again.`;
 }
@@ -283,6 +353,21 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   }
   const trucks = trucksFrom(note ?? '');
   if (!count) {
+    // A purchase with no receipt ("cash drive axle T-24 $350"): saved for admin to approve.
+    const cash = cashFrom(note ?? '');
+    if (cash) {
+      try {
+        const { known, unknown } = await knownTrucks(context, trucks, fetchFn);
+        await saveCash(context, { cash, uploadedBy: senders.get(from), note, trucks: known, source, fetchFn });
+        const money = `$${cash.amount.toLocaleString('en-US', { minimumFractionDigits: cash.amount % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
+        const forTrucks = known.length ? ` for ${listText(known.map((t) => t.name))}` : '';
+        const typo = unknown.length ? ` There's no truck ${listText(unknown)}.` : '';
+        return answer([`Got a ${PAID_LABEL[cash.method]} purchase: ${cash.item} ${money}${forTrucks}.${typo}`], { remind: true });
+      } catch (err) {
+        console.error(`cash purchase: ${err.message}`);
+        return answer(['That could not be saved. Please send it again.']);
+      }
+    }
     const named = note && note.length <= 60 ? (trucks.length ? trucks : bareTruck(note)) : [];
     if (named.length) {
       try {
@@ -330,5 +415,6 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
 exports.parseSenders = parseSenders;
 exports.trucksFrom = trucksFrom;
 exports.bareTruck = bareTruck;
+exports.cashFrom = cashFrom;
 exports.OPT_IN_MESSAGE = OPT_IN_MESSAGE;
 exports.HELP_MESSAGE = HELP_MESSAGE;

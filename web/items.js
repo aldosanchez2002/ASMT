@@ -136,7 +136,7 @@ export function addOnLinks(r) {
 export function receiptItems(receipts) {
   const out = [];
   for (const r of receipts) {
-    if (r.status === 'waiting' || r.status === 'unreadable' || r.status === 'error') continue;
+    if (!counts(r)) continue;
     const cores = addOnLinks(r);
     (r.lines ?? []).forEach((l, i) => {
       // A fee with no part to go with is a shop cost.
@@ -157,6 +157,10 @@ export function receiptItems(receipts) {
 }
 
 const isRead = (r) => r.status !== 'waiting' && r.status !== 'unreadable' && r.status !== 'error';
+// A purchase with no store receipt (cash, a payment screenshot) counts only
+// once admin approves it.
+export const needsApproval = (r) => r.approval === 'pending';
+const counts = (r) => isRead(r) && r.approval !== 'pending' && r.approval !== 'rejected';
 
 /**
  * The stock batches: lines of read receipts matched to a part in the parts
@@ -166,7 +170,7 @@ const isRead = (r) => r.status !== 'waiting' && r.status !== 'unreadable' && r.s
 export function stockLots(receipts) {
   const out = [];
   for (const r of receipts) {
-    if (!isRead(r)) continue;
+    if (!counts(r)) continue;
     const cores = addOnLinks(r);
     (r.lines ?? []).forEach((l, i) => {
       if (!l.part || !(Number(l.qty) > 0)) return;
@@ -293,6 +297,8 @@ export function receiptMatch(receipt, uses) {
   const state0 = receipt.status ?? 'read';
   const lines = receipt.lines ?? [];
   if (state0 === 'waiting' || state0 === 'unreadable' || state0 === 'error') return { state: state0, placed: 0, total: lines.length, open: [] };
+  // No store receipt: waiting for admin's approval, or turned down.
+  if (receipt.approval === 'pending' || receipt.approval === 'rejected') return { state: receipt.approval, placed: 0, total: lines.length, open: [] };
   const open = [];
   const cores = addOnLinks(receipt);
   lines.forEach((l, i) => {

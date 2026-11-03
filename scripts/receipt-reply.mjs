@@ -15,6 +15,7 @@ const shortItem = (text = '') => {
 };
 const listText = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0] ?? '');
 const money = (n) => `$${Number(n).toFixed(2)}`;
+export const PAID_WITH = { cash: 'cash', cashapp: 'Cash App', zelle: 'Zelle', venmo: 'Venmo', paypal: 'PayPal', bank: 'bank transfer', other: 'payment' };
 
 /**
  * @param receipt  what the reader saved: { status, vendor, total, lines }
@@ -30,7 +31,8 @@ export function readReplyText(receipt, vehicles = []) {
   const trucks = [...new Set(lines.flatMap((l) => [nameOf(l.vehicleId), ...(l.for ?? []).map((u) => u.name)]).filter(Boolean))];
   const items = lines.filter((l) => l.kind !== 'credit').map((l) => `${Number(l.qty) > 1 ? `${l.qty} × ` : ''}${shortItem(l.text)}`);
   const shown = items.length > 2 ? [...items.slice(0, 2), `${items.length - 2} more`] : items;
-  const what = [receipt.vendor || 'the receipt', receipt.total != null ? money(receipt.total) : null].filter(Boolean).join(' ');
+  const paid = receipt.paidWith ? `(${PAID_WITH[receipt.paidWith] ?? receipt.paidWith})` : null;
+  const what = [receipt.vendor || 'the receipt', receipt.total != null ? money(receipt.total) : null, paid].filter(Boolean).join(' ');
   let text = `Read ${what}${shown.length ? `: ${listText(shown)}` : ''}${trucks.length ? ` for ${listText(trucks)}` : ''}.`;
   if (receipt.status === 'review') text += ' The office will check part of it.';
   if (trucks.length) text += ' Wrong truck? Reply with the truck number.';

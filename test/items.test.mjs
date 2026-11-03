@@ -237,3 +237,18 @@ test('the core charge, its return and the battery fee all go with the batteries:
   const feeOnly = { id: 'x', status: 'read', date: '2026-10-27', lines: [{ id: 'f', kind: 'fee', text: 'DISPOSAL FEE', qty: 1, price: 5, cost: 5 }] };
   assert.deepEqual(costEvents({ receipts: [feeOnly], uses: [], log: [] }).map((e) => [e.kind, e.amount]), [['supplies', 5]]);
 });
+
+test('a purchase with no store receipt counts only once approved; rejected never counts', () => {
+  const cash = (approval) => ({
+    id: `c-${approval}`, status: 'read', date: '2026-11-03', noReceipt: true, paidWith: 'cash', approval,
+    lines: [{ id: 'l1', kind: 'part', text: 'Drive axle', qty: 1, price: 350, cost: 350, to: 'truck', vehicleId: 'v24' }],
+  });
+  assert.deepEqual(receiptItems([cash('pending'), cash('rejected')]), []);
+  assert.deepEqual(receiptItems([cash('approved')]).map((i) => [i.text, i.cost, i.vehicleId]), [['Drive axle', 350, 'v24']]);
+  assert.equal(receiptMatch(cash('pending'), []).state, 'pending');
+  assert.equal(receiptMatch(cash('rejected'), []).state, 'rejected');
+  assert.equal(receiptMatch(cash('approved'), []).state, 'read');
+  // Not even as stock: a pending purchase of a shelf part waits too.
+  const shelf = { ...cash('pending'), lines: [{ id: 's', kind: 'stock', part: 'of5', qty: 2, cost: 40 }] };
+  assert.deepEqual(stockLots([shelf]), []);
+});

@@ -160,3 +160,19 @@ Setup, once:
 4. Add a Function at path `/receipt-read`, paste `twilio/receipt-read.js`, set
    its visibility to **Public**, paste the latest `whatsapp-receipt.js` too,
    and **Deploy All**.
+
+## Purchases with no receipt
+
+Cash: a text with an amount and no photo ("cash drive axle T-24 $350", "paid
+cash brake chamber $45", "pagué en efectivo flecha T-24 350") is saved as a
+purchase with no receipt (`cashFrom` and `saveCash` in `whatsapp-receipt.js`)
+and answered "Got a cash purchase: Drive axle $350 for T-24." A truck texted
+afterwards goes straight on it. Cash App, Zelle and other payments: a payment
+screenshot with a text ("starter T-31") is read like a receipt; the reader
+takes who was paid and the amount from the screenshot and the item from the
+text, and the reading reply names the app ("Read Juan's Truck Parts $180.00
+(Cash App): Starter for T-31…").
+
+Both wait for admin's approval (`approval: 'pending'`, Admin → Parts →
+Receipts → To review → Without a receipt) and count toward the truck only
+once approved (`web/items.js`).

@@ -133,3 +133,12 @@ test('an unreadable photo says why and adds nothing', () => {
   const r = read({ readable: false, problem: 'Too blurry', lines: [] }, { uploadedDate: '2026-10-27' });
   assert.deepEqual([r.status, r.lines, r.problems, r.date], ['unreadable', [], ['Too blurry'], '2026-10-27']);
 });
+
+test('a payment screenshot is a receipt with no store receipt: it waits for approval', () => {
+  const shot = read(reading([line({ printed: 'Starter', lineTotal: 180, truck: 'T-31', truckSource: 'note' })], { paidWith: 'cashapp', vendor: "Juan's Truck Parts", invoiceNumber: null, total: 180 }));
+  assert.deepEqual([shot.paidWith, shot.noReceipt, shot.approval, shot.vendor, shot.total], ['cashapp', true, 'pending', "Juan's Truck Parts", 180]);
+  assert.deepEqual(shot.lines.map((l) => [l.text, l.cost, l.vehicleId]), [['Starter', 180, 'v31']]);
+  // A store receipt doesn't wait.
+  const store = read(reading([line({ printed: 'Hose' })], { paidWith: 'receipt' }));
+  assert.deepEqual([store.paidWith, store.approval], [undefined, undefined]);
+});

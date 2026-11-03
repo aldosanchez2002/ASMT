@@ -32,7 +32,7 @@ import {
 import { downloadLog, downloadTruckRecord } from './records.js';
 import {
   POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isRepair, itemKey, landedCosts,
-  lineKind, oldStock, openItems, receiptItems, receiptMatch, receiptWork, repairText, shopShare, spending, stockLots,
+  lineKind, needsApproval, oldStock, openItems, receiptItems, receiptMatch, receiptWork, repairText, shopShare, spending, stockLots,
 } from './items.js';
 import { fleetBreakdown, periodsFor, unitBreakdown, workKind } from './analytics.js';
 import { complianceList, nextInspection, unitCompliance } from './compliance.js';
@@ -2217,7 +2217,7 @@ function renderParts() {
   const queue = matchQueue();
   const counts = {
     buy: list.length, stock: activeParts().length, receipts: receipts.length,
-    review: toCheck().length + queue.doubts.length + queue.noWork.length + queue.noParts.length,
+    review: toApprove().length + toCheck().length + queue.doubts.length + queue.noWork.length + queue.noParts.length,
   };
   // The buyer's job is the list and sending the receipts. Admin's is checking
   // what the AI read and matched (inside Receipts), the shelf count and the kits.
@@ -2442,9 +2442,9 @@ function receiptCard({ r, match }, admin) {
   const row = el('button', 'receipt-row');
   row.type = 'button';
   row.append(
-    el('span', 'receipt-vendor', r.vendor || t('noVendor')),
+    el('span', 'receipt-vendor', r.vendor || (r.noReceipt ? (r.lines ?? []).map((l) => l.text).join(', ') || t('noVendor') : t('noVendor'))),
     el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
-    el('span', 'receipt-status', status === 'read' ? t('readOf', match.placed, match.total) : t('receiptStatus')[status] ?? status),
+    el('span', 'receipt-status', [r.noReceipt ? noReceiptLabel(r) : null, status === 'read' ? t('readOf', match.placed, match.total) : t('receiptStatus')[status] ?? status].filter(Boolean).join(' · ')),
     el('span', 'receipt-meta', receiptMeta(r, r.lines?.length ? t('lineCount', r.lines.length) : null)),
   );
   // Admin fixes and sorts lines; the buyer sees what was read.
@@ -2479,7 +2479,65 @@ function openLinesBox(r) {
 }
 
 // Receipts with lines the reader couldn't place (or whose math is off).
-const toCheck = () => receipts.filter((r) => ['review', 'unreadable', 'error'].includes(r.status)).sort((a, b) => b.createdMs - a.createdMs);
+// A purchase waiting for approval is reviewed there instead.
+const toCheck = () => receipts.filter((r) => ['review', 'unreadable', 'error'].includes(r.status) && !needsApproval(r)).sort((a, b) => b.createdMs - a.createdMs);
+
+// Purchases with no store receipt (texted "cash … $350", or a payment
+// screenshot): "No receipt · cash", "Payment screenshot · Cash App".
+const noReceiptLabel = (r) => t(r.hasPhoto ? 'payShot' : 'noReceiptKind', t('paidWith')[r.paidWith] ?? r.paidWith ?? t('paidWith').cash);
+const toApprove = () => receipts.filter((r) => needsApproval(r) && isRead(r)).sort((a, b) => b.createdMs - a.createdMs);
+
+// Approve counts it toward its truck (and matches it to the work);
+// Reject keeps it on record without counting. Both can be undone.
+async function setApproval(r, approval) {
+  await setDoc(doc(db, 'receipts', r.id), { approval, approvalAt: serverTimestamp() }, { merge: true });
+  const matching = approval === 'approved' ? startMatchingSoon() : null;
+  showUndo(approval === 'approved' ? 'Approved' : 'Rejected', async () => {
+    matching?.cancel();
+    await setDoc(doc(db, 'receipts', r.id), { approval: 'pending', approvalAt: null }, { merge: true });
+  });
+}
+
+function approvalCards() {
+  return toApprove().map((r) => {
+    const card = el('div', 'match-card match-doubt approval-card');
+    const truckText = (l) => (l.vehicleId ? unitName(l.vehicleId) : l.truckChoices?.length ? l.truckChoices.map(unitName).join(' or ') : 'no truck yet');
+    card.append(
+      el('p', 'match-item', noReceiptLabel(r)),
+      el('p', 'match-cost', r.total != null ? money(r.total) : ''),
+      ...(r.lines ?? []).map((l) => el('p', 'match-arrow', `${r.vendor ? `${r.vendor} · ` : ''}${Number(l.qty) > 1 ? `${l.qty} × ` : ''}${l.text} → ${truckText(l)}`)),
+      el('p', 'match-meta', [r.uploadedBy, r.createdMs ? `texted ${dateTimeText(r.createdMs)}` : null].filter(Boolean).join(' · ')),
+    );
+    if (r.note) card.append(el('p', 'match-why', `"${r.note}"`));
+    const approve = Object.assign(el('button', 'btn match-right', 'Approve'), { type: 'button' });
+    approve.addEventListener('click', () => setApproval(r, 'approved').catch((err) => showAppError(t('couldNotSave', err.message))));
+    const edit = Object.assign(el('button', 'btn btn-ghost', 'Edit'), { type: 'button' });
+    edit.addEventListener('click', () => openReceipt(r.id));
+    const reject = Object.assign(el('button', 'btn btn-ghost', 'Reject'), { type: 'button' });
+    reject.addEventListener('click', () => setApproval(r, 'rejected').catch((err) => showAppError(t('couldNotSave', err.message))));
+    const actions = el('div', 'match-actions');
+    actions.append(approve, edit, reject);
+    if (r.hasPhoto) {
+      const photo = Object.assign(el('button', 'link-btn', 'See screenshot'), { type: 'button' });
+      photo.addEventListener('click', () => showReceiptPhoto(r));
+      actions.append(photo);
+    }
+    card.append(actions);
+    return card;
+  });
+}
+
+// This month's purchases without a receipt, per buyer ("Tony $350 · Hector $180").
+function noReceiptMonth() {
+  const month = todayIso().slice(0, 7);
+  const by = new Map();
+  for (const r of receipts) {
+    if (!r.noReceipt || r.approval === 'rejected' || !String(r.date ?? '').startsWith(month)) continue;
+    const who = r.uploadedBy || 'Someone';
+    by.set(who, (by.get(who) ?? 0) + (Number(r.total) || 0));
+  }
+  return [...by].sort((a, b) => b[1] - a[1]).map(([who, n]) => `${who} ${money(n)}`).join(' · ');
+}
 
 // Receipts to check: the ones the reader wasn't sure of, each opening the
 // receipt form (what was read, the best guess, pick where each line goes).
@@ -2660,6 +2718,8 @@ function partsReview(queue) {
     if (!rows.length && empty) out.push(el('p', 'parts-empty parts-good', empty));
     out.push(...rows);
   };
+  const cashMonth = noReceiptMonth();
+  section('Without a receipt', `Cash, Cash App and other purchases texted with no store receipt. They count toward the truck once approved.${cashMonth ? ` This month: ${cashMonth}.` : ''}`, approvalCards(), 'Nothing to approve.');
   section(t('checkTitle'), t('checkIntro'), receiptsToCheck(), t('nothingToCheck'));
   const typed = Object.assign(el('button', 'link-btn type-receipt-link', t('typeReceipt')), { type: 'button' });
   typed.addEventListener('click', () => openReceipt(null));
@@ -3579,7 +3639,7 @@ function renderAdminToday() {
   const inToday = receipts.filter((r) => r.createdMs && new Date(r.createdMs).toLocaleDateString('en-CA') === today)
     .sort((a, b) => b.createdMs - a.createdMs).map((r) => ({ r, match: receiptMatch(r, itemUses) }));
   const q = matchQueue();
-  const fix = [...receiptsToCheck(), ...q.doubts.map((x) => matchCard(x)), ...q.noWork.map(noWorkCard),
+  const fix = [...approvalCards(), ...receiptsToCheck(), ...q.doubts.map((x) => matchCard(x)), ...q.noWork.map(noWorkCard),
     ...oldStock(receipts, itemUses, today).map(oldStockCard), ...q.noParts.map(noPartsCard)];
   const count = (o) => o.trucks.length + o.trailers.length + o.paper.length;
   const badge = $('today-badge');

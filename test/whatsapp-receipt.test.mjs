@@ -197,7 +197,7 @@ const fixRun = (body, { receipts = [], vehicles = ['T-24', 'T-31'], uses = [], c
           : uses.filter((u) => u.receiptId === value).map((u) => docOf('u1', u));
       return { ok: true, json: async () => rows };
     }
-    if (!opts.body) return { ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: { k_Maria: {} } } } } }) };
+    if (!opts.body) return { ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: { k_Maria: { timestampValue: new Date().toISOString() } } } } } }) };
     writes.push(JSON.parse(opts.body).writes);
     return { ok: true };
   };
@@ -242,4 +242,49 @@ test('an unknown truck, no recent receipt, or a long text: no change', async () 
   assert.match(none.twiml.messages[0], /^Send a photo of the receipt/);
   const chatty = await fixRun(`T-24 ${'x'.repeat(80)}`, { receipts });
   assert.deepEqual(chatty.queries, []);
+});
+
+test('a purchase texted with no receipt: amount, item and how it was paid', () => {
+  const cases = [
+    ['cash drive axle T-24 $350', { amount: 350, method: 'cash', item: 'Drive axle' }],
+    ['Cash purchase drive axel paid cash $350', { amount: 350, method: 'cash', item: 'Drive axel' }],
+    ['paid cash brake chamber $45', { amount: 45, method: 'cash', item: 'Brake chamber' }],
+    ['cash app starter t31 180', { amount: 180, method: 'cashapp', item: 'Starter' }],
+    ['pagué en efectivo flecha T-24 350', { amount: 350, method: 'cash', item: 'Flecha' }],
+    ['paid 2 hoses 40 cash', { amount: 40, method: 'cash', item: '2 hoses' }],
+    ['zelle 1,250.50 turbo T-28', { amount: 1250.5, method: 'zelle', item: 'Turbo' }],
+    ['T-24 $89.99 headlight', { amount: 89.99, method: 'cash', item: 'Headlight' }],
+  ];
+  for (const [text, want] of cases) assert.deepEqual(fn.cashFrom(text), want, text);
+  // No amount, or just a truck: not a purchase.
+  for (const text of ['24', 'T-24', 'cash', 'hi there', 'Send me the receipt']) assert.equal(fn.cashFrom(text), null, text);
+});
+
+test('a cash purchase is saved for approval, tied to its truck, with a plain reply', async () => {
+  const r = await fixRun('cash drive axle T-24 $350');
+  assert.deepEqual(r.twiml.messages, ['Got a cash purchase: Drive axle $350 for T-24.']);
+  const saved = r.writes.flat().find((w) => /receipts\/\w{20}$/.test(w.update.name));
+  const f = saved.update.fields;
+  assert.deepEqual([f.approval.stringValue, f.noReceipt.booleanValue, f.paidWith.stringValue, f.hasPhoto.booleanValue, f.status.stringValue, f.total.integerValue], ['pending', true, 'cash', false, 'read', '350']);
+  const line = f.lines.arrayValue.values[0].mapValue.fields;
+  assert.deepEqual([line.text.stringValue, line.cost.integerValue, line.to.stringValue, line.vehicleId.stringValue], ['Drive axle', '350', 'truck', 'T-24']);
+  assert.ok(!r.writes.flat().some((w) => w.update.name.includes('receiptPhotos')));
+  assert.equal(r.started.length, 0); // matched only once approved
+  // No truck, and a truck that isn't in the fleet.
+  assert.deepEqual((await fixRun('paid cash brake chamber $45')).twiml.messages, ['Got a cash purchase: Brake chamber $45.']);
+  assert.deepEqual((await fixRun('cash app starter T-33 $180.50')).twiml.messages, ["Got a Cash App purchase: Starter $180.50. There's no truck T-33."]);
+});
+
+test('a truck texted after a cash purchase goes straight on it (nothing to read again)', async () => {
+  const receipts = [{
+    id: 'cash1', uploadedBy: 'Maria', createdAt: ago(2), noReceipt: true, hasPhoto: false, paidWith: 'cash', note: 'paid cash brake chamber $45',
+    lines: [{ id: 'l1', text: 'Brake chamber', qty: 1, cost: 45, kind: 'part' }],
+  }];
+  const r = await fixRun('24', { receipts });
+  assert.deepEqual(r.twiml.messages, ['Got it, the cash purchase is for T-24.']);
+  const w = r.writes.flat().find((x) => x.update.name.endsWith('/receipts/cash1'));
+  assert.deepEqual(w.updateMask.fieldPaths, ['note', 'trucks', 'lines']);
+  const line = w.update.fields.lines.arrayValue.values[0].mapValue.fields;
+  assert.deepEqual([line.to.stringValue, line.vehicleId.stringValue], ['truck', 'T-24']);
+  assert.equal(r.started.length, 0);
 });
