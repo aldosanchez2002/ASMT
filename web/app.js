@@ -1356,18 +1356,20 @@ const trailerInYard = (c) => atShop({ lat: c.latitude, lon: c.longitude, speedMp
 //   1. in the yard and needs service   2. no GPS signal lately
 //   3. in the yard, nothing needed     4. needs service, not in the yard
 // "Needs service" is worked out in withMaintenance (same rule as admin).
-// Admin's Today shows the same lists.
-function shopTrucks() {
+// Admin's Today shows the same lists. With `all` (the mechanic's page), the
+// rest follow, folded: 5. on the road, nothing due   6. out of service.
+function shopTrucks({ all = false } = {}) {
   const flag = (x) => Number(Boolean(x));
   const needsService = ({ v }) => v.needsService;
   const groupOf = (entry) => {
     const { v } = entry;
+    if (v.shop || compliance[v.id]?.status === 'out') return all ? 'out' : null;
     if (v.quiet != null && v.quiet >= QUIET_DAYS) return 'quiet';
     if (v.here) return needsService(entry) ? 'yardWork' : 'yardIdle';
-    return needsService(entry) ? 'away' : null;
+    return needsService(entry) ? 'away' : all ? 'road' : null;
   };
-  const ORDER = { yardWork: 0, quiet: 1, yardIdle: 2, away: 3 };
-  return vehicles.filter(inService).map(withMaintenance)
+  const ORDER = { yardWork: 0, quiet: 1, yardIdle: 2, away: 3, road: 4, out: 5 };
+  return vehicles.filter((v) => compliance[v.id]?.status !== 'sold').map(withMaintenance)
     .map((v) => ({ v, due: v.rows.filter(DUE) }))
     .map((entry) => ({ ...entry, group: groupOf(entry) }))
     .filter((entry) => entry.group)
@@ -1384,8 +1386,8 @@ function renderShop() {
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
   const flag = (x) => Number(Boolean(x));
   const needsService = ({ v }) => v.needsService;
-  const trucks = shopTrucks();
-  const needWork = trucks.filter(needsService).length;
+  const trucks = shopTrucks({ all: true });
+  const needWork = trucks.filter((e) => e.group !== 'out' && needsService(e)).length;
   const inYard = trucks.filter((e) => e.group === 'yardWork' || e.group === 'yardIdle').length;
 
   const trailerRows = trailerList();
@@ -1412,7 +1414,32 @@ function renderShop() {
 
   $('shop-title').textContent = vehicles.length ? (needWork ? t('shopCount', needWork) : t('shopEmpty')) : t('shopTitle');
   $('shop-count').textContent = [inYard ? t('inYardCount', inYard) : null, updated].filter(Boolean).join(' · ');
-  $('shop-cards').replaceChildren(...sectionList('trucks', trucks, t('groups'), shopCard));
+  // A search finds any truck, by number or the end of its VIN, opening every section.
+  const search = $('shop-search');
+  search.placeholder = t('searchTruck');
+  const q = search.value.trim().toUpperCase().replace(/^T-?/, '');
+  const found = q ? trucks.filter(({ v }) => String(v.name).toUpperCase().replace(/^T-?/, '').includes(q) || String(v.vin ?? '').toUpperCase().endsWith(q)) : trucks;
+  const cardFor = (entry) => (entry.group === 'road' || entry.group === 'out' ? truckRow(entry) : shopCard(entry));
+  $('shop-cards').replaceChildren(...(q && !found.length ? [el('p', 'parts-empty', t('noTruckFound'))] : sectionList('trucks', found, t('groups'), cardFor, { forceOpen: Boolean(q) })));
+}
+
+// One line per truck that needs nothing now (on the road, or out of
+// service): miles, what's next, and where it is. Tap for its page.
+function truckRow({ v, group }) {
+  const row = el('button', 'today-row truck-row');
+  row.type = 'button';
+  // The soonest item coming up (nothing is due yet on these).
+  const up = [...(v.rows ?? [])].filter((r) => Number.isFinite(r.urgency) && dueWhen(r)).sort((a, b) => a.urgency - b.urgency)[0];
+  const next = up ? `${t('nextShort')}: ${shownName(up.item.name)} ${dueWhen(up)}` : null;
+  const where = group === 'out' ? [t('outOfService'), v.shop?.reason].filter(Boolean).join(': ')
+    : v.location?.address ? String(v.location.address).split(',').slice(0, 2).join(',') : null;
+  row.append(
+    el('span', 'today-unit', v.name),
+    el('span', 'today-what', [v.odometerMiles != null ? `${fmt.format(v.odometerMiles)} mi` : null, next].filter(Boolean).join(' · ')),
+    el('span', 'today-meta', where ?? ''),
+  );
+  row.addEventListener('click', () => openTruck(v.id));
+  return row;
 }
 
 // "Done today" at the bottom of the shop list: the work recorded today, newest
@@ -5055,6 +5082,7 @@ for (const b of document.querySelectorAll('#parts-side button')) b.addEventListe
 $('p-close').addEventListener('click', () => $('pdlg').close());
 $('pdlg').addEventListener('click', (e) => { if (e.target === $('pdlg')) $('pdlg').close(); });
 $('shop-tr-search').addEventListener('input', () => renderShopTrailers());
+$('shop-search').addEventListener('input', () => renderShop());
 $('w-close').addEventListener('click', () => $('work').close());
 $('work').addEventListener('close', () => { work = null; });
 $('log-add').addEventListener('click', () => openWork(null));
