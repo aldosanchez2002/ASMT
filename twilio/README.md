@@ -64,7 +64,7 @@ variable `SMS_REPLIES` = `yes`.
 
 ### Texting registration (A2P 10DLC)
 
-Registered as a Sole Proprietor brand (Aldo Sanchez) with a Sole Proprietor
+Approved Nov 2, 2026. Registered as a Sole Proprietor brand (Aldo Sanchez) with a Sole Proprietor
 campaign for the program "aslog" (verbal consent from employees, no
 marketing). The campaign points to https://aslog.dev/privacy/ and
 https://aslog.dev/terms/ (`web/privacy`, `web/terms`); keep them in step with
@@ -130,3 +130,32 @@ reads when nothing changed, and GitHub keeps at most one run waiting.
   document: an iPhone photo sent as a document is a .heic file, which can't
   be read, and the reply says so. If small print comes out blurry, turn on
   WhatsApp's **HD** option before sending.
+
+## What was read, texted back
+
+Once a texted receipt is read, its sender gets a text with what was read
+(`scripts/receipt-reply.mjs` builds it): "aslog: Read FleetPride $12.40: Oil
+filter for T-24. Wrong truck? Reply with the truck number." The truck is
+named when the receipt or a text named one; with no truck it ends "Reply STOP
+to opt out." (it never asks for one). After the last try on a photo that
+can't be read: "That photo could not be read". The reader posts it to a
+second Function, `/receipt-read` (`twilio/receipt-read.js`), which looks up
+the sender's number in `ALLOWED_SENDERS` (phone numbers stay in Twilio) and
+sends it once per reading.
+
+Texting a truck after the photo ("T-24", "24", "camión 24") puts it on the
+sender's latest receipt from the last 2 days and reads it again with that
+truck (a receipt already matched or edited by the office keeps its matches;
+the truck goes in its note). `whatsapp-receipt.js` handles that.
+
+Setup, once:
+
+1. Make up a long random phrase (30+ characters; nobody types it).
+2. GitHub → the repository → Settings → Secrets and variables → Actions →
+   New repository secret: `READ_REPLY_SECRET` = that phrase.
+3. Twilio → Functions → the receipts service → Environment Variables:
+   `READ_REPLY_SECRET` = the same phrase, and `MESSAGING_SERVICE_SID` = the
+   Messaging Service SID (MG…, Messaging → Services).
+4. Add a Function at path `/receipt-read`, paste `twilio/receipt-read.js`, set
+   its visibility to **Public**, paste the latest `whatsapp-receipt.js` too,
+   and **Deploy All**.

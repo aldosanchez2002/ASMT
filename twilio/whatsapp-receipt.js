@@ -14,9 +14,9 @@
 // START and HELP texts are left to Twilio's Opt-Out Management (it answers
 // them with the registered messages), so they get nothing from here.
 //
-// A text with no photo that names a truck ("T-24", "24", "camión 24")
-// answers the "Which truck?" or "Wrong truck?" in the reading reply
-// (twilio/receipt-read.js): it goes on the sender's latest receipt from the
+// A text with no photo that names a truck ("T-24", "24", "camión 24"), sent
+// after the photo or to answer "Wrong truck?" in the reading reply
+// (twilio/receipt-read.js), goes on the sender's latest receipt from the
 // last 2 days, which is read again with that truck. A receipt already matched
 // to repairs or edited by the office keeps its matches; the truck goes in its
 // note for the office.

@@ -1,6 +1,6 @@
 // The text a buyer gets back once their texted receipt is read: the store,
-// the total, the items, and the truck (or a question, when a repair part has
-// no truck). The reader (scripts/read-receipts.mjs) builds it and hands it to
+// the total, the items, and the truck when the receipt or a text named one
+// (it never asks for one). The reader (scripts/read-receipts.mjs) builds it and hands it to
 // the Twilio Function /receipt-read, which knows the sender's number (phone
 // numbers live only in Twilio) and sends it. The wording follows the samples
 // registered with the texting campaign (twilio/README.md).
@@ -28,16 +28,12 @@ export function readReplyText(receipt, vehicles = []) {
   const lines = receipt.lines ?? [];
   const nameOf = (id) => vehicles.find((v) => v.id === id)?.name ?? null;
   const trucks = [...new Set(lines.flatMap((l) => [nameOf(l.vehicleId), ...(l.for ?? []).map((u) => u.name)]).filter(Boolean))];
-  // A repair part or labor with no truck is the one thing only the buyer can tell us.
-  const needsTruck = lines.some((l) => (l.kind === 'part' || l.kind === 'labor') && !l.vehicleId && !l.for?.length);
   const items = lines.filter((l) => l.kind !== 'credit').map((l) => `${Number(l.qty) > 1 ? `${l.qty} × ` : ''}${shortItem(l.text)}`);
   const shown = items.length > 2 ? [...items.slice(0, 2), `${items.length - 2} more`] : items;
   const what = [receipt.vendor || 'the receipt', receipt.total != null ? money(receipt.total) : null].filter(Boolean).join(' ');
   let text = `aslog: Read ${what}${shown.length ? `: ${listText(shown)}` : ''}${trucks.length ? ` for ${listText(trucks)}` : ''}.`;
   if (receipt.status === 'review') text += ' The office will check part of it.';
-  text += needsTruck && !trucks.length ? ' Which truck is it for? Reply with the truck number.'
-    : trucks.length ? ' Wrong truck? Reply with the truck number.'
-      : ' Reply STOP to opt out.';
+  text += trucks.length ? ' Wrong truck? Reply with the truck number.' : ' Reply STOP to opt out.';
   return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS - 1)}…` : text;
 }
 

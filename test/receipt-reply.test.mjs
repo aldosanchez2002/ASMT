@@ -7,9 +7,9 @@ const vehicles = [{ id: 'v24', name: 'T-24' }, { id: 'v31', name: 'T-31' }];
 test('the reading reply: store, total, items and the truck, as registered', () => {
   const tied = { status: 'read', vendor: 'FleetPride', total: 12.4, lines: [{ text: 'Oil filter, DD15', qty: 1, kind: 'part', to: 'truck', vehicleId: 'v24' }] };
   assert.equal(readReplyText(tied, vehicles), 'aslog: Read FleetPride $12.40: Oil filter for T-24. Wrong truck? Reply with the truck number.');
-  // A repair part with no truck: ask.
+  // No truck on the receipt or in a text: it doesn't ask for one.
   const loose = { status: 'read', vendor: "ALDO'S DEMO TRUCK PART STORE", total: 96.88, lines: [{ text: 'HEADLIGHT ASSY LH Halogen, DOT approved', qty: 1, kind: 'part' }] };
-  assert.equal(readReplyText(loose, vehicles), "aslog: Read ALDO'S DEMO TRUCK PART STORE $96.88: HEADLIGHT ASSY LH Halogen. Which truck is it for? Reply with the truck number.");
+  assert.equal(readReplyText(loose, vehicles), "aslog: Read ALDO'S DEMO TRUCK PART STORE $96.88: HEADLIGHT ASSY LH Halogen. Reply STOP to opt out.");
   // Shelf stock and shop supplies need no truck.
   const shelf = { status: 'read', vendor: 'NAPA', total: 300, lines: [{ text: 'Oil filter', qty: 6, kind: 'stock', to: 'stock' }, { text: 'Shop towels', qty: 2, kind: 'supplies', to: 'shop' }] };
   assert.equal(readReplyText(shelf, vehicles), 'aslog: Read NAPA $300.00: 6 × Oil filter and 2 × Shop towels. Reply STOP to opt out.');
