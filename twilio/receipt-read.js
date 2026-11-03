@@ -49,7 +49,7 @@ exports.handler = async (context, event, callback, { fetchFn = fetch, client } =
   if (!context.READ_REPLY_SECRET || event.secret !== context.READ_REPLY_SECRET) return reply(403, { ok: false });
   if (context.SMS_REPLIES !== 'yes') return reply(200, { ok: true, sent: false, why: 'texting is off (SMS_REPLIES)' });
   const text = String(event.text ?? '');
-  if (!text.startsWith('aslog: ') || text.length > 320) return reply(400, { ok: false, why: 'not an aslog text' });
+  if (!text.trim() || text.length > 320) return reply(400, { ok: false, why: 'no text, or too long' });
 
   const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
   const id = String(event.receiptId ?? '').replace(/[^A-Za-z0-9]/g, '');

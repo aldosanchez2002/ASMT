@@ -28,7 +28,7 @@ const run = (event, { receipt = { source: 'sms', uploadedBy: 'Maria' }, ctx = co
   };
   return new Promise((resolve) => fn.handler(ctx, event, (err, res) => resolve({ res, sent, writes }), { fetchFn, client }));
 };
-const good = { secret: 's3', receiptId: 'abc123', text: 'aslog: Read FleetPride $12.40: Oil filter for T-24. Wrong truck? Reply with the truck number.' };
+const good = { secret: 's3', receiptId: 'abc123', text: 'Read FleetPride $12.40: Oil filter for T-24. Wrong truck? Reply with the truck number.' };
 
 test('names map to numbers; phone numbers come only from ALLOWED_SENDERS', () => {
   assert.deepEqual([...fn.numbersByName(context.ALLOWED_SENDERS)], [['Maria', '+19155551234'], ['Aldo', '+19155550000']]);
@@ -49,7 +49,8 @@ test('nothing is sent without the secret, with texting off, or for odd requests'
   assert.equal((await run(good, { ctx: { ...context, READ_REPLY_SECRET: '' } })).res.statusCode, 403);
   const off = await run(good, { ctx: { ...context, SMS_REPLIES: '' } });
   assert.deepEqual([off.sent.length, off.res.body.why], [0, 'texting is off (SMS_REPLIES)']);
-  assert.equal((await run({ ...good, text: 'Buy now!' })).res.statusCode, 400);
+  assert.equal((await run({ ...good, text: ' ' })).res.statusCode, 400);
+  assert.equal((await run({ ...good, text: 'x'.repeat(321) })).res.statusCode, 400);
   assert.equal((await run(good, { receipt: null })).res.statusCode, 404);
   assert.equal((await run(good, { receipt: { source: 'whatsapp', uploadedBy: 'Maria' } })).res.body.why, 'not a texted receipt');
   assert.equal((await run(good, { receipt: { source: 'sms', uploadedBy: 'Stranger' } })).res.body.why, 'sender not in ALLOWED_SENDERS');

@@ -70,9 +70,11 @@ marketing). The campaign points to https://aslog.dev/privacy/ and
 https://aslog.dev/terms/ (`web/privacy`, `web/terms`); keep them in step with
 what the campaign says.
 
-Once `SMS_REPLIES` is `yes`, text replies start with "aslog:", and each
-sender's first answered text also gets the registered opt-in confirmation
-(remembered by name in `meta/smsOptIn`, never by number). STOP, START and
+Once `SMS_REPLIES` is `yes`, each sender's first answered text also gets the
+registered opt-in confirmation (it names aslog and says how to stop), and a
+receipt reply adds "Reply STOP to opt out." at most once every 30 days per
+sender (both remembered by name in `meta/smsOptIn`, never by number). Other
+replies are plain ("Got a receipt for T-24."). STOP, START and
 HELP are answered by Twilio, not the Function: in the number's Messaging
 Service, **Opt-Out Management** has the registered messages:
 
@@ -134,10 +136,9 @@ reads when nothing changed, and GitHub keeps at most one run waiting.
 ## What was read, texted back
 
 Once a texted receipt is read, its sender gets a text with what was read
-(`scripts/receipt-reply.mjs` builds it): "aslog: Read FleetPride $12.40: Oil
-filter for T-24. Wrong truck? Reply with the truck number." The truck is
-named when the receipt or a text named one; with no truck it ends "Reply STOP
-to opt out." (it never asks for one). After the last try on a photo that
+(`scripts/receipt-reply.mjs` builds it): "Read FleetPride $12.40: Oil filter
+for T-24. Wrong truck? Reply with the truck number." The truck is named when
+the receipt or a text named one (it never asks for one). After the last try on a photo that
 can't be read: "That photo could not be read". The reader posts it to a
 second Function, `/receipt-read` (`twilio/receipt-read.js`), which looks up
 the sender's number in `ALLOWED_SENDERS` (phone numbers stay in Twilio) and

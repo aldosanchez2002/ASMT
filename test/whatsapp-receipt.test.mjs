@@ -56,7 +56,7 @@ test('a photo from the buyer becomes a waiting receipt, with the truck', async (
   assert.deepEqual(f.trucks.arrayValue.values, [{ stringValue: 'T-28' }]);
   assert.deepEqual(receipt.updateTransforms, [{ fieldPath: 'createdAt', setToServerValue: 'REQUEST_TIME' }]);
   assert.equal(photo.update.fields.data.stringValue, `data:image/jpeg;base64,${Buffer.from('jpegbytes').toString('base64')}`);
-  assert.deepEqual(twiml.messages, ['Got it: 1 receipt for T-28. It will be read automatically.']);
+  assert.deepEqual(twiml.messages, ['Got a receipt for T-28.']);
 });
 
 test('a note naming several trucks is saved whole, and the reply names them', async () => {
@@ -65,7 +65,7 @@ test('a note naming several trucks is saved whole, and the reply names them', as
   });
   const f = writes[0][0].update.fields;
   assert.equal(f.note.stringValue, 'T-28 drums, T-31 headlight');
-  assert.deepEqual(twiml.messages, ['Got it: 1 receipt for T-28 and T-31. It will be read automatically.']);
+  assert.deepEqual(twiml.messages, ['Got a receipt for T-28 and T-31.']);
 });
 
 test('several photos become several receipts; non-images are skipped', async () => {
@@ -76,7 +76,7 @@ test('several photos become several receipts; non-images are skipped', async () 
     MediaUrl2: 'https://media/3', MediaContentType2: 'audio/ogg',
   });
   assert.equal(writes.length, 2);
-  assert.match(twiml.messages[0], /^Got it: 2 receipts\. .* 1 could not be saved/);
+  assert.match(twiml.messages[0], /^Got 2 receipts\. 1 could not be saved/);
 });
 
 test('an iPhone .heic file is not saved, and the reply says to send it as a photo', async () => {
@@ -89,7 +89,7 @@ test('an iPhone .heic file is not saved, and the reply says to send it as a phot
     MediaUrl1: 'https://media/2', MediaContentType1: 'image/heic',
   });
   assert.equal(mixed.writes.length, 1);
-  assert.match(mixed.twiml.messages[0], /^Got it: 1 receipt\. .* 1 was a file \(like \.heic\)/);
+  assert.match(mixed.twiml.messages[0], /^Got a receipt\. 1 was a file \(like \.heic\)/);
 });
 
 test('a text (MMS) is saved the same way; it gets a reply only once texting is registered', async () => {
@@ -101,15 +101,18 @@ test('a text (MMS) is saved the same way; it gets a reply only once texting is r
   const registered = await new Promise((resolve) => {
     fn.handler({ ...context, SMS_REPLIES: 'yes' }, { From: '+19155551234', NumMedia: '0' }, (err, twiml) => resolve(twiml), { fetchFn: async () => ({ ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: { k_Maria: {} } } } } }) }) });
   });
-  assert.deepEqual(registered.messages, ['aslog: Send a photo of the receipt. Add which truck the parts are for, like T-28, or for several: T-28 drums, T-31 headlight. Reply HELP for help, STOP to opt out.']);
+  assert.deepEqual(registered.messages, ['Send a photo of the receipt. Add the truck, like T-28, or for several: T-28 drums, T-31 headlight.']);
 });
 
 // A texting run where meta/smsOptIn already lists `welcomed` names.
-const textRun = (event, welcomed = []) => {
+const textRun = (event, welcomed = [], reminded = {}) => {
   const writes = [];
   const fetchFn = async (url, opts = {}) => {
     if (url.startsWith('https://media')) return { ok: true, arrayBuffer: async () => Buffer.from('jpegbytes') };
-    if (!opts.body) return { ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: Object.fromEntries(welcomed.map((k) => [k, {}])) } } } }) };
+    if (!opts.body) {
+      const group = (m) => ({ mapValue: { fields: Object.fromEntries(Object.entries(m).map(([k, at]) => [k, { timestampValue: at }])) } });
+      return { ok: true, json: async () => ({ fields: { welcomed: group(Object.fromEntries(welcomed.map((k) => [k, '2026-01-01T00:00:00Z']))), reminded: group(reminded) } }) };
+    }
     writes.push(JSON.parse(opts.body).writes);
     return { ok: true };
   };
@@ -121,19 +124,24 @@ const photoText = { From: '+19155551234', Body: 'T-24', NumMedia: '1', MediaUrl0
 
 test('a sender\'s first answered text gets the opt-in confirmation once, remembered by name (not number)', async () => {
   const first = await textRun(photoText);
-  assert.deepEqual(first.twiml.messages, [fn.OPT_IN_MESSAGE, 'aslog: Got it: 1 receipt for T-24. It will be read automatically. Reply STOP to opt out.']);
+  assert.deepEqual(first.twiml.messages, [fn.OPT_IN_MESSAGE, 'Got a receipt for T-24.']);
   const optIn = first.writes.flat().find((w) => w.update.name.endsWith('/meta/smsOptIn'));
-  assert.deepEqual(optIn.updateMask, { fieldPaths: ['welcomed.k_Maria'] });
+  assert.deepEqual(optIn.updateMask, { fieldPaths: ['welcomed.k_Maria', 'reminded.k_Maria'] });
   assert.ok(!JSON.stringify(optIn).includes('5551234'));
-  const later = await textRun(photoText, ['k_Maria']);
-  assert.deepEqual(later.twiml.messages, ['aslog: Got it: 1 receipt for T-24. It will be read automatically. Reply STOP to opt out.']);
+  // Told how to stop in the last 30 days: a plain reply.
+  const later = await textRun(photoText, ['k_Maria'], { k_Maria: new Date(Date.now() - 5 * 86400000).toISOString() });
+  assert.deepEqual(later.twiml.messages, ['Got a receipt for T-24.']);
   assert.ok(!later.writes.flat().some((w) => w.update.name.endsWith('/meta/smsOptIn')));
+  // Over 30 days: the receipt reply says how to stop, once.
+  const month = await textRun(photoText, ['k_Maria'], { k_Maria: new Date(Date.now() - 31 * 86400000).toISOString() });
+  assert.deepEqual(month.twiml.messages, ['Got a receipt for T-24. Reply STOP to opt out.']);
+  assert.deepEqual(month.writes.flat().find((w) => w.update.name.endsWith('/meta/smsOptIn')).updateMask, { fieldPaths: ['reminded.k_Maria'] });
   // The registered samples: a photo that couldn't be saved also says how to opt out.
   const failed = await new Promise((resolve) => {
     const fetchFn = async (url, opts = {}) => (url.startsWith('https://media') ? { ok: false, status: 500 } : opts.body ? { ok: true } : { ok: true, json: async () => ({ fields: { welcomed: { mapValue: { fields: { k_Maria: {} } } } } }) });
     fn.handler({ ...context, SMS_REPLIES: 'yes' }, photoText, (err, twiml) => resolve(twiml), { fetchFn });
   });
-  assert.deepEqual(failed.messages, ['aslog: That photo could not be saved. Please send it again. Reply STOP to opt out.']);
+  assert.deepEqual(failed.messages, ['That photo could not be saved. Please send it again. Reply STOP to opt out.']);
   // Before texting is registered: no reply, and nobody is marked as confirmed.
   const early = await run(photoText);
   assert.deepEqual(early.twiml.messages, []);
@@ -169,7 +177,7 @@ test('saved receipts start the reader right away, once per message; it still ans
   const nothing = await run({ From: 'whatsapp:+19155550000', NumMedia: '1', MediaUrl0: 'https://media/1', MediaContentType0: 'image/heic' }, { ...context, GITHUB_TOKEN: 'gh' });
   assert.equal(nothing.started.length, 0);
   const failed = await run(photos, { ...context, GITHUB_TOKEN: 'bad' });
-  assert.match(failed.twiml.messages[0], /^Got it: 2 receipts/);
+  assert.match(failed.twiml.messages[0], /^Got 2 receipts/);
 });
 
 // A texting run with receipts, vehicles and item uses in the database.
@@ -208,7 +216,7 @@ test('a truck texted back goes on the sender\'s latest receipt, which is read ag
     { id: 'new', uploadedBy: 'Maria', vendor: 'FleetPride', status: 'read', createdAt: ago(3) },
   ];
   const r = await fixRun('24', { receipts });
-  assert.deepEqual(r.twiml.messages, ['aslog: Got it: the FleetPride receipt is for T-24. Reading it again now.']);
+  assert.deepEqual(r.twiml.messages, ['Got it, the FleetPride receipt is for T-24. Reading it again.']);
   const w = r.writes.flat().find((x) => x.update.name.endsWith('/receipts/new'));
   assert.deepEqual(w.updateMask.fieldPaths, ['note', 'trucks', 'status', 'readTries', 'readError', 'replySentAt']);
   assert.deepEqual([w.update.fields.status.stringValue, w.update.fields.trucks.arrayValue.values], ['waiting', [{ stringValue: 'T-24' }]]);
@@ -218,7 +226,7 @@ test('a truck texted back goes on the sender\'s latest receipt, which is read ag
 test('a receipt already matched or edited keeps its matches; the truck goes in its note', async () => {
   const receipts = [{ id: 'new', uploadedBy: 'Maria', vendor: 'FleetPride', note: 'brakes', createdAt: ago(10) }];
   const r = await fixRun('T-31', { receipts, uses: [{ receiptId: 'new' }] });
-  assert.deepEqual(r.twiml.messages, ['aslog: Thanks. The FleetPride receipt is already matched to repairs, so the office will move it to T-31.']);
+  assert.deepEqual(r.twiml.messages, ['Thanks. The FleetPride receipt is already matched to repairs, so the office will move it to T-31.']);
   const w = r.writes.flat().find((x) => x.update.name.endsWith('/receipts/new'));
   assert.deepEqual([w.updateMask.fieldPaths, w.update.fields.note.stringValue], [['note'], 'brakes · Truck from text: T-31']);
   assert.equal(r.started.length, 0);
@@ -229,9 +237,9 @@ test('a receipt already matched or edited keeps its matches; the truck goes in i
 test('an unknown truck, no recent receipt, or a long text: no change', async () => {
   const receipts = [{ id: 'new', uploadedBy: 'Maria', vendor: 'FleetPride', createdAt: ago(10) }];
   const typo = await fixRun('T-99', { receipts });
-  assert.deepEqual([typo.twiml.messages, typo.writes.flat().filter((x) => x.update.name.includes('/receipts/')).length], [["aslog: There's no truck T-99. Reply with the truck number, like T-24."], 0]);
+  assert.deepEqual([typo.twiml.messages, typo.writes.flat().filter((x) => x.update.name.includes('/receipts/')).length], [["There's no truck T-99. Reply with the truck number, like T-24."], 0]);
   const none = await fixRun('24', { receipts: [{ ...receipts[0], createdAt: ago(60 * 24 * 3) }] });
-  assert.match(none.twiml.messages[0], /^aslog: Send a photo of the receipt/);
+  assert.match(none.twiml.messages[0], /^Send a photo of the receipt/);
   const chatty = await fixRun(`T-24 ${'x'.repeat(80)}`, { receipts });
   assert.deepEqual(chatty.queries, []);
 });

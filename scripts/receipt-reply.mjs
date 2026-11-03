@@ -19,11 +19,11 @@ const money = (n) => `$${Number(n).toFixed(2)}`;
 /**
  * @param receipt  what the reader saved: { status, vendor, total, lines }
  * @param vehicles [{ id, name }] to name the trucks the lines are tied to
- * @returns the text, starting with "aslog:"
+ * @returns the text
  */
 export function readReplyText(receipt, vehicles = []) {
   if (receipt.status === 'unreadable' || receipt.status === 'error') {
-    return 'aslog: That photo could not be read. Please send a clearer photo of the whole receipt. Reply STOP to opt out.';
+    return 'That photo could not be read. Please send a clearer photo of the whole receipt.';
   }
   const lines = receipt.lines ?? [];
   const nameOf = (id) => vehicles.find((v) => v.id === id)?.name ?? null;
@@ -31,9 +31,9 @@ export function readReplyText(receipt, vehicles = []) {
   const items = lines.filter((l) => l.kind !== 'credit').map((l) => `${Number(l.qty) > 1 ? `${l.qty} × ` : ''}${shortItem(l.text)}`);
   const shown = items.length > 2 ? [...items.slice(0, 2), `${items.length - 2} more`] : items;
   const what = [receipt.vendor || 'the receipt', receipt.total != null ? money(receipt.total) : null].filter(Boolean).join(' ');
-  let text = `aslog: Read ${what}${shown.length ? `: ${listText(shown)}` : ''}${trucks.length ? ` for ${listText(trucks)}` : ''}.`;
+  let text = `Read ${what}${shown.length ? `: ${listText(shown)}` : ''}${trucks.length ? ` for ${listText(trucks)}` : ''}.`;
   if (receipt.status === 'review') text += ' The office will check part of it.';
-  text += trucks.length ? ' Wrong truck? Reply with the truck number.' : ' Reply STOP to opt out.';
+  if (trucks.length) text += ' Wrong truck? Reply with the truck number.';
   return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS - 1)}…` : text;
 }
 

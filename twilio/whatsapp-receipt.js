@@ -9,8 +9,9 @@
 // GitHub Action, which reads it within a few minutes (without GITHUB_TOKEN,
 // the Action's timer picks it up instead). Texts get no reply until the number is registered
 // for US texting (A2P 10DLC): carriers block the reply until then. Once they
-// do, text replies start with "aslog:", and each sender's first text also
-// gets the opt-in confirmation the campaign registration promises. STOP,
+// do, each sender's first text also gets the opt-in confirmation the campaign
+// registration promises (it names aslog and says how to stop), and a receipt
+// reply reminds them how to stop at most once every 30 days. STOP,
 // START and HELP texts are left to Twilio's Opt-Out Management (it answers
 // them with the registered messages), so they get nothing from here.
 //
@@ -134,32 +135,38 @@ async function saveReceipt(context, { photo, uploadedBy, note, trucks, source, f
   return id;
 }
 
-// Who has had the opt-in confirmation, in meta/smsOptIn, keyed by the
-// sender's name from ALLOWED_SENDERS (never the phone number: the database
-// isn't private).
+// Who has had the opt-in confirmation, and when each was last told how to
+// stop, in meta/smsOptIn, keyed by the sender's name from ALLOWED_SENDERS
+// (never the phone number: the database isn't private).
 const optInKey = (name, from) => `k_${name ? name.replace(/[^A-Za-z0-9_]/g, '_') : require('crypto').createHash('sha256').update(from).digest('hex').slice(0, 16)}`;
+const REMIND_DAYS = 30;
 
-async function welcomedAlready(context, key, fetchFn) {
+async function optInState(context, key, fetchFn) {
   try {
     const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
     const res = await fetchFn(`https://firestore.googleapis.com/v1/${docs}/meta/smsOptIn?key=${context.FIREBASE_API_KEY}`);
-    if (!res.ok) return false;
-    return Boolean((await res.json()).fields?.welcomed?.mapValue?.fields?.[key]);
+    if (!res.ok) return { welcomed: false, remindedMs: 0 };
+    const fields = (await res.json()).fields ?? {};
+    const at = (group) => fields[group]?.mapValue?.fields?.[key];
+    const reminded = at('reminded') ?? at('welcomed');
+    return { welcomed: Boolean(at('welcomed')), remindedMs: reminded?.timestampValue ? Date.parse(reminded.timestampValue) : 0 };
   } catch {
-    return false; // unsure: a second confirmation is better than none
+    return { welcomed: false, remindedMs: 0 }; // unsure: a second confirmation is better than none
   }
 }
 
-async function markWelcomed(context, key, fetchFn) {
+// Records that the sender got the confirmation and/or the how-to-stop line now.
+async function markOptIn(context, key, groups, fetchFn) {
   const docs = `projects/${context.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  const now = { timestampValue: new Date().toISOString() };
   try {
     await fetchFn(`https://firestore.googleapis.com/v1/${docs}:commit?key=${context.FIREBASE_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         writes: [{
-          update: { name: `${docs}/meta/smsOptIn`, fields: { welcomed: { mapValue: { fields: { [key]: { timestampValue: new Date().toISOString() } } } } } },
-          updateMask: { fieldPaths: [`welcomed.${key}`] },
+          update: { name: `${docs}/meta/smsOptIn`, fields: Object.fromEntries(groups.map((g) => [g, { mapValue: { fields: { [key]: now } } }])) },
+          updateMask: { fieldPaths: groups.map((g) => `${g}.${key}`) },
         }],
       }),
     });
@@ -214,7 +221,7 @@ async function truckReply(context, { name, trucks, note, fetchFn }) {
   if (!res.ok) throw new Error(`Firestore ${res.status}`);
   if (settled) return `Thanks. The ${store} is already matched to repairs, so the office will move it to ${listText(trucks)}.`;
   await startReading(context, fetchFn);
-  return `Got it: the ${store} is for ${listText(trucks)}. Reading it again now.`;
+  return `Got it, the ${store} is for ${listText(trucks)}. Reading it again.`;
 }
 
 // Starts the "Read receipts" Action now. Several photos in a row start one
@@ -245,20 +252,26 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
   const count = Number(event.NumMedia ?? 0);
   const note = String(event.Body ?? '').trim().slice(0, 500) || null;
   const keyword = !count && KEYWORDS.concat(HELP_WORDS).includes((note ?? '').toUpperCase()) ? note.toUpperCase() : null;
-  // Texts are answered only once the number may send them, starting with
-  // "aslog:"; a sender's first answered text also gets the opt-in confirmation.
+  // Texts are answered only once the number may send them. A sender's first
+  // answered text also gets the opt-in confirmation; after that, a receipt
+  // reply (`remind`) says how to stop at most once every 30 days.
   const texting = source === 'sms' && context.SMS_REPLIES === 'yes';
-  const answer = async (texts) => {
+  const answer = async (texts, { remind = false } = {}) => {
     const out = new Twilio.twiml.MessagingResponse();
     if (source === 'whatsapp') {
       texts.forEach((text) => out.message(text));
     } else if (texting) {
       const key = optInKey(senders.get(from), from);
-      if (!(await welcomedAlready(context, key, fetchFn))) {
+      const state = await optInState(context, key, fetchFn);
+      const due = remind && Date.now() - state.remindedMs > REMIND_DAYS * 24 * 60 * 60 * 1000;
+      if (!state.welcomed) {
         out.message(OPT_IN_MESSAGE);
-        await markWelcomed(context, key, fetchFn);
+        await markOptIn(context, key, ['welcomed', 'reminded'], fetchFn);
+      } else if (due) {
+        texts = [...texts.slice(0, -1), `${texts.at(-1)} Reply STOP to opt out.`];
+        await markOptIn(context, key, ['reminded'], fetchFn);
       }
-      texts.forEach((text) => out.message(`aslog: ${text}`));
+      texts.forEach((text) => out.message(text));
     }
     return callback(null, out);
   };
@@ -280,8 +293,7 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
         return answer(['That could not be saved. Please try again, or tell the office which truck it is for.']);
       }
     }
-    const after = source === 'sms' ? 'Reply HELP for help, STOP to opt out.' : 'You can also write the truck next to each item on the receipt.';
-    return answer([`Send a photo of the receipt. Add which truck the parts are for, like T-28, or for several: T-28 drums, T-31 headlight. ${after}`]);
+    return answer(['Send a photo of the receipt. Add the truck, like T-28, or for several: T-28 drums, T-31 headlight.']);
   }
   let saved = 0;
   let skipped = 0;
@@ -307,12 +319,11 @@ exports.handler = async (context, event, callback, { fetchFn = fetch } = {}) => 
     }
   }
   if (saved) await startReading(context, fetchFn);
-  const what = saved === 1 ? '1 receipt' : `${saved} receipts`;
+  const what = saved === 1 ? 'a receipt' : `${saved} receipts`;
   const notes = [];
   if (wrongType) notes.push(`${saved ? `${wrongType} ${wrongType === 1 ? 'was a file' : 'were files'}` : 'That was sent as a file'} (like .heic) that can't be read. Send it as a photo instead: tap + then Photos, not Document.`);
   if (skipped) notes.push(saved || wrongType ? `${skipped} could not be saved; please send it again.` : 'That photo could not be saved. Please send it again.');
-  const stop = source === 'sms' ? ' Reply STOP to opt out.' : '';
-  return answer([[saved ? `Got it: ${what}${trucks.length ? ` for ${listText(trucks)}` : ''}. It will be read automatically.` : '', ...notes].filter(Boolean).join(' ') + stop]);
+  return answer([[saved ? `Got ${what}${trucks.length ? ` for ${listText(trucks)}` : ''}.` : '', ...notes].filter(Boolean).join(' ')], { remind: true });
 };
 
 // For the tests (test/whatsapp-receipt.test.mjs); Twilio only calls handler.
