@@ -158,7 +158,7 @@ function cashFrom(text = '') {
   if (!(amount > 0)) return null;
   const item = (rest.slice(0, found.index) + ' ' + rest.slice(found.index + found[0].length))
     .replace(/\bcash\s*app\b|\bpay\s*pal\b/gi, ' ')
-    .replace(/(?<![\p{L}\d])(paid|pay|pague|pagué|purchase|compra|cash|efectivo|zelle|venmo|card|tarjeta|debit|credit|with|con|en|for|para|by|dollars|dls|usd)(?![\p{L}\d])/giu, ' ')
+    .replace(/(?<![\p{L}\d])(paid|pay|pague|pagué|purchased|purchase|bought|buy|compré|compre|compra|cash|efectivo|zelle|venmo|card|tarjeta|debit|credit|with|con|en|for|para|by|dollars|dls|usd)(?![\p{L}\d])/giu, ' ')
     .replace(/[$:;,]+/g, ' ').replace(/\s+/g, ' ').trim();
   return { amount, method: method ?? 'cash', item: item ? item[0].toUpperCase() + item.slice(1) : 'Purchase' };
 }

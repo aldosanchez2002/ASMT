@@ -249,6 +249,8 @@ test('a purchase texted with no receipt: amount, item and how it was paid', () =
     ['cash drive axle T-24 $350', { amount: 350, method: 'cash', item: 'Drive axle' }],
     ['Cash purchase drive axel paid cash $350', { amount: 350, method: 'cash', item: 'Drive axel' }],
     ['paid cash brake chamber $45', { amount: 45, method: 'cash', item: 'Brake chamber' }],
+    ['Cash purchased drive steering shaft $400', { amount: 400, method: 'cash', item: 'Drive steering shaft' }],
+    ['compré en efectivo bomba de agua T-24 $120', { amount: 120, method: 'cash', item: 'Bomba de agua' }],
     ['cash app starter t31 180', { amount: 180, method: 'cashapp', item: 'Starter' }],
     ['pagué en efectivo flecha T-24 350', { amount: 350, method: 'cash', item: 'Flecha' }],
     ['paid 2 hoses 40 cash', { amount: 40, method: 'cash', item: '2 hoses' }],
