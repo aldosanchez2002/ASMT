@@ -3672,7 +3672,7 @@ function renderAdminToday() {
     out.push(...(rows.length ? rows : [el('p', 'parts-empty parts-good', empty)]));
   };
   const work = (o) => [...o.trucks.map((x) => shopCard(x, { record: false })), ...o.trailers.map(trailerCard), ...o.paper.map(cpRow)];
-  section('now', 'To do today', 'In the yard and needs service, as the mechanics see it, plus paperwork that has expired.', work(now), 'Nothing in the yard needs service.');
+  section('now', 'To do today', 'In the yard and needs work', work(now), 'Nothing in the yard needs service.');
   section('soon', 'Coming up', 'Needs service but not in the yard yet, and paperwork expiring in the next 30 days.', work(soon), 'Nothing coming up.');
   section('done', 'Done today', null, done.map(doneRow), 'No work logged yet today.');
   $('today-body').replaceChildren(...out);
