@@ -5,7 +5,7 @@
 // admin hasn't already said no) and decides which are sure enough to count
 // on their own. No network here, so it's tested.
 
-import { AUTO_CONFIDENCE, daysBetween, inWindow, itemKey, repairText, usesFor } from '../web/items.js';
+import { AUTO_CONFIDENCE, NEW_DAYS, daysBetween, inWindow, itemKey, repairText, usesFor } from '../web/items.js';
 
 export const MATCH_SCHEMA = {
   type: 'object',
@@ -38,7 +38,7 @@ For each item, decide which repair it was used in, if any:
 - Match by what the part is and what the repair says was fixed. A brake drum fits a repair that replaced drums or did brakes on that axle; a headlight fits a headlight repair.
 - Services: an oil filter or fuel filter kit fits a PM or oil change on that truck (one of each per service); an air filter fits a service that changed it; a steer or drive tire fits a tire change at that position; a battery fits a battery change (as many as were changed).
 - An item that says which truck it was bought for can only go to a repair on that truck. An item with "could be" trucks can only go to one of those.
-- Dates: parts are usually bought the same day or up to a few weeks before the repair; a receipt can also be from a few days after.
+- Dates: a part is bought the same day as the work or up to a few weeks before it. Work done before the part was bought can't have used it (those pairs aren't listed). A receipt from the last few days may be for work not logged yet: when no listed work clearly fits, leave it out.
 - A core charge goes to the same repair as the part it came with.
 - One item line with a quantity of 2 or more can be split across repairs (give each part of the split as its own match with its qty).
 - Leave an item out when no repair fits. Never force a match: a wrong match is worse than none.
@@ -89,9 +89,11 @@ export const candidateRepairs = (items, repairs) => repairs.filter((e) => items.
  * pairs admin already rejected, and more than the item has left. A
  * suggestion on a truck the item wasn't bought for (or not one of its
  * choices) can't count on its own. Sure ones (AUTO_CONFIDENCE+) count right
- * away ('auto'); the rest wait for admin ('doubt').
+ * away ('auto'); the rest wait for admin ('doubt'), except for an item bought
+ * in the last NEW_DAYS days: its work may not be logged yet, so an unsure
+ * guess is dropped and it's asked again later.
  */
-export function usesFromAnswer(answer, refs, { uses = [], names = new Map() } = {}) {
+export function usesFromAnswer(answer, refs, { uses = [], names = new Map(), today = null } = {}) {
   const left = new Map([...refs.items.values()].map((it) => [it.key, it.remaining]));
   const out = [];
   for (const m of answer.matches ?? []) {
@@ -106,6 +108,7 @@ export function usesFromAnswer(answer, refs, { uses = [], names = new Map() } = 
     const offTruck = allowed && !allowed.includes(entry.vehicleId);
     let confidence = Math.max(0, Math.min(100, Math.round(Number(m.confidence) || 0)));
     if (offTruck) confidence = Math.min(confidence, 50);
+    if (confidence < AUTO_CONFIDENCE && isNew(item, today)) { left.set(item.key, left.get(item.key) + qty); continue; }
     out.push({
       receiptId: item.receiptId,
       lineId: item.lineId,
@@ -126,8 +129,11 @@ export function usesFromAnswer(answer, refs, { uses = [], names = new Map() } = 
   return out;
 }
 
-// What the run looked at, to skip the next run when nothing changed.
-export const matchSignature = (items, repairs) => JSON.stringify([
-  items.map((it) => `${it.key}x${it.remaining}`).sort(),
+const isNew = (item, today) => Boolean(today && item.date && daysBetween(item.date, today) < NEW_DAYS);
+
+// What the run looked at, to skip the next run when nothing changed. Which
+// items are still new is part of it, so they're asked again once they aren't.
+export const matchSignature = (items, repairs, today = null) => JSON.stringify([
+  items.map((it) => `${it.key}x${it.remaining}${isNew(it, today) ? 'n' : ''}`).sort(),
   repairs.map((e) => e.id).sort(),
 ]);

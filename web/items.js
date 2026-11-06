@@ -42,7 +42,7 @@ export const COUNTED = ['auto', 'confirmed'];
 export const AUTO_CONFIDENCE = 85;
 // A batch on a receipt dated up to this many days after the work can still
 // cover it (the receipt is sometimes dated the day after).
-export const LATE_DAYS = 2;
+export const LATE_DAYS = 0;
 // Batches still on the shelf after this many days show in Review.
 export const OLD_STOCK_DAYS = 60;
 // Tools over this much are spread over 12 months in the costs.
@@ -151,6 +151,7 @@ export function receiptItems(receipts) {
         key: itemKey(r.id, lineId), receiptId: r.id, lineId, text: l.text ?? '', partNumber: l.partNumber ?? null,
         kind, qty, cost, unitCost: cost == null ? null : cost / qty, date: r.date ?? null, vendor: r.vendor ?? '',
         vehicleId: l.to === 'truck' ? l.vehicleId ?? null : null, truckChoices: l.truckChoices ?? null, note: r.note ?? null, assetType: l.assetType ?? null,
+        noReceipt: Boolean(r.noReceipt),
       });
     });
   }
@@ -286,13 +287,20 @@ export function workEntries(log, { today, days = 60 } = {}) {
   return log.filter((e) => isWork(e) && e.date && e.date >= from && e.date <= today);
 }
 
-// The repairs an item could have gone into: up to a week before it was
-// bought (the receipt came later) to a month after (bought ahead).
+// The work an item could have gone into: done the day it was bought or up to
+// a month after (bought ahead). Never before: a part bought after the work
+// was logged can't have been used in it. Labor, and a payment with no store
+// receipt (cash to an outside mechanic), is often paid after the job: up to
+// a month before it counts too.
 export const inWindow = (item, entry) => {
   if (!item.date || !entry.date) return false;
   const d = daysBetween(item.date, entry.date);
-  return d >= -7 && d <= 30;
+  const paidAfter = item.kind === 'labor' || item.noReceipt;
+  return d >= (paidAfter ? -30 : 0) && d <= 30;
 };
+// A receipt this many days old or less is new: the work it's for may not be
+// logged yet, so the AI's unsure guesses for it wait.
+export const NEW_DAYS = 3;
 
 /**
  * How far a receipt has got: 'waiting' (not read yet), 'review' (the reader

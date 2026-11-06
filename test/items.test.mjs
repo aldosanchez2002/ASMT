@@ -158,8 +158,8 @@ test('rules: oldest batch first, across batches; batches set aside for a truck g
   const ev = costEvents({ receipts: receipts2, uses: rule, log: log2 });
   assert.deepEqual(ev.filter((x) => x.logId === 'f').map((x) => x.amount), [99.9, 56.4]); // 7.4 gal at $13.50, 4 at $14.10
   assert.equal(ev.find((x) => x.logId === 'old'), undefined); // shelf use with no batch isn't a missing cost any more
-  // A receipt dated the day after the work still covers it; a week after doesn't.
-  assert.equal(ruleUses({ receipts: [drum('late', '2026-11-05', 700)], uses: [], log: [oilChange('x', '2026-11-04', 'T-20')] }).length, 1);
+  // A receipt dated after the work can't cover it.
+  assert.equal(ruleUses({ receipts: [drum('late', '2026-11-05', 700)], uses: [], log: [oilChange('x', '2026-11-04', 'T-20')] }).length, 0);
   assert.equal(ruleUses({ receipts: [drum('late', '2026-11-11', 700)], uses: [], log: [oilChange('x', '2026-11-04', 'T-20')] }).length, 0);
   // One filter set aside for T-31 and one not: T-24 gets the free one even though T-31's is older.
   const set = { id: 'p', status: 'read', date: '2026-11-01', lines: [{ id: 'x', part: 'f', qty: 1, cost: 50, for: [{ id: 'v31', name: 'T-31' }] }] };

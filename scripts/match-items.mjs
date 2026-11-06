@@ -112,7 +112,7 @@ async function main() {
     return;
   }
 
-  if (!dryRun && last?.signature === matchSignature(open, repairs)) {
+  if (!dryRun && last?.signature === matchSignature(open, repairs, today)) {
     console.log('Same open items and repairs as the last run.');
     await markChecked();
     return;
@@ -127,7 +127,7 @@ async function main() {
   const memory = memoryText('match', await getDoc('meta/aiMemory'), corrections, parts);
   const { text, refs } = matchContext(open, repairs, { names, uses, allItems, memory });
   const answer = await askClaude(new Anthropic(), text);
-  const found = usesFromAnswer(answer, refs, { uses, names });
+  const found = usesFromAnswer(answer, refs, { uses, names, today });
   for (const u of found) {
     console.log(`  ${u.status === 'auto' ? 'MATCH' : 'maybe'} ${u.confidence}%: "${u.itemText}" x${u.qty} -> ${u.vehicleName} "${repairText(refs, u.logId)}" (${u.daysApart} days) · ${u.reason}`);
   }
@@ -140,7 +140,7 @@ async function main() {
   // What's left open after these matches: the next run skips Claude unless
   // something new comes in (a receipt, a repair, admin freeing an item).
   const after = openItems(allItems, [...uses, ...found], { today });
-  const afterSignature = matchSignature(after, candidateRepairs(after, workEntries(log, { today, days: 90 })));
+  const afterSignature = matchSignature(after, candidateRepairs(after, workEntries(log, { today, days: 90 })), today);
   writes.push(mergeWrite('meta/matcher', { signature: afterSignature, lastRun: new Date().toISOString(), checkedAt: startedAt }));
   await commit(writes);
 }

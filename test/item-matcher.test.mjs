@@ -8,7 +8,7 @@ const item = (over) => ({
   qty: 2, remaining: 2, unitCost: 129.13, date: '2026-10-21', vendor: 'MHC', vehicleId: null, truckChoices: null, ...over,
 });
 const repairs = [
-  { id: 'e1', type: 'repair', date: '2026-10-19', vehicleId: 'v7', vehicleName: 'T-07', itemName: 'Disco delantero copiloto se remplazo' },
+  { id: 'e1', type: 'repair', date: '2026-10-23', vehicleId: 'v7', vehicleName: 'T-07', itemName: 'Disco delantero copiloto se remplazo' },
   { id: 'e2', type: 'repair', date: '2026-10-22', vehicleId: 'v19', vehicleName: 'T-19', itemName: 'Cambio de balatas 1er eje copiloto', note: 'y tambores' },
   { id: 'e3', type: 'repair', date: '2026-08-01', vehicleId: 'v7', vehicleName: 'T-07', itemName: 'Air bag' },
 ];
@@ -29,7 +29,7 @@ test('the context lists items and repairs with refs, trucks, what repairs alread
   assert.match(text, /I1: "DRUM-BRAKE 16.5X5" \(DB1655B\) x2, \$129.13 each, bought 2026-10-21 at MHC; admin said NOT R2/);
   assert.match(text, /I2: "HEADLAMP" x1, \$90.00 each, bought 2026-10-21 at MHC; bought for T-19/);
   assert.match(text, /I3: \[core\] "CORE" \(DB1655B\) x1, bought 2026-10-21 at MHC; could be T-07 or T-19/);
-  assert.match(text, /R1: 2026-10-19 T-07: "Disco delantero copiloto se remplazo"; already has: SLACK ADJUSTER/);
+  assert.match(text, /R1: 2026-10-23 T-07: "Disco delantero copiloto se remplazo"; already has: SLACK ADJUSTER/);
   assert.match(text, /R2: 2026-10-22 T-19: "Cambio de balatas 1er eje copiloto · y tambores"/);
   assert.match(text, /tambores = drums/);
   assert.equal(refs.items.get('I2').key, 'r2:b');
@@ -40,7 +40,7 @@ test('Claude\'s answer becomes uses: sure ones count, unsure ones wait, bad ones
   const { refs } = matchContext(items, repairs, { names });
   const uses = usesFromAnswer({
     matches: [
-      { item: 'I1', repair: 'R1', qty: 1, confidence: 92, reason: 'Drum replaced on T-07 two days before.' },
+      { item: 'I1', repair: 'R1', qty: 1, confidence: 92, reason: 'Drum replaced on T-07 two days after.' },
       { item: 'I1', repair: 'R2', qty: 5, confidence: 70, reason: 'Drums with the brake job.' }, // only 1 left
       { item: 'I1', repair: 'R3', qty: 1, confidence: 95, reason: 'out of window' },
       { item: 'I2', repair: 'R1', qty: 1, confidence: 95, reason: 'Headlight.' }, // bought for T-19
@@ -78,4 +78,30 @@ test('memory: admin notes and recent corrections, per prompt', () => {
   assert.match(match, /- "BRAKE CLEANER" bought 2026-10-21: you said no repair; it was shop supplies/);
   assert.match(match, /- "DRUM-BRAKE" \(DB1655B\) bought 2026-10-21 at MHC: you said the repair "Air bag" on T-07 \(2026-10-19\); it was the repair "Cambio de balatas" on T-19 \(2026-10-22\)\./);
   assert.equal(memoryText('match', {}, []), '');
+});
+
+test('a part bought after the work was logged can\'t have gone into it; same-day work can', () => {
+  const before = { id: 'b1', type: 'repair', date: '2026-10-20', vehicleId: 'v7', vehicleName: 'T-07', itemName: 'Drums' };
+  const sameDay = { id: 'b2', type: 'repair', date: '2026-10-21', vehicleId: 'v7', vehicleName: 'T-07', itemName: 'Drums' };
+  assert.deepEqual(candidateRepairs([item()], [before, sameDay]).map((e) => e.id), ['b2']);
+  const { refs } = matchContext([item()], [before, sameDay], { names });
+  const uses = usesFromAnswer({ matches: [{ item: 'I1', repair: 'R1', qty: 1, confidence: 99, reason: 'x' }, { item: 'I1', repair: 'R2', qty: 1, confidence: 99, reason: 'y' }] }, refs, { names });
+  assert.deepEqual(uses.map((u) => u.logId), ['b2']);
+});
+
+test('labor, and cash paid to a mechanic, can be paid after the job (Edgar Rico, T-28 injectors)', () => {
+  const job = { id: 'j1', type: 'repair', date: '2026-10-30', vehicleId: 'v28', vehicleName: 'T-28', itemName: 'Injectors' };
+  const cash = item({ text: 'Injectors replacement To Edgar Rico', kind: 'part', date: '2026-11-03', noReceipt: true });
+  const labor = item({ text: 'LABOR', kind: 'labor', date: '2026-11-03' });
+  const part = item({ text: 'INJECTOR', kind: 'part', date: '2026-11-03' });
+  assert.deepEqual([cash, labor, part].map((it) => candidateRepairs([it], [job]).length), [1, 1, 0]);
+});
+
+test('a receipt under 3 days old: only sure matches; unsure guesses wait for the work to be logged', () => {
+  const { refs } = matchContext([item()], repairs.slice(0, 2), { names });
+  const answer = { matches: [{ item: 'I1', repair: 'R1', qty: 1, confidence: 92, reason: 'sure' }, { item: 'I1', repair: 'R2', qty: 1, confidence: 70, reason: 'unsure' }] };
+  assert.deepEqual(usesFromAnswer(answer, refs, { names, today: '2026-10-23' }).map((u) => [u.logId, u.status]), [['e1', 'auto']]);
+  assert.deepEqual(usesFromAnswer(answer, refs, { names, today: '2026-10-24' }).map((u) => [u.logId, u.status]), [['e1', 'auto'], ['e2', 'doubt']]);
+  // Once it's no longer new, the run asks again (the signature changes).
+  assert.notEqual(matchSignature([item()], repairs, '2026-10-23'), matchSignature([item()], repairs, '2026-10-24'));
 });
