@@ -3095,8 +3095,8 @@ const anPeriodName = (p, view) => (view === 'week'
 const workText = (r) => [r.service && plural(r.service, 'service'), r.repair && plural(r.repair, 'repair'), r.tires && `${fmt.format(r.tires)} tire change${r.tires === 1 ? '' : 's'}`, r.batteries && `${fmt.format(r.batteries)} battery change${r.batteries === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || 'No work logged';
 const costText = (r) => [
   `Parts ${money(r.parts)}`,
-  r.shop ? `fleet-wide ${money(r.shop)}` : null,
-  r.shopShare ? `fleet-wide share ${money(r.shopShare)}` : null,
+  r.shop ? `shop shared ${money(r.shop)}` : null,
+  r.shopShare ? `shop shared (its share) ${money(r.shopShare)}` : null,
   r.unpriced ? `${fmt.format(r.unpriced)} with no receipt yet` : null,
 ].filter(Boolean).join(' · ');
 const milesText = (r) => (r.miles == null ? null : `${fmt.format(r.miles)} mi${r.perMile != null ? ` · $${r.perMile.toFixed(2)}/mi` : ''}`);
@@ -3158,7 +3158,7 @@ function renderAnalytics() {
     const loading = trucks.some((id) => !(id in anDays));
     anTrackedPerMile(totals, rows, events);
     const open = unmatchedItems(events, range.from, range.to);
-    const pinned = includeShop ? [{ id: 'shop', label: 'Fleet-wide (shop)', amount: totals.shop, color: 'var(--an-fleetwide)' }] : [];
+    const pinned = includeShop ? [{ id: 'shop', label: 'Shop shared', amount: totals.shop, color: 'var(--an-fleetwide)' }] : [];
     const slices = pieSlices(byUnit.map((u) => ({ id: u.id, label: u.trailer ? `Trailer ${u.name}` : u.name, amount: u.total })), { max: 8, pinned });
     let slot = 0;
     for (const sl of slices) sl.color ??= sl.other ? 'var(--an-other)' : `var(--cat-${(slot += 1)})`;
@@ -3197,7 +3197,7 @@ function renderAnalytics() {
   anTrackedPerMile(totals, rows, events);
   const trend = sameAsCards ? rows : withShare(unitBreakdown({ unitId: unit.id, periods: months, events, log: serviceLog, days }), months).rows;
   const kindRows = spendByKind({ events, log: serviceLog, ...range, unitId: unit.id });
-  if (totals.shopShare) kindRows.push({ key: 'share', label: 'Share of fleet-wide', amount: totals.shopShare });
+  if (totals.shopShare) kindRows.push({ key: 'share', label: 'Shop shared (its share)', amount: totals.shopShare });
   kindRows.sort((a, b) => b.amount - a.amount);
   body.replaceChildren(
     anShareToggle(trucks.length, unit.trailer),
@@ -3226,7 +3226,7 @@ function anShareToggle(truckCount, hidden = false) {
   const label = el('label', 'an-share');
   const box = Object.assign(el('input'), { type: 'checkbox', id: 'an-exclude-share', checked: Boolean(anSettings.excludeShare) });
   box.addEventListener('change', () => saveAnSettings({ excludeShare: box.checked }));
-  label.append(box, el('span', null, 'Exclude share of fleet-wide expenses'),
+  label.append(box, el('span', null, 'Exclude share of shop shared expenses'),
     el('span', 'an-share-note', `Shop supplies and tools ÷ ${fmt.format(truckCount)} trucks`));
   label.hidden = hidden;
   return label;
@@ -3672,7 +3672,7 @@ function anTrend(rows, { range, includeShop, fleet, clickable }) {
   const stacked = includeShop && rows.some((r) => fleetPart(r) > 0);
   if (stacked) {
     const key = el('div', 'an-key');
-    for (const [label, color] of [[fleet ? 'Trucks & trailers' : 'Own costs', 'var(--cat-1)'], [fleet ? 'Fleet-wide' : 'Share of fleet-wide', 'var(--an-fleetwide)']]) {
+    for (const [label, color] of [[fleet ? 'Trucks & trailers' : 'Own costs', 'var(--cat-1)'], [fleet ? 'Shop shared' : 'Shop shared (its share)', 'var(--an-fleetwide)']]) {
       const item = el('span', 'an-key-item');
       const sw = el('span', 'an-swatch');
       sw.style.background = color;
@@ -3715,7 +3715,7 @@ function anTrend(rows, { range, includeShop, fleet, clickable }) {
     col.append(stack, el('span', 'an-x', i % every === 0 || i === rows.length - 1 ? r.label : ''));
     const show = () => {
       const lines = [el('strong', null, money(totalOf(r))), el('span', null, anPeriodName(r, 'month'))];
-      if (stacked) lines.push(el('span', null, `${fleet ? 'Trucks & trailers' : 'Own costs'} ${money(r.parts)}`), el('span', null, `${fleet ? 'Fleet-wide' : 'Share of fleet-wide'} ${money(fleetPart(r))}`));
+      if (stacked) lines.push(el('span', null, `${fleet ? 'Trucks & trailers' : 'Own costs'} ${money(r.parts)}`), el('span', null, `${fleet ? 'Shop shared' : 'Shop shared (its share)'} ${money(fleetPart(r))}`));
       if (milesText(r)) lines.push(el('span', null, milesText(r)));
       tip.replaceChildren(...lines);
       tip.hidden = false;
