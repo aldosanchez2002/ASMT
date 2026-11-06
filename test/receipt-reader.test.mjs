@@ -142,3 +142,27 @@ test('a payment screenshot is a receipt with no store receipt: it waits for appr
   const store = read(reading([line({ printed: 'Hose' })], { paidWith: 'receipt' }));
   assert.deepEqual([store.paidWith, store.approval], [undefined, undefined]);
 });
+
+test('3.1 a note saying it\'s for the shop makes every item a shop cost (Tony\'s MHC clamps, "Shop inventory")', () => {
+  const clamps = reading([
+    line({ printed: 'CLAMP-V BAND 4"', partNumber: '90-0012', quantity: 2, lineTotal: 47.76 }),
+    line({ printed: 'CLAMP-V BAND 5"', partNumber: '90-0013', quantity: 2, lineTotal: 53.36 }),
+  ], { vendor: 'MHC Kenworth - El Paso', fees: [{ label: 'CC FEE', amount: 3.03 }], tax: 8.59, total: 112.74, forShop: false });
+  const r = read(clamps, { note: 'Shop inventory' });
+  assert.deepEqual(r.lines.map((l) => [l.kind, l.to, l.vehicleId]), [['supplies', 'shop', null], ['supplies', 'shop', null]]);
+  assert.equal(r.status, 'read');
+  // The reader saying so works too; and "para el taller".
+  assert.deepEqual(read(clamps, { note: null }).lines.map((l) => l.to), [null, null]);
+  assert.deepEqual(read({ ...clamps, forShop: true }).lines.map((l) => l.to), ['shop', 'shop']);
+  assert.deepEqual(read(clamps, { note: 'para el taller' }).lines.map((l) => l.to), ['shop', 'shop']);
+});
+
+test('3.1 a shop note with a truck in it is for that truck; stock-list parts and tools keep their place', () => {
+  const r = read(reading([line({ printed: 'HEADLAMP' })], { noteTrucks: ['T-24'] }), { note: 'shop T-24 headlamp' });
+  assert.deepEqual(r.lines.map((l) => [l.kind, l.vehicleId]), [['part', 'v24']]);
+  const mixed = read(reading([
+    line({ printed: 'DDE OIL FLTR A4711800209', partNumber: 'A4711800209', quantity: 2, lineTotal: 94.78, matchPartId: 'of5', matchSure: true }),
+    line({ printed: 'TORQUE WRENCH', kind: 'tool', lineTotal: 120 }),
+  ]), { note: 'shop inventory' });
+  assert.deepEqual(mixed.lines.map((l) => [l.kind, l.to]), [['stock', 'stock'], ['tool', 'shop']]);
+});

@@ -132,7 +132,11 @@ async function main() {
         done += 1;
         continue;
       }
-      const result = receiptFromReading(reading, parts, vehicles, { uploadedDate: r.date, trucks: r.trucks ?? [], others });
+      const result = receiptFromReading(reading, parts, vehicles, { uploadedDate: r.date, trucks: r.trucks ?? [], others, note: r.note });
+      // The decision, in order: legible, registration, inspection, receipt (shop or service).
+      const shop = result.lines.filter((l) => l.to === 'shop').length;
+      const stock = result.lines.filter((l) => l.to === 'stock').length;
+      console.log(`  0 legible: ${reading.readable ? 'yes' : 'no'} · 1 registration: no · 2 inspection: no · 3 receipt: ${result.lines.length} item(s) → shop ${shop}, stock ${stock}, service ${result.lines.length - shop - stock}`);
       const feeText = result.fees.length ? ` · fees ${result.fees.map((f) => `${f.label} ${f.amount}`).join(', ')}` : '';
       console.log(`  ${result.status}: ${result.vendor || 'no store'} ${result.invoiceNumber ?? ''} ${result.date} · ${result.lines.length} item(s) · tax ${result.tax ?? '-'}${feeText} · total ${result.total ?? '?'}${result.problems.length ? ` · ${result.problems.join('; ')}` : ''}`);
       const truckName = (id) => vehicles.find((v) => v.id === id)?.name ?? id;

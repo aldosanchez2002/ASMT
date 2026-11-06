@@ -12,11 +12,12 @@ const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
 export const RECEIPT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['readable', 'problem', 'document', 'paidWith', 'vendor', 'date', 'time', 'invoiceNumber', 'noteTrucks', 'lines', 'fees', 'tax', 'total'],
+  required: ['readable', 'problem', 'document', 'forShop', 'paidWith', 'vendor', 'date', 'time', 'invoiceNumber', 'noteTrucks', 'lines', 'fees', 'tax', 'total'],
   properties: {
     readable: { type: 'boolean', description: 'false if the photo is too blurry, dark or cut off to read the items and total' },
     problem: { ...nullable('string'), description: 'what is wrong with the photo, if anything' },
     document: { type: 'string', enum: ['receipt', 'registration', 'inspection'], description: '"registration" for a vehicle registration, cab card or registration renewal; "inspection" for an annual/DOT inspection report or sticker; otherwise "receipt"' },
+    forShop: { type: 'boolean', description: "true when the buyer's note says the whole purchase is for the shop (shop supplies, shop inventory, taller) and names no truck" },
     paidWith: { type: 'string', enum: ['receipt', 'cashapp', 'zelle', 'venmo', 'paypal', 'bank', 'other'], description: '"receipt" for a store receipt or invoice; otherwise the app or bank of a payment screenshot' },
     vendor: { ...nullable('string'), description: 'store name as printed' },
     date: { ...nullable('string'), description: 'purchase date, YYYY-MM-DD' },
@@ -60,16 +61,23 @@ export const RECEIPT_SCHEMA = {
   },
 };
 
-export const SYSTEM_PROMPT = `You read parts-store receipts for a trucking company's shop and sort every item.
+export const SYSTEM_PROMPT = `You read photos a trucking company's shop texts in, and sort them in this order.
 
-Read only what is printed. Never guess a price, quantity or part number; use null when something isn't there or can't be read. If the photo can't be read well enough to get the items and the total, set readable to false and say why in problem.
+0. Is the photo legible? Read only what is printed. Never guess a price, quantity or part number; use null when something isn't there or can't be read. If the photo can't be read well enough to get the items and the total, set readable to false, say why in problem, and stop.
+
+1. Is it a registration? A vehicle registration, cab card or registration renewal: set document to "registration" (it is read again as that paper).
+2. Is it an inspection? An annual/DOT inspection report or sticker: set document to "inspection" (it is read again as that paper).
+3. Otherwise it is a receipt: document is "receipt". Read every item, then answer two questions:
+
+3.1 Is it shared by the shop? Set forShop to true when the buyer's note says the purchase is for the shop ("shop", "shop supplies", "for the shop", "inventory", "taller", "inventario", "para el taller") and names no truck. Everything on such a receipt is a shop cost, whatever the items are. Items that are shop costs by nature are shared too, on any receipt: supplies (cleaners, degreaser, rags, gloves, grease, shop towels, zip ties) and tools or shop equipment.
+3.2 Is it for a specific service? Everything else is for a truck or trailer's service: set truck when something says which (below); if nothing says, leave it null and it's matched to the work later.
 
 Each item gets a kind:
-- part: a part for a truck or trailer (filters, brake drums, sensors, lights, hoses, tires, batteries, oil).
+- part: a part for a truck or trailer (filters, brake drums, sensors, lights, hoses, tires, batteries, oil, clamps).
 - labor: labor or a service done by the store or another shop.
 - core: a core charge or core deposit.
 - fee: a charge that comes with an item, like a state battery fee, a tire fee, or a disposal or recycling fee for a part. It goes with that item (and its truck).
-- supplies: shop supplies used up across the fleet (cleaners, degreaser, rags, gloves, grease, shop towels, zip ties).
+- supplies: shop supplies used up across the fleet.
 - tool: a tool or shop equipment.
 - credit: a return or credit (negative amount).
 Charges for the whole receipt (card fees, surcharges, shipping, freight, shop fees) are not items: put them in fees, with the amount as printed. Do not list subtotal, tax or total lines as items or fees.
@@ -82,9 +90,7 @@ Which truck each item is for: one receipt often has parts for several trucks. Se
 - printed: the receipt prints a unit number, truck ID or VIN for the item (or for the whole receipt).
 - handwritten: a truck number is written by hand next to the item (or across the whole receipt).
 - note: the buyer's note ties it to a truck. A note naming one truck and nothing else means every item is for that truck. A note like "28 drums, 31 headlight" ties items by what they are. Bare numbers in a note are truck numbers (28 = T-28).
-List every truck the note mentions in noteTrucks. If nothing says which truck an item is for, leave truck null: it's matched to the work later.
-
-Papers that aren't receipts: if the photo is a vehicle registration (or a cab card or registration renewal) or an annual/DOT inspection report or sticker, set document to "registration" or "inspection" (it is read again as that paper); otherwise document is "receipt".
+List every truck the note mentions in noteTrucks.
 
 Payment screenshots: sometimes the photo is not a store receipt but a screenshot of a payment (Cash App, Zelle, Venmo, PayPal, a bank transfer). Then set paidWith to that app (or "bank"), the vendor to who was paid, the date to the payment date, and the total to the amount paid. The items come from the buyer's note ("starter T-31" is one line: printed "Starter", quantity 1, lineTotal the amount paid, the truck from the note); with no note, make one line printed "Payment" for the amount. A payment screenshot has no tax or fees. For a store receipt, paidWith is "receipt".`;
 
@@ -102,6 +108,8 @@ export function contextText(parts, vehicles, note = null, memory = '') {
 }
 
 const round2 = (n) => Math.round(n * 100) / 100;
+// A note saying the purchase is for the shop.
+export const shopNote = (note) => /(?<![\p{L}\d])(shop|taller|inventory|inventario|supplies|suministros)(?![\p{L}\d])/iu.test(note ?? '');
 const newLineId = () => Math.random().toString(36).slice(2, 10);
 const invoiceKey = (n) => String(n ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
@@ -121,12 +129,14 @@ const invoiceKey = (n) => String(n ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''
  *   (as printed, HH:MM, or null), invoiceNumber, lines, fees, feesTotal,
  *   tax, total, problems }
  */
-export function receiptFromReading(reading, parts, vehicles, { uploadedDate, trucks = [], others = [], newId = newLineId } = {}) {
+export function receiptFromReading(reading, parts, vehicles, { uploadedDate, trucks = [], others = [], note = null, newId = newLineId } = {}) {
   const partById = new Map(parts.map((p) => [p.id, p]));
   const truckByName = new Map(vehicles.map((v) => [String(v.name ?? '').toUpperCase(), v]));
   const truckNamed = (name) => truckByName.get(String(name ?? '').toUpperCase()) ?? null;
   // The trucks the note named, by the Function or by the reader.
   const noted = [...new Set([...trucks, ...(reading.noteTrucks ?? [])].map(truckNamed).filter(Boolean))];
+  // 3.1 Shared by the shop: the note says so ("shop inventory", "para el taller") and names no truck.
+  const forShop = !noted.length && (reading.forShop === true || shopNote(note));
   // A receipt can't be from after its upload: a later date is a misread.
   const misdated = Boolean(reading.date && uploadedDate && reading.date > uploadedDate);
   const time = !misdated && /^([01]\d|2[0-3]):[0-5]\d$/.test(reading.time ?? '') ? reading.time : null;
@@ -146,7 +156,10 @@ export function receiptFromReading(reading, parts, vehicles, { uploadedDate, tru
     if (sure && part.unit === 'gal' && !(l.stockQuantity > 0)) flags.push('quantity');
     if (price == null) flags.push('noPrice');
     const counts = sure && !flags.includes('quantity');
-    const kind = counts ? 'stock' : l.kind === 'credit' || (price != null && price < 0) ? 'credit' : l.kind;
+    const read = counts ? 'stock' : l.kind === 'credit' || (price != null && price < 0) ? 'credit' : l.kind;
+    // A shop purchase: every item is a shop cost (tools stay tools, spread if big). Stock-list parts stay
+    // on the shelf, where the services that use them take them.
+    const kind = forShop && !counts && read !== 'credit' && read !== 'tool' ? 'supplies' : read;
     const pool = POOL_KINDS.includes(kind) && !(part && !counts);
     return {
       id: newId(),
