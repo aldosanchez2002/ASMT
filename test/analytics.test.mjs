@@ -118,19 +118,21 @@ test('dashboard: the trend is months; a month or a short range shows the 12 mont
 });
 
 test('dashboard: spending by what it went to, the shop\'s only fleet-wide and when included', () => {
-  const log = [{ id: 'r', type: 'repair', date: '2026-10-02' }, { id: 's', type: 'service', date: '2026-10-03' }];
+  // Maintenance is work that reset a schedule item; a tire change that didn't is a repair.
+  const log = [{ id: 'r', type: 'repair', date: '2026-10-02' }, { id: 's', type: 'service', date: '2026-10-03', services: ['pm__oil'] }, { id: 't', type: 'tires', date: '2026-10-03' }];
   const events = [
     { kind: 'parts', unitId: 'v1', date: '2026-10-02', amount: 100, logId: 'r' },
     { kind: 'parts', unitId: 'v2', date: '2026-10-03', amount: 60, logId: 's' },
     { kind: 'parts', unitId: 'v1', date: '2026-10-04', amount: 85.5, paperwork: true },
     { kind: 'parts', unitId: 'v1', date: '2026-10-05', amount: 20 },
+    { kind: 'parts', unitId: 'v2', date: '2026-10-03', amount: 10, logId: 't' },
     { kind: 'supplies', unitId: null, date: '2026-10-05', amount: 40 },
     { kind: 'tools', unitId: null, date: '2026-10-05', amount: 300 },
     { kind: 'open', unitId: null, date: '2026-10-05', amount: 999 },
     { kind: 'parts', unitId: 'v1', date: '2026-09-30', amount: 500, logId: 'r' },
   ];
   const range = { events, log, from: '2026-10-01', to: '2026-10-31' };
-  assert.deepEqual(spendByKind(range).map((x) => [x.label, x.amount]), [['Shop supplies', 340], ['Repairs', 120], ['Inspection & registrations', 85.5], ['Maintenance', 60]]);
+  assert.deepEqual(spendByKind(range).map((x) => [x.label, x.amount]), [['Shop supplies', 340], ['Repairs', 130], ['Inspection & registrations', 85.5], ['Maintenance', 60]]);
   assert.deepEqual(spendByKind({ ...range, includeShop: false }).map((x) => x.key), ['repair', 'paperwork', 'maintenance']);
   assert.deepEqual(spendByKind({ ...range, unitId: 'v1' }).map((x) => [x.key, x.amount]), [['repair', 120], ['paperwork', 85.5]]);
   const open = unmatchedItems(events, '2026-10-01', '2026-10-31');

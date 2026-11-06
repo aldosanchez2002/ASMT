@@ -2,6 +2,8 @@
 // week by week — what it cost, how far it drove, what work it had. Plain ES module, no
 // dependencies, shared by the website and the tests.
 
+import { visitServices } from './maintenance.js';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const round2 = (n) => Math.round(n * 100) / 100;
 const iso = (d) => d.toISOString().slice(0, 10);
@@ -192,12 +194,12 @@ export function trendMonths({ grain, periods, to }) {
 }
 
 // What the money went to, in the order they're listed when tied:
-// maintenance (services, tires, batteries), repairs (and parts tied to no
-// logged work), the shop's supplies and tools, and paperwork fees.
+// maintenance (work that reset a maintenance schedule item, the miles
+// reminders), repairs (every other job, and parts tied to no logged work),
+// the shop's supplies and tools, and paperwork fees.
 export const SPEND_KINDS = [
   ['maintenance', 'Maintenance'], ['repair', 'Repairs'], ['shop', 'Shop supplies'], ['paperwork', 'Inspection & registrations'],
 ];
-const KIND_OF_WORK = { service: 'maintenance', tires: 'maintenance', batteries: 'maintenance', repair: 'repair' };
 
 /**
  * Spending in [from, to] by what it went to: each unit cost by the kind of
@@ -214,7 +216,7 @@ export function spendByKind({ events, log, from, to, unitId, includeShop = true 
     if (!ev.date || ev.date < from || ev.date > to) continue;
     if (ev.kind === 'parts' && (unitId === undefined ? ev.unitId : ev.unitId === unitId)) {
       const entry = ev.logId ? byId.get(ev.logId) : null;
-      add(ev.paperwork ? 'paperwork' : KIND_OF_WORK[entry && workKind(entry)] ?? 'repair', ev.amount);
+      add(ev.paperwork ? 'paperwork' : entry && visitServices(entry).length ? 'maintenance' : 'repair', ev.amount);
     } else if (unitId === undefined && includeShop && !ev.unitId && (ev.kind === 'supplies' || ev.kind === 'tools')) add('shop', ev.amount);
   }
   const order = SPEND_KINDS.map(([k]) => k);
