@@ -122,6 +122,16 @@ async function main() {
         continue;
       }
       const reading = await readPhoto(client, photo, contextText(parts, vehicles, r.note, memory));
+      // A registration or inspection sent without saying so: read it again as that paper.
+      if (reading.document === 'registration' || reading.document === 'inspection') {
+        console.log(`  this is a ${reading.document}, not a receipt`);
+        const paper = { ...r, docType: reading.document };
+        const { receipt, writes } = await readPaperwork(client, paper, photo, units ??= await paperworkUnits(vehicles));
+        if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...receipt, docType: reading.document, readAt: new Date().toISOString(), readError: null }), ...writes]);
+        if (!dryRun) await replyToSender(paper, paperworkReplyText(receipt));
+        done += 1;
+        continue;
+      }
       const result = receiptFromReading(reading, parts, vehicles, { uploadedDate: r.date, trucks: r.trucks ?? [], others });
       const feeText = result.fees.length ? ` · fees ${result.fees.map((f) => `${f.label} ${f.amount}`).join(', ')}` : '';
       console.log(`  ${result.status}: ${result.vendor || 'no store'} ${result.invoiceNumber ?? ''} ${result.date} · ${result.lines.length} item(s) · tax ${result.tax ?? '-'}${feeText} · total ${result.total ?? '?'}${result.problems.length ? ` · ${result.problems.join('; ')}` : ''}`);

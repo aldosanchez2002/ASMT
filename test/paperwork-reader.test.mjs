@@ -53,3 +53,14 @@ test('the VIN or plate finds the unit when the note doesn\'t; doubts go to the o
   const blurry = paperworkFromReading(reading({ readable: false, problem: 'Too dark', expires: null }), units, { note: '54231 registration', newId });
   assert.deepEqual([blurry.change, blurry.receipt.problems], [null, ['Too dark']]);
 });
+
+test('with no note, the unit number written on the paper finds the unit ("TR 54264")', () => {
+  const units2 = [...units, { id: 't54264', name: '54264', unitType: 'trailer', vin: '1GRAA062X5J606374', plate: '096C699' }];
+  const r = reading({ kind: 'inspection', unitNumber: 'TR 54264', vin: '1GRAA062X5J606374', plate: '096C699', state: 'TX', inspectedOn: '2026-11-04', expires: '2027-11-30', fee: 40 });
+  const { change, receipt } = paperworkFromReading(r, units2, { note: null, newId });
+  assert.deepEqual([change.unitId, change.fields, receipt.lines[0].cost], ['t54264', { inspectionExpires: '2027-11-30' }, 40]);
+  // An FHWA form: "Trailer/Chassis Number 4002", inspected Sep 8, no next date printed.
+  const units3 = [...units, { id: 't4002', name: '4002', unitType: 'trailer', vin: '1JJV532W27L008501', plate: 'CU2673' }];
+  const fhwa = paperworkFromReading(reading({ kind: 'inspection', unitNumber: '4002', vin: '1JJV532W27L008501', plate: 'CU-2673', inspectedOn: '2026-09-08', expires: null, fee: null }), units3, { newId });
+  assert.deepEqual([fhwa.change.unitId, fhwa.change.fields], ['t4002', { inspectionExpires: '2027-09-30' }]);
+});

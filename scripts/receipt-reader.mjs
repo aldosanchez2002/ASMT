@@ -12,10 +12,11 @@ const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
 export const RECEIPT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['readable', 'problem', 'paidWith', 'vendor', 'date', 'time', 'invoiceNumber', 'noteTrucks', 'lines', 'fees', 'tax', 'total'],
+  required: ['readable', 'problem', 'document', 'paidWith', 'vendor', 'date', 'time', 'invoiceNumber', 'noteTrucks', 'lines', 'fees', 'tax', 'total'],
   properties: {
     readable: { type: 'boolean', description: 'false if the photo is too blurry, dark or cut off to read the items and total' },
     problem: { ...nullable('string'), description: 'what is wrong with the photo, if anything' },
+    document: { type: 'string', enum: ['receipt', 'registration', 'inspection'], description: '"registration" for a vehicle registration, cab card or registration renewal; "inspection" for an annual/DOT inspection report or sticker; otherwise "receipt"' },
     paidWith: { type: 'string', enum: ['receipt', 'cashapp', 'zelle', 'venmo', 'paypal', 'bank', 'other'], description: '"receipt" for a store receipt or invoice; otherwise the app or bank of a payment screenshot' },
     vendor: { ...nullable('string'), description: 'store name as printed' },
     date: { ...nullable('string'), description: 'purchase date, YYYY-MM-DD' },
@@ -82,6 +83,8 @@ Which truck each item is for: one receipt often has parts for several trucks. Se
 - handwritten: a truck number is written by hand next to the item (or across the whole receipt).
 - note: the buyer's note ties it to a truck. A note naming one truck and nothing else means every item is for that truck. A note like "28 drums, 31 headlight" ties items by what they are. Bare numbers in a note are truck numbers (28 = T-28).
 List every truck the note mentions in noteTrucks. If nothing says which truck an item is for, leave truck null: it's matched to the work later.
+
+Papers that aren't receipts: if the photo is a vehicle registration (or a cab card or registration renewal) or an annual/DOT inspection report or sticker, set document to "registration" or "inspection" (it is read again as that paper); otherwise document is "receipt".
 
 Payment screenshots: sometimes the photo is not a store receipt but a screenshot of a payment (Cash App, Zelle, Venmo, PayPal, a bank transfer). Then set paidWith to that app (or "bank"), the vendor to who was paid, the date to the payment date, and the total to the amount paid. The items come from the buyer's note ("starter T-31" is one line: printed "Starter", quantity 1, lineTotal the amount paid, the truck from the note); with no note, make one line printed "Payment" for the amount. A payment screenshot has no tax or fees. For a store receipt, paidWith is "receipt".`;
 

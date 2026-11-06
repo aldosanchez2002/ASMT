@@ -184,4 +184,4 @@ inspection (inspección), with the unit ("54231 registration", "T-24
 inspection"), is saved with `docType` and answered "Got the registration for
 54231." The reader reads it as paperwork (`scripts/paperwork-reader.mjs`),
 updates `compliance/{unitId}` (dates, plate, state, and a `history` entry),
-adds the fee as that unit's cost, and texts back what was read.
+adds the fee as that unit's cost, and texts back what was read. A paper sent with no text is recognized by the receipt reader (`document` in its answer) and read again as paperwork; the unit comes from the number written on the paper ("TR 54264"), its VIN or its plate.

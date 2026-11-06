@@ -17,7 +17,7 @@ export const PAPERWORK_SCHEMA = {
     readable: { type: 'boolean', description: 'false if the paper is too blurry, dark or cut off to read its dates' },
     problem: { ...nullable('string'), description: 'what is wrong with the photo, if anything' },
     kind: { type: 'string', enum: ['registration', 'inspection', 'other'], description: 'a registration, cab card or registration receipt; an annual (DOT) inspection report or sticker; or something else' },
-    unitNumber: { ...nullable('string'), description: 'the unit or fleet number printed on the paper, if any' },
+    unitNumber: { ...nullable('string'), description: 'the unit, trailer or fleet number printed or handwritten on the paper (like "TR 54264" or "Trailer/Chassis Number 4002"), if any' },
     vin: { ...nullable('string'), description: 'the VIN as printed (17 characters)' },
     plate: { ...nullable('string'), description: 'the license plate as printed' },
     state: { ...nullable('string'), description: 'the two-letter state of the registration or plate' },
@@ -69,7 +69,7 @@ export function unitFromNote(note, units) {
 /**
  * Claude's reading -> what's saved on the receipt, plus the compliance
  * change. The unit is the one the note names; if the note names none, the
- * VIN or plate on the paper. A paper for a different VIN than the unit's is
+ * unit number written on the paper, then its VIN or plate. A paper for a different VIN than the unit's is
  * flagged. With no fee there's no cost line.
  * @param units [{ id, name, unitType: 'truck'|'trailer', vin, plate }]
  * @returns { receipt: { status, vendor, date, total, lines, problems, paperwork }, change: null | { unitId, fields, entry } }
@@ -79,9 +79,11 @@ export function paperworkFromReading(reading, units, { note = null, docType = nu
   const problems = [];
   if (!reading.readable) problems.push(reading.problem || 'The paper could not be read');
   const byNote = unitFromNote(note, units);
+  // A unit number on the paper itself ("TR 54264" written at the top).
+  const byPaper = unitFromNote(reading.unitNumber, units);
   const byVin = reading.vin ? units.find((u) => u.vin && clean(u.vin) === clean(reading.vin)) : null;
   const byPlate = reading.plate ? units.find((u) => u.plate && clean(u.plate) === clean(reading.plate)) : null;
-  const unit = byNote ?? byVin ?? byPlate ?? null;
+  const unit = byNote ?? byPaper ?? byVin ?? byPlate ?? null;
   if (!unit) problems.push('Which truck or trailer this paper is for is not clear');
   if (unit && byVin && byVin.id !== unit.id) problems.push(`The VIN on the paper is ${byVin.name}'s, not ${unit.name}'s`);
   if (kind !== 'registration' && kind !== 'inspection') problems.push('This is not a registration or an inspection');
