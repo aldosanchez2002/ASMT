@@ -3025,7 +3025,10 @@ function aiNotesBox() {
 const AN_MODES = ['month', 'year', 'range', 'all'];
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const AN_KEY = 'aslog.analytics';
+// Every visit opens on the whole fleet, all time; the truck, dates and
+// toggle picked last time are kept for when they're chosen again.
 let anSettings = (() => { try { return JSON.parse(localStorage.getItem(AN_KEY)) ?? {}; } catch { return {}; } })();
+anSettings = { ...anSettings, scope: 'fleet', mode: 'all' };
 const anDays = {}; // vehicleId -> odometerDaily days ({} when none)
 const anLoading = new Set();
 let anOpenPeriod = null; // the period card shown open
@@ -3092,7 +3095,7 @@ const anPeriodName = (p, view) => (view === 'week'
 const workText = (r) => [r.service && plural(r.service, 'service'), r.repair && plural(r.repair, 'repair'), r.tires && `${fmt.format(r.tires)} tire change${r.tires === 1 ? '' : 's'}`, r.batteries && `${fmt.format(r.batteries)} battery change${r.batteries === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || 'No work logged';
 const costText = (r) => [
   `Parts ${money(r.parts)}`,
-  r.shop ? `fleet-wide ${money(r.shop)}${anSettings.excludeShare ? ' (left out)' : ''}` : null,
+  r.shop ? `fleet-wide ${money(r.shop)}` : null,
   r.shopShare ? `fleet-wide share ${money(r.shopShare)}` : null,
   r.unpriced ? `${fmt.format(r.unpriced)} with no receipt yet` : null,
 ].filter(Boolean).join(' · ');
@@ -3142,7 +3145,9 @@ function renderAnalytics() {
     return;
   }
   const range = { from: periods[0].from, to: periods.at(-1).to };
-  const includeShop = !anSettings.excludeShare;
+  // The fleet's costs always include the fleet-wide ones; a truck's share of
+  // them can be left out.
+  const includeShop = fleet || !anSettings.excludeShare;
   const months = trendMonths({ grain, periods, to: range.to });
   // Cards and chart columns are the same periods when the dates are months.
   const sameAsCards = months === periods;
@@ -3164,7 +3169,6 @@ function renderAnalytics() {
     const unitsPanel = el('section', 'an-panel');
     unitsPanel.append(...anFleetUnits(byUnit, loading));
     body.replaceChildren(
-      anShareToggle(true, trucks.length),
       anTiles(totals, null, { loading, open }),
       anGrid(pie, kinds),
       anTrend(trend, { range, includeShop, fleet: true, clickable: sameAsCards }),
@@ -3196,7 +3200,7 @@ function renderAnalytics() {
   if (totals.shopShare) kindRows.push({ key: 'share', label: 'Share of fleet-wide', amount: totals.shopShare });
   kindRows.sort((a, b) => b.amount - a.amount);
   body.replaceChildren(
-    anShareToggle(false, trucks.length, unit.trailer),
+    anShareToggle(trucks.length, unit.trailer),
     anTiles(totals, unit),
     anGrid(anTrend(trend, { range, includeShop: share, fleet: false, clickable: sameAsCards }), anKinds(kindRows)),
     ...anReceipts(unit, range, events),
@@ -3216,14 +3220,14 @@ function anTrackedPerMile(totals, rows, events) {
   totals.perMileSince = tracked[0]?.from ?? first;
 }
 
-// Fleet-wide costs (shop supplies and tools) count unless this is checked:
-// in the fleet's totals, and as an even share in each truck's.
-function anShareToggle(fleet, truckCount, hidden = false) {
+// A truck's even share of the fleet-wide costs (shop supplies and tools)
+// counts unless this is checked. (The whole fleet always counts them.)
+function anShareToggle(truckCount, hidden = false) {
   const label = el('label', 'an-share');
   const box = Object.assign(el('input'), { type: 'checkbox', id: 'an-exclude-share', checked: Boolean(anSettings.excludeShare) });
   box.addEventListener('change', () => saveAnSettings({ excludeShare: box.checked }));
   label.append(box, el('span', null, 'Exclude share of fleet-wide expenses'),
-    el('span', 'an-share-note', fleet ? 'Shop supplies and tools' : `Shop supplies and tools ÷ ${fmt.format(truckCount)} trucks`));
+    el('span', 'an-share-note', `Shop supplies and tools ÷ ${fmt.format(truckCount)} trucks`));
   label.hidden = hidden;
   return label;
 }
@@ -3440,9 +3444,10 @@ function anFleetUnits(byUnit, loading) {
   return out;
 }
 
-// The date choice, with defaults: this month, this year, the last 90 days.
+// The date choice, with defaults: all time; for the others, this month,
+// this year, the last 90 days.
 function anChoice(today) {
-  const mode = AN_MODES.includes(anSettings.mode) ? anSettings.mode : 'month';
+  const mode = AN_MODES.includes(anSettings.mode) ? anSettings.mode : 'all';
   return {
     mode,
     month: /^\d{4}-\d{2}$/.test(anSettings.month ?? '') ? anSettings.month : today.slice(0, 7),
