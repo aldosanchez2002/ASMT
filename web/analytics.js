@@ -191,11 +191,13 @@ export function trendMonths({ grain, periods, to }) {
   return monthPeriods(iso(new Date(Date.UTC(y, m - 12, 1, 12))), to);
 }
 
-// What the money went to, in the order they're listed when tied.
+// What the money went to, in the order they're listed when tied:
+// maintenance (services, tires, batteries), repairs (and parts tied to no
+// logged work), the shop's supplies and tools, and paperwork fees.
 export const SPEND_KINDS = [
-  ['repair', 'Repairs'], ['service', 'Services'], ['tires', 'Tires'], ['batteries', 'Batteries'],
-  ['paperwork', 'Registration & inspection'], ['other', 'Other parts'], ['supplies', 'Shop supplies'], ['tools', 'Tools'],
+  ['maintenance', 'Maintenance'], ['repair', 'Repairs'], ['shop', 'Shop supplies'], ['paperwork', 'Inspection & registrations'],
 ];
+const KIND_OF_WORK = { service: 'maintenance', tires: 'maintenance', batteries: 'maintenance', repair: 'repair' };
 
 /**
  * Spending in [from, to] by what it went to: each unit cost by the kind of
@@ -212,8 +214,8 @@ export function spendByKind({ events, log, from, to, unitId, includeShop = true 
     if (!ev.date || ev.date < from || ev.date > to) continue;
     if (ev.kind === 'parts' && (unitId === undefined ? ev.unitId : ev.unitId === unitId)) {
       const entry = ev.logId ? byId.get(ev.logId) : null;
-      add(ev.paperwork ? 'paperwork' : (entry && workKind(entry)) || 'other', ev.amount);
-    } else if (unitId === undefined && includeShop && !ev.unitId && (ev.kind === 'supplies' || ev.kind === 'tools')) add(ev.kind, ev.amount);
+      add(ev.paperwork ? 'paperwork' : KIND_OF_WORK[entry && workKind(entry)] ?? 'repair', ev.amount);
+    } else if (unitId === undefined && includeShop && !ev.unitId && (ev.kind === 'supplies' || ev.kind === 'tools')) add('shop', ev.amount);
   }
   const order = SPEND_KINDS.map(([k]) => k);
   return SPEND_KINDS.map(([key, label]) => ({ key, label, amount: sums.get(key) ?? 0 }))

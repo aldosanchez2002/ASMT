@@ -130,9 +130,9 @@ test('dashboard: spending by what it went to, the shop\'s only fleet-wide and wh
     { kind: 'parts', unitId: 'v1', date: '2026-09-30', amount: 500, logId: 'r' },
   ];
   const range = { events, log, from: '2026-10-01', to: '2026-10-31' };
-  assert.deepEqual(spendByKind(range).map((x) => [x.key, x.amount]), [['tools', 300], ['repair', 100], ['paperwork', 85.5], ['service', 60], ['supplies', 40], ['other', 20]]);
-  assert.deepEqual(spendByKind({ ...range, includeShop: false }).map((x) => x.key), ['repair', 'paperwork', 'service', 'other']);
-  assert.deepEqual(spendByKind({ ...range, unitId: 'v1' }).map((x) => [x.key, x.amount]), [['repair', 100], ['paperwork', 85.5], ['other', 20]]);
+  assert.deepEqual(spendByKind(range).map((x) => [x.label, x.amount]), [['Shop supplies', 340], ['Repairs', 120], ['Inspection & registrations', 85.5], ['Maintenance', 60]]);
+  assert.deepEqual(spendByKind({ ...range, includeShop: false }).map((x) => x.key), ['repair', 'paperwork', 'maintenance']);
+  assert.deepEqual(spendByKind({ ...range, unitId: 'v1' }).map((x) => [x.key, x.amount]), [['repair', 120], ['paperwork', 85.5]]);
   const open = unmatchedItems(events, '2026-10-01', '2026-10-31');
   assert.deepEqual([open.total, open.count], [999, 1]);
 });
