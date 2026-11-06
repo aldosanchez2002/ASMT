@@ -1,8 +1,8 @@
 // Ties what was bought to the work it went into. Run by the "Read receipts"
 // GitHub Action right after the receipts are read, in two passes:
-//   1. Rules (no AI): what the work log says it used (oil, filters, tires,
-//      batteries) comes out of the oldest batch of that part (ruleUses in
-//      web/items.js).
+//   1. Rules (no AI): what the work log says it used comes out of the
+//      oldest batch of that part (ruleUses in web/items.js), and each tire
+//      change takes the oldest unassigned tires bought by that day (tireUses).
 //   2. Claude: repair parts, labor and cores are matched to the repairs they
 //      were used in. Sure ones count right away, the rest wait for admin.
 // Each tie is an itemUses doc. It first asks Firestore whether anything new
@@ -19,7 +19,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { commit, getDoc, listDocs, mergeWrite, queryDocs, setWrite } from './firestore-rest.mjs';
 import { memoryText } from './ai-memory.mjs';
 import { MATCH_PROMPT, MATCH_SCHEMA, candidateRepairs, matchContext, matchSignature, usesFromAnswer } from './item-matcher.mjs';
-import { openItems, receiptItems, ruleUses, workEntries } from '../web/items.js';
+import { openItems, receiptItems, ruleUses, tireUses, workEntries } from '../web/items.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const daysAgo = (n) => new Date(Date.now() - n * DAY_MS);
@@ -99,12 +99,22 @@ async function main() {
     return setWrite(`itemUses/${id}`, { ...u, id }, 'createdAt');
   });
   uses.push(...rule);
+  // Tires go to the tire changes, the oldest bought first (the unit number on
+  // a tire receipt is ignored).
+  const tires = tireUses({ receipts, uses, log });
+  for (const u of tires) console.log(`  TIRE ${u.vehicleName ?? u.vehicleId}: ${u.qty} tire(s) from receipt ${u.receiptId}`);
+  console.log(`${tires.length} use(s) of tires by rule.`);
+  for (const u of tires) {
+    const id = newId();
+    ruleWrites.push(setWrite(`itemUses/${id}`, { ...u, id }, 'createdAt'));
+  }
+  uses.push(...tires);
   // Remember this check (with the rule uses), so the next run only looks for what's newer.
   const markChecked = (fields = {}) => (dryRun ? null : commit([...ruleWrites, mergeWrite('meta/matcher', { checkedAt: startedAt, ...fields })]));
 
-  // Pass 2: Claude, for repair parts, labor and cores.
+  // Pass 2: Claude, for repair parts, labor and cores (tires wait for their tire change).
   const allItems = receiptItems(receipts);
-  const open = openItems(allItems, uses, { today });
+  const open = openItems(allItems, uses, { today }).filter((it) => !it.tire);
   const repairs = candidateRepairs(open, workEntries(log, { today, days: 90 }));
   console.log(`${open.length} item(s) not tied to work, ${repairs.length} repair(s) they could be from.`);
   if (!open.length || !repairs.length) {
@@ -139,7 +149,7 @@ async function main() {
   })];
   // What's left open after these matches: the next run skips Claude unless
   // something new comes in (a receipt, a repair, admin freeing an item).
-  const after = openItems(allItems, [...uses, ...found], { today });
+  const after = openItems(allItems, [...uses, ...found], { today }).filter((it) => !it.tire);
   const afterSignature = matchSignature(after, candidateRepairs(after, workEntries(log, { today, days: 90 })), today);
   writes.push(mergeWrite('meta/matcher', { signature: afterSignature, lastRun: new Date().toISOString(), checkedAt: startedAt }));
   await commit(writes);

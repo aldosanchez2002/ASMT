@@ -4,7 +4,7 @@
 // go to the pool for the matcher), works out each line's real cost with its
 // share of tax and fees, and checks the math. No network here, so it's tested.
 
-import { POOL_KINDS, SHOP_KINDS, landedCosts } from '../web/items.js';
+import { POOL_KINDS, SHOP_KINDS, isTireText, landedCosts, mountedHere } from '../web/items.js';
 
 const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
 
@@ -138,8 +138,15 @@ export function receiptFromReading(reading, parts, vehicles, { uploadedDate, tru
   if (!reading.readable) {
     return { ...base, status: 'unreadable', lines: [], fees: [], feesTotal: 0, tax: null, total: null, problems: [reading.problem || 'The photo could not be read'] };
   }
+  // Tires: the unit number on the receipt or in the note is one the buyer
+  // gave the store before knowing which unit gets them, so it's ignored and
+  // the tire is tied to its tire change when that's logged. Unless the
+  // receipt charges for mounting or a road call: then it went on right there.
+  const mounted = mountedHere(reading.lines);
   const lines = reading.lines.map((l) => {
-    const truck = truckNamed(l.truck) ?? (noted.length === 1 ? noted[0] : null);
+    const named = truckNamed(l.truck) ?? (noted.length === 1 ? noted[0] : null);
+    const tire = l.kind === 'part' && !forShop && isTireText(l.printed) && !mounted;
+    const truck = tire ? null : named;
     const price = l.lineTotal ?? (l.unitPrice != null ? round2(l.unitPrice * l.quantity) : null);
     const flags = price == null ? ['noPrice'] : [];
     // Fluids bought in bulk (oil, coolant, DEF, grease) are shop supplies, split across the fleet.
@@ -160,7 +167,8 @@ export function receiptFromReading(reading, parts, vehicles, { uploadedDate, tru
       vehicleId: truck && (pool || kind === 'credit') ? truck.id : null,
       for: null,
       truckFrom: truck && !SHOP_KINDS.includes(kind) ? (truckNamed(l.truck) ? l.truckSource ?? null : 'note') : null,
-      truckChoices: !truck && noted.length > 1 && pool ? noted.map((v) => v.id) : null,
+      truckChoices: !truck && !tire && noted.length > 1 && pool ? noted.map((v) => v.id) : null,
+      ...(tire ? { tire: true, unitOnReceipt: named?.name ?? (l.truck || null) } : {}),
       flags,
     };
   });

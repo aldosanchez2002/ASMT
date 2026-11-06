@@ -2465,7 +2465,7 @@ function openLinesBox(r) {
   box.append(el('div', 'open-lines-title', `${t('openLinesTitle')} · ${open.length}`));
   for (const x of open) {
     const row = el('div', `open-line open-${x.why}`);
-    row.append(el('strong', null, x.text || t('receipt')), el('span', null, t('openWhy')[x.why]));
+    row.append(el('strong', null, x.text || t('receipt')), el('span', null, [t('openWhy')[x.why], x.unitOnReceipt ? t('unitOnReceipt', x.unitOnReceipt) : null].filter(Boolean).join(' · ')));
     box.append(row);
   }
   return [box];
@@ -4492,6 +4492,7 @@ function openReceipt(id) {
           flags: placed ? [] : l.flags ?? [],
           suggestedPart: placed ? null : l.suggestedPart ?? null,
           truckChoices: placed ? null : l.truckChoices ?? null,
+          ...(l.tire != null ? { tire: l.tire, unitOnReceipt: l.unitOnReceipt ?? null } : {}),
         };
       }),
       // Still waiting for a person while any read line has nowhere to go.

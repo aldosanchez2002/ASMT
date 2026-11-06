@@ -132,7 +132,8 @@ export function addOnLinks(r) {
 /**
  * Every non-stock line of the receipts that have been read, as items.
  * @returns [{ key, receiptId, lineId, text, partNumber, kind, qty, cost,
- *   unitCost, date, vendor, vehicleId, truckChoices, note }]
+ *   unitCost, date, vendor, vehicleId, truckChoices, note }] (an unassigned
+ *   tire also has tire: true, tireType and unitOnReceipt)
  */
 export function receiptItems(receipts) {
   const out = [];
@@ -147,11 +148,14 @@ export function receiptItems(receipts) {
       const qty = Number(l.qty) > 0 ? Number(l.qty) : 1;
       const base = l.cost ?? (l.price == null || l.price === '' ? null : Number(l.price));
       const cost = base == null ? null : round2(base + (cores.extra.get(lineId) ?? 0));
+      const assigned = l.to === 'truck' && l.vehicleId;
+      const tire = kind === 'part' && !assigned && (l.tire === true || (l.tire !== false && isTireText(l.text)));
       out.push({
         key: itemKey(r.id, lineId), receiptId: r.id, lineId, text: l.text ?? '', partNumber: l.partNumber ?? null,
         kind, qty, cost, unitCost: cost == null ? null : cost / qty, date: r.date ?? null, vendor: r.vendor ?? '',
         vehicleId: l.to === 'truck' ? l.vehicleId ?? null : null, truckChoices: l.truckChoices ?? null, note: r.note ?? null, assetType: l.assetType ?? null,
         noReceipt: Boolean(r.noReceipt),
+        ...(tire ? { tire: true, tireType: tireType(l.text), unitOnReceipt: l.unitOnReceipt ?? null } : {}),
       });
     });
   }
@@ -159,6 +163,69 @@ export function receiptItems(receipts) {
 }
 
 const isRead = (r) => r.status !== 'waiting' && r.status !== 'unreadable' && r.status !== 'error';
+
+// ---- Tires ---------------------------------------------------------------
+// Tires are usually bought before anyone knows which unit gets them, so the
+// unit number on a tire receipt is one the buyer made up for the store. It's
+// ignored: tires wait unassigned (parts on hand) until a tire change is
+// logged, and then the oldest tires bought by that day go to it (tireUses).
+// A receipt that also charges for mounting or a road call is the exception:
+// the tire went on that unit right there.
+const TIRE_WORD = /(?<![\p{L}\d])(tires?|tyres?|llantas?|neum[aá]ticos?)(?![\p{L}\d])/iu;
+const TIRE_SIZE = /(?<![\d.])(\d{3}\/\d{2}\s?r\s?\d{2}(\.5)?|\d{2}\s?r\s?\d{2}\.5)(?![\d])/i;
+const NOT_A_TIRE = /(?<![\p{L}\d])(fees?|chains?|gauges?|valves?|stems?|patch(es)?|plugs?|repairs?|mount(ing)?|dismount(ing)?|balanc\w*|disposal|tubes?|flaps?|liners?|cages?|changers?|irons?|sealants?|inflat\w*|caps?|lugs?|nuts?|studs?|rims?|wheels?|rotat\w*|service|labor|recycl\w*|casings?|cores?|tax)(?![\p{L}\d])/iu;
+export const isTireText = (text = '') => (TIRE_WORD.test(text) || TIRE_SIZE.test(text)) && !NOT_A_TIRE.test(text);
+// What a receipt charges when the tire was put on there and then.
+const MOUNTED = /(?<![\p{L}\d])(mount(ing|ed)?|dismount(ing)?|install(ed|ation)?|montaje|instalaci[oó]n|road ?(call|service)|service call|roadside|emergency service|labor|mano de obra)(?![\p{L}\d])/iu;
+export const mountedHere = (lines = []) => lines.some((l) => l.kind === 'labor' || MOUNTED.test(l.printed ?? l.text ?? ''));
+// "STEER", "DRIVE", "TRAILER" (or the Spanish) on the line, if it says.
+export function tireType(text = '') {
+  if (/(?<![\p{L}])(steer|direcci[oó]n|delanter\w*)(?![\p{L}])/iu.test(text)) return 'steer';
+  if (/(?<![\p{L}])(drive|tracci[oó]n|traction)(?![\p{L}])/iu.test(text)) return 'drive';
+  if (/(?<![\p{L}])(trailer|remolque|caja)(?![\p{L}])/iu.test(text)) return 'trailer';
+  return null;
+}
+// The kind of tire a position takes: trailers take trailer tires, a
+// truck's first axle steer tires, its others drive tires. "1LO" -> axle 1.
+const positionType = (pos, assetType) => (assetType === 'trailer' ? 'trailer' : Number.parseInt(pos, 10) === 1 ? 'steer' : 'drive');
+const tiresOf = (e) => (Array.isArray(e.tires) ? e.tires.filter(Boolean) : []);
+
+/**
+ * The tires each tire change used: for every position it changed that no
+ * tire covers yet, the oldest unassigned tire bought by that day, preferring
+ * one of the right kind (steer, drive, trailer), then one that doesn't say,
+ * then any. Tire changes are covered oldest first.
+ * @returns new itemUses docs (no ids), by: 'rule', tire: true
+ */
+export function tireUses({ receipts, uses, log }) {
+  const tires = receiptItems(receipts).filter((it) => it.tire && it.date && it.unitCost != null)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key));
+  const left = new Map(tires.map((it) => [it.key, remainingQty(it, uses)]));
+  const added = [];
+  for (const e of log.filter((x) => x.date && tiresOf(x).length).sort(workOrder)) {
+    const covered = uses.filter((u) => u.logId === e.id && u.tire && HOLDING.includes(u.status)).reduce((s, u) => s + (Number(u.qty) || 0), 0);
+    const assetType = e.assetType === 'trailer' ? 'trailer' : 'truck';
+    const taken = new Map();
+    for (const pos of tiresOf(e).slice(Math.round(covered))) {
+      const want = positionType(pos, assetType);
+      const rank = (it) => (it.tireType === want ? 0 : it.tireType ? 2 : 1);
+      const pick = tires.filter((it) => it.date <= e.date && left.get(it.key) >= 1)
+        .sort((a, b) => rank(a) - rank(b) || a.date.localeCompare(b.date) || a.key.localeCompare(b.key))[0];
+      if (!pick) break;
+      left.set(pick.key, round2(left.get(pick.key) - 1));
+      taken.set(pick, (taken.get(pick) ?? 0) + 1);
+    }
+    for (const [it, qty] of taken) {
+      added.push({
+        receiptId: it.receiptId, lineId: it.lineId, qty, logId: e.id, vehicleId: e.vehicleId ?? null,
+        vehicleName: e.vehicleName ?? null, assetType, shop: false, tire: true,
+        by: 'rule', status: 'auto', confidence: 100, reason: 'Oldest tire bought by the tire change',
+      });
+    }
+  }
+  return added;
+}
+
 // A purchase with no store receipt (cash, a payment screenshot) counts only
 // once admin approves it.
 export const needsApproval = (r) => r.approval === 'pending';
@@ -310,7 +377,7 @@ export const NEW_DAYS = 3;
  * shelf is a place), or a repair part, labor or core whose whole quantity is
  * tied to work or a truck (counted), or that admin said the shop used or is
  * still on the shelf.
- * @returns { state, placed, total, open: [{ lineId, text, why: 'doubt'|'setAside'|'noWork' }] }
+ * @returns { state, placed, total, open: [{ lineId, text, why: 'doubt'|'setAside'|'tire'|'noWork', unitOnReceipt }] }
  */
 export function receiptMatch(receipt, uses) {
   const state0 = receipt.status ?? 'read';
@@ -327,8 +394,10 @@ export function receiptMatch(receipt, uses) {
     const qty = Number(l.qty) > 0 ? Number(l.qty) : 1;
     const done = mine.filter((u) => COUNTED.includes(u.status)).reduce((s, u) => s + (Number(u.qty) || 0), 0);
     if (done >= qty - 1e-9 || mine.some((u) => u.status === 'snooze' && u.by === 'admin')) return;
-    const why = mine.some((u) => u.status === 'doubt') ? 'doubt' : l.to === 'truck' && l.vehicleId ? 'setAside' : 'noWork';
-    open.push({ lineId: lineIdOf(l, i), text: l.text ?? '', why });
+    const assigned = l.to === 'truck' && l.vehicleId;
+    const tire = kind === 'part' && !assigned && (l.tire === true || (l.tire !== false && isTireText(l.text)));
+    const why = mine.some((u) => u.status === 'doubt') ? 'doubt' : assigned ? 'setAside' : tire ? 'tire' : 'noWork';
+    open.push({ lineId: lineIdOf(l, i), text: l.text ?? '', why, unitOnReceipt: tire ? l.unitOnReceipt ?? null : null });
   });
   const state = state0 === 'review' ? 'review' : open.length ? 'read' : 'matched';
   return { state, placed: lines.length - open.length, total: lines.length, open };
@@ -359,7 +428,8 @@ export function receiptWork(receipt, uses, log) {
  * What admin needs to look at, worst first:
  *   doubts   matches the AI wasn't sure of
  *   recent   matches the AI made on its own in the last 2 weeks (spot check)
- *   noWork   items bought 2+ weeks ago that no work explains
+ *   noWork   items bought 2+ weeks ago that no work explains (not
+ *            tires: they wait for their tire change)
  *   noParts  repairs a week or more old that no item was tied to (only
  *            since the first receipt: older work had no receipts here)
  * Each use comes with its item and repair.
@@ -374,7 +444,7 @@ export function auditQueue({ items, uses, log, today }) {
   const recent = uses.filter((u) => u.status === 'auto' && toMs(u.createdAt) >= since).map(join).filter((x) => x.item).sort(newest);
   const twoWeeksAgo = addDays(today, -14);
   const noWork = openItems(items, uses, { today, days: 120 })
-    .filter((it) => it.date <= twoWeeksAgo)
+    .filter((it) => it.date <= twoWeeksAgo && !it.tire)
     .sort((a, b) => a.date.localeCompare(b.date));
   const used = new Set(uses.filter((u) => HOLDING.includes(u.status) && u.logId).map((u) => u.logId));
   const weekAgo = addDays(today, -7);

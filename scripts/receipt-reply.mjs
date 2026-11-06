@@ -36,6 +36,7 @@ export function readReplyText(receipt, vehicles = []) {
   let text = `Read ${what}${shown.length ? `: ${listText(shown)}` : ''}${trucks.length ? ` for ${listText(trucks)}` : ''}.`;
   if (receipt.status === 'review') text += ' The office will check part of it.';
   if (trucks.length) text += ' Wrong truck? Reply with the truck number.';
+  if (lines.some((l) => l.tire && !l.vehicleId)) text += ' Tires get tied to a truck when the tire change is logged.';
   return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS - 1)}…` : text;
 }
 
