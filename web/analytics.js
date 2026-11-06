@@ -196,16 +196,18 @@ export function trendMonths({ grain, periods, to }) {
 // What the money went to, in the order they're listed when tied:
 // maintenance (work that reset a maintenance schedule item, the miles
 // reminders), repairs (every other job, and parts tied to no logged work),
-// the shop's supplies and tools, and paperwork fees.
+// the shop's supplies and tools, paperwork fees, and parts on hand (receipt
+// items not tied to any work yet).
 export const SPEND_KINDS = [
-  ['maintenance', 'Maintenance'], ['repair', 'Repairs'], ['shop', 'Shop supplies'], ['paperwork', 'Inspection & registrations'],
+  ['maintenance', 'Maintenance'], ['repair', 'Repairs'], ['shop', 'Shop supplies'], ['paperwork', 'Inspection & registrations'], ['onhand', 'Parts on hand'],
 ];
 
 /**
  * Spending in [from, to] by what it went to: each unit cost by the kind of
  * work that used it (or registration and inspection fees), then the shop's
- * supplies and tools. unitId: one unit's costs (no shop costs); left out:
- * every unit's, plus the shop's when includeShop.
+ * supplies and tools, and the parts on hand (unmatched receipt items).
+ * unitId: one unit's costs (no shop costs or parts on hand); left out: every
+ * unit's, plus the shop's when includeShop, plus the parts on hand.
  * @returns [{ key, label, amount }] biggest first, no zeros
  */
 export function spendByKind({ events, log, from, to, unitId, includeShop = true }) {
@@ -218,6 +220,7 @@ export function spendByKind({ events, log, from, to, unitId, includeShop = true 
       const entry = ev.logId ? byId.get(ev.logId) : null;
       add(ev.paperwork ? 'paperwork' : entry && visitServices(entry).length ? 'maintenance' : 'repair', ev.amount);
     } else if (unitId === undefined && includeShop && !ev.unitId && (ev.kind === 'supplies' || ev.kind === 'tools')) add('shop', ev.amount);
+    else if (unitId === undefined && ev.kind === 'open') add('onhand', ev.amount);
   }
   const order = SPEND_KINDS.map(([k]) => k);
   return SPEND_KINDS.map(([key, label]) => ({ key, label, amount: sums.get(key) ?? 0 }))

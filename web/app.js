@@ -3160,7 +3160,7 @@ function renderAnalytics() {
     // Fleet-wide first (from 12 o'clock), the trucks biggest first, "others" last.
     slices.sort((a, b) => (b.id === 'shop') - (a.id === 'shop'));
     const pie = anDonut(slices, totals.total, (sl) => (sl.id === 'shop' || sl.other ? null : saveAnSettings({ scope: 'unit', unit: sl.id })));
-    const kinds = anKinds(spendByKind({ events, log: serviceLog, ...range, includeShop }), totals.total);
+    const kinds = anKinds(spendByKind({ events, log: serviceLog, ...range, includeShop }));
     const unitsPanel = el('section', 'an-panel');
     unitsPanel.append(...anFleetUnits(byUnit, loading));
     body.replaceChildren(
@@ -3198,7 +3198,7 @@ function renderAnalytics() {
   body.replaceChildren(
     anShareToggle(false, trucks.length, unit.trailer),
     anTiles(totals, unit),
-    anGrid(anTrend(trend, { range, includeShop: share, fleet: false, clickable: sameAsCards }), anKinds(kindRows, totals.total)),
+    anGrid(anTrend(trend, { range, includeShop: share, fleet: false, clickable: sameAsCards }), anKinds(kindRows)),
     ...anReceipts(unit, range, events),
     ...anCards(rows, unit, grain, events),
   );
@@ -3321,9 +3321,13 @@ function anDonut(slices, total, onPick) {
 
 // Where the money went: one bar per kind of work (and the shop's supplies
 // and tools), biggest first, each with its amount and share of the total.
-function anKinds(kinds, total) {
+function anKinds(kinds) {
   const wrap = el('section', 'an-panel');
-  wrap.append(el('h3', 'an-title', 'Where it went'));
+  const total = Math.round(kinds.reduce((s, k) => s + k.amount, 0) * 100) / 100;
+  const head = el('div', 'an-chart-head');
+  head.append(el('h3', 'an-title', 'Where it went'));
+  if (total) head.append(el('span', 'an-kinds-total', money(total)));
+  wrap.append(head);
   if (!kinds.length) {
     wrap.append(el('p', 'muted', 'No costs for these dates.'));
     return wrap;

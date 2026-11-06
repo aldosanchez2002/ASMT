@@ -1559,6 +1559,7 @@ button.an-legend-row { cursor: pointer; }
 .an-legend-pct { color: var(--floor-muted); text-align: right; font-variant-numeric: tabular-nums; }
 /* Where it went */
 .an-kinds { display: grid; gap: 10px; }
+.an-kinds-total { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--floor-ink); }
 .an-kind { display: grid; grid-template-columns: minmax(0, 1fr) auto 3.2em; grid-template-areas: 'name amount pct' 'bar bar bar'; gap: 4px 8px; font-size: 14px; }
 .an-kind-name { grid-area: name; color: var(--floor-ink); }
 .an-kind-amount { grid-area: amount; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -1710,6 +1711,8 @@ body.page-analytics {
 .page-analytics .an-share input { accent-color: var(--soft-accent); }
 .page-analytics .an-panel { border: 1px solid var(--floor-line); border-radius: var(--soft-radius); box-shadow: var(--soft-shadow); }
 .page-analytics .an-panel .an-title { font: 700 17px var(--cond); }
+.page-analytics .an-panel > .an-title:first-child, .page-analytics .an-chart-head .an-title { margin-top: 0; margin-bottom: 0; }
+.page-analytics .an-panel > .an-title:first-child { margin-bottom: 10px; }
 .page-analytics .an-pie-center strong, .page-analytics .an-open-total { font-weight: 700; }
 .page-analytics .an-col.chosen { border-radius: 8px; }
 .page-analytics .an-stack > .an-seg:first-child { border-radius: 6px 6px 0 0; }
