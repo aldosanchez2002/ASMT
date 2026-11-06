@@ -105,3 +105,8 @@ test('a receipt under 3 days old: only sure matches; unsure guesses wait for the
   // Once it's no longer new, the run asks again (the signature changes).
   assert.notEqual(matchSignature([item()], repairs, '2026-10-23'), matchSignature([item()], repairs, '2026-10-24'));
 });
+
+test('work any time after the purchase can use the part (bought well ahead)', () => {
+  const later = { id: 'l1', type: 'repair', date: '2027-01-15', vehicleId: 'v7', vehicleName: 'T-07', itemName: 'Drums' };
+  assert.deepEqual(candidateRepairs([item()], [later]).map((e) => e.id), ['l1']);
+});

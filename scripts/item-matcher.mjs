@@ -38,7 +38,7 @@ For each item, decide which repair it was used in, if any:
 - Match by what the part is and what the repair says was fixed. A brake drum fits a repair that replaced drums or did brakes on that axle; a headlight fits a headlight repair.
 - Services: an oil filter or fuel filter kit fits a PM or oil change on that truck (one of each per service); an air filter fits a service that changed it; a steer or drive tire fits a tire change at that position; a battery fits a battery change (as many as were changed).
 - An item that says which truck it was bought for can only go to a repair on that truck. An item with "could be" trucks can only go to one of those.
-- Dates: a part is bought the same day as the work or up to a few weeks before it. Work done before the part was bought can't have used it (those pairs aren't listed). A receipt from the last few days may be for work not logged yet: when no listed work clearly fits, leave it out.
+- Dates: a part is bought the same day as the work or before it. Work done before the part was bought can't have used it (those pairs aren't listed). A receipt from the last few days may be for work not logged yet: when no listed work clearly fits, leave it out.
 - A core charge goes to the same repair as the part it came with.
 - One item line with a quantity of 2 or more can be split across repairs (give each part of the split as its own match with its qty).
 - Leave an item out when no repair fits. Never force a match: a wrong match is worse than none.

@@ -287,8 +287,8 @@ export function workEntries(log, { today, days = 60 } = {}) {
   return log.filter((e) => isWork(e) && e.date && e.date >= from && e.date <= today);
 }
 
-// The work an item could have gone into: done the day it was bought or up to
-// a month after (bought ahead). Never before: a part bought after the work
+// The work an item could have gone into: done the day it was bought or any
+// time after (bought ahead). Never before: a part bought after the work
 // was logged can't have been used in it. Labor, and a payment with no store
 // receipt (cash to an outside mechanic), is often paid after the job: up to
 // a month before it counts too.
@@ -296,7 +296,7 @@ export const inWindow = (item, entry) => {
   if (!item.date || !entry.date) return false;
   const d = daysBetween(item.date, entry.date);
   const paidAfter = item.kind === 'labor' || item.noReceipt;
-  return d >= (paidAfter ? -30 : 0) && d <= 30;
+  return d >= (paidAfter ? -30 : 0);
 };
 // A receipt this many days old or less is new: the work it's for may not be
 // logged yet, so the AI's unsure guesses for it wait.
