@@ -20,8 +20,7 @@ import {
 } from './truck-tires.js';
 import { itemName } from './item-names.js';
 import {
-  AUTO_USES, KIT_TAGS, batteryParts, kitCategory, kitKey, kitParts, onHand, shoppingList, tagsForJobs,
-  tagsForKeys, tireParts, upcomingWork,
+  KIT_TAGS, kitCategory, kitKey, shoppingList, upcomingWork,
 } from './parts.js';
 import {
   activeLang, agoText, clockText, dateText, dateTimeText, getLang, setLang, t, useEnglish,
@@ -31,8 +30,8 @@ import {
 } from './signals.js';
 import { downloadLog, downloadTruckRecord } from './records.js';
 import {
-  POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isRepair, itemKey, landedCosts,
-  lineKind, needsApproval, oldStock, openItems, receiptItems, receiptMatch, receiptWork, repairText, shopShare, spending, stockLots,
+  POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isWork, itemKey, landedCosts,
+  lineKind, needsApproval, openItems, receiptItems, receiptMatch, receiptWork, repairText, shopShare, spending,
 } from './items.js';
 import { fleetBreakdown, periodsFor, unitBreakdown, workKind } from './analytics.js';
 import { complianceList, nextInspection, unitCompliance } from './compliance.js';
@@ -515,7 +514,7 @@ function renderLog() {
 // ---- Schedules tab ---------------------------------------------------------
 
 // The shop view is the main page; the rest is the admin side.
-const TABS = ['shop', 'inventory', 'today', 'trucks', 'trailers', 'parts', 'analytics', 'compliance', 'schedules', 'log', 'settings'];
+const TABS = ['shop', 'inventory', 'today', 'trucks', 'trailers', 'parts', 'analytics', 'compliance', 'schedules', 'log', 'settings', 'kits'];
 // The inventory person's page is the admin Parts tab, in the shop look.
 const viewOf = (tab) => (tab === 'inventory' ? 'parts' : tab);
 const VIEWS = TABS.filter((x) => x !== 'inventory');
@@ -667,7 +666,7 @@ function showTab() {
 
 const SECTION_NAMES = {
   trucks: 'Trucks', trailers: 'Trailers', compliance: 'Inspections', '/analytics': 'Analytics', parts: 'Parts',
-  settings: 'Settings', schedules: 'Schedules',
+  settings: 'Settings', schedules: 'Schedules', kits: 'Parts & kits',
 };
 
 const yearRange = (min, max) => (min === max ? `${min}` : `${min}–${max}`);
@@ -1768,7 +1767,7 @@ function nextAfterSave(v, keys, miles, date, tires = []) {
 function openWork(vehicleId, { keys = [] } = {}) {
   work = {
     vehicleId, jobs: new Set(), extra: new Set(keys), unticked: new Set(), days: null,
-    tires: new Set(), brands: {}, batteryCount: null, parts: new Set(keys.length ? ['service'] : []), shelf: {},
+    tires: new Set(), brands: {}, batteryCount: null, parts: new Set(keys.length ? ['service'] : []),
   };
   buildWork();
   showDialog($('work'));
@@ -1829,7 +1828,6 @@ function buildWork() {
   const tireBox = el('div', 'work-tires');
   const repairBox = el('div', 'repair-box');
   const batteryBox = el('div', 'work-batteries');
-  const shelfBox = el('div', 'work-shelf');
   const PARTS = [['service', 'partService', 'partServiceHint'], ['tires', 'partTires', 'partTiresHint'],
     ['batteries', 'partBatteries', 'partBatteriesHint'], ['repair', 'partRepair', 'partRepairHint']];
   function drawParts() {
@@ -1855,42 +1853,6 @@ function buildWork() {
     repairBox.hidden = !on('repair');
   }
 
-  // Parts from the shelf: what the picked work uses, from the service kits
-  // (oil, filters) and the tire / battery parts. Each can be changed; it's
-  // saved on the work entry, which is what takes it off the stock count.
-  function shelfUse() {
-    const tags = on('service') ? [...new Set([...tagsForJobs([...work.jobs]), ...tagsForKeys(workKeys(v))])] : [];
-    const groups = {
-      service: kitParts(v, tags, kits, schedules).parts,
-      tires: on('tires') ? tireParts(TRUCK_TIRE_POSITIONS.filter((p) => work.tires.has(p)), partsList) : {},
-      batteries: on('batteries') ? batteryParts(work.batteryCount, partsList) : {},
-    };
-    for (const g of Object.values(groups)) for (const id of Object.keys(g)) if (work.shelf[id] != null) g[id] = work.shelf[id];
-    return groups;
-  }
-  function drawShelf() {
-    const used = Object.entries(Object.assign({}, ...Object.values(shelfUse())));
-    shelfBox.hidden = !used.length;
-    if (!used.length) { shelfBox.replaceChildren(); return; }
-    const rows = used.map(([id, qty]) => {
-      const part = partById(id);
-      const row = el('div', 'shelf-row');
-      const minus = Object.assign(el('button', 'shelf-step', '−'), { type: 'button' });
-      const plus = Object.assign(el('button', 'shelf-step', '+'), { type: 'button' });
-      minus.setAttribute('aria-label', `− ${part?.name ?? ''}`);
-      plus.setAttribute('aria-label', `+ ${part?.name ?? ''}`);
-      const step = (d) => { work.shelf[id] = Math.max(0, Math.round((qty + d) * 100) / 100); drawShelf(); };
-      minus.addEventListener('click', () => step(-1));
-      plus.addEventListener('click', () => step(1));
-      const left = part ? onHand(part, receipts, serviceLog) - qty : null;
-      const name = el('span', 'shelf-name', part?.name ?? id);
-      const meta = el('span', 'shelf-meta', [part?.number, left != null && part?.countAt ? t('shelfLeft', amountText(part, left)) : null].filter(Boolean).join(' · '));
-      row.append(name, meta, minus, el('span', `shelf-qty${qty ? '' : ' zero'}`, amountText(part, qty)), plus);
-      return row;
-    });
-    shelfBox.replaceChildren(el('div', 'section-title', t('fromShelf')), el('p', 'muted', t('fromShelfHint')), ...rows);
-  }
-  const shelfFor = (group) => Object.fromEntries(Object.entries(shelfUse()[group]).filter(([, q]) => q > 0));
 
   // Service: what's due (tap each one done), shop jobs, and any other item.
   function refresh() {
@@ -1935,7 +1897,6 @@ function buildWork() {
     }
     const n = (on('service') ? keys.length : 0) + (on('repair') ? 1 : 0) + (on('tires') ? work.tires.size : 0) + (on('batteries') ? 1 : 0);
     save.textContent = n ? t('saveCount', n, v.name) : t('save');
-    drawShelf();
   }
 
   // Tires: tap each position that was replaced (flats are replaced too).
@@ -1957,7 +1918,7 @@ function buildWork() {
     for (const n of [1, 2, 3, 4]) {
       const b = Object.assign(el('button', `count-chip${work.batteryCount === n ? ' on' : ''}`, String(n)), { type: 'button' });
       b.setAttribute('aria-pressed', String(work.batteryCount === n));
-      b.addEventListener('click', () => { work.batteryCount = work.batteryCount === n ? null : n; drawBatteries(); drawShelf(); });
+      b.addEventListener('click', () => { work.batteryCount = work.batteryCount === n ? null : n; drawBatteries(); });
       chips.append(b);
     }
     batteryBox.replaceChildren(el('div', 'section-title', t('batteriesTitle')), el('p', 'muted', t('howManyBatteries')), chips);
@@ -2059,7 +2020,7 @@ function buildWork() {
   // Save stays at the bottom of the screen while scrolling.
   const actions = el('div', 'work-actions');
   actions.append(error, save, cancel);
-  form.append(...(faultBox ? [faultBox] : []), parts, serviceBox, tireBox, batteryBox, repairBox, shelfBox, details, actions);
+  form.append(...(faultBox ? [faultBox] : []), parts, serviceBox, tireBox, batteryBox, repairBox, details, actions);
   body.append(form);
   drawParts();
   showParts();
@@ -2116,7 +2077,7 @@ function buildWork() {
     const refs = [];
     if (keys.length || jobsDone) {
       const ref = doc(collection(db, 'serviceLog'));
-      batch.set(ref, { ...common, services: keys, itemName: workSummary(v, keys), partsUsed: shelfFor('service') });
+      batch.set(ref, { ...common, services: keys, itemName: workSummary(v, keys) });
       refs.push(ref);
     }
     if (doRepair) {
@@ -2132,7 +2093,7 @@ function buildWork() {
       // Log text stays in English, like the other records.
       batch.set(ref, {
         ...common, type: 'tires', services: [], tires: order,
-        tireBrands: savedTireBrands(order, work.brands), partsUsed: shelfFor('tires'),
+        tireBrands: savedTireBrands(order, work.brands),
         itemName: `Tires replaced: ${withBrands(order, truckPositionName, savedTireBrands(order, work.brands))}`,
       });
       refs.push(ref);
@@ -2141,7 +2102,7 @@ function buildWork() {
       const ref = doc(collection(db, 'serviceLog'));
       const n = work.batteryCount ?? null;
       batch.set(ref, {
-        ...common, type: 'batteries', services: [], batteries: n, partsUsed: shelfFor('batteries'),
+        ...common, type: 'batteries', services: [], batteries: n,
         itemName: n ? `Batteries replaced (${n})` : 'Batteries replaced',
       });
       refs.push(ref);
@@ -2180,7 +2141,7 @@ function buildWork() {
 // AI doubted), and Stock (every part, its count, and the service kits).
 
 const PART_GROUPS = ['oil', 'filter', 'tire', 'battery', 'fluid', 'other'];
-const PARTS_SIDES = ['receipts', 'buy', 'stock'];
+const PARTS_SIDES = ['receipts', 'buy'];
 const PARTS_SIDE_KEY = 'aslog.partsSide';
 let partsSide = (() => {
   try {
@@ -2198,7 +2159,6 @@ const qtyText = (n) => fmt.format(Math.round(n * 100) / 100);
 // "11 gal" for oil, "2" for filters.
 const amountText = (part, n) => (part?.unit === 'gal' ? `${qtyText(n)} gal` : qtyText(n));
 const money = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const stockNow = () => Object.fromEntries(partsList.map((p) => [p.id, onHand(p, receipts, serviceLog)]));
 
 // Upcoming work across the fleet: services due soon or overdue, worn tires.
 function fleetWork() {
@@ -2236,20 +2196,23 @@ function setPartsSide(side) {
 }
 
 function renderParts() {
+  renderKits();
   if (viewOf(currentTab()) !== 'parts') return;
   for (const b of document.querySelectorAll('#lang button')) b.classList.toggle('active', b.dataset.lang === getLang());
-  const stock = stockNow();
+  // Nothing is on a shelf: parts are bought for the job, so To buy is all the coming work needs.
+  const stock = {};
   const work = fleetWork();
   const list = shoppingList(partsList, work, stock);
   const queue = matchQueue();
   const counts = {
-    buy: list.length, stock: activeParts().length, receipts: receipts.length,
+    buy: list.length, receipts: receipts.length,
     review: partsToReview(queue),
   };
   // The buyer's job is the list and sending the receipts. Admin's is checking
-  // what the AI read and matched (inside Receipts), the shelf count and the kits.
+  // what the AI read and matched (inside Receipts); the parts and kits are in Setup.
   const buyer = roleOfTab(currentTab()) === 'inventory';
-  const sides = buyer ? ['receipts', 'buy'] : ['receipts', 'stock'];
+  const sides = buyer ? ['receipts', 'buy'] : ['receipts'];
+  $('parts-side').hidden = sides.length < 2;
   if (!sides.includes(partsSide)) partsSide = 'receipts';
   const tabs = document.querySelectorAll('#parts-side button');
   // The buyer's third choice opens the Analytics page.
@@ -2263,8 +2226,7 @@ function renderParts() {
     b.querySelector('.side-count').textContent = counts[b.dataset.side] || '';
   }
   const body = $('parts-body');
-  if (partsSide === 'stock') body.replaceChildren(...partsStock(stock));
-  else if (partsSide === 'receipts') body.replaceChildren(...partsReceipts(queue, counts.review));
+  if (partsSide === 'receipts') body.replaceChildren(...partsReceipts(queue, counts.review));
   else body.replaceChildren(...partsBuy(list, work, stock));
 }
 
@@ -2333,27 +2295,31 @@ function partsBuy(list, work, stock) {
 }
 
 // Stock: every part with what's on the shelf, then the service kits.
-function partsStock(stock) {
+// Setup → Parts & kits: the parts the services use and what each service
+// takes. Nothing is counted (parts are bought for the job); the kits make the
+// buyer's To buy list.
+function partsSetup() {
   const add = Object.assign(el('button', 'btn parts-add', t('addPart')), { type: 'button' });
   add.addEventListener('click', () => openPart(null));
-  const out = [el('h2', 'parts-title', t('stockTitle')), el('p', 'parts-intro', t('stockIntro')), add];
+  const out = [el('h2', 'parts-title', 'Parts & kits'), el('p', 'parts-intro', 'The parts the services use, and what each service takes, for the buyer\'s To buy list. Nothing is counted: parts are bought for the job, and oil and other fluids are shop supplies.'), add];
   for (const [group, list] of Map.groupBy(activeParts(), (p) => p.group ?? 'other')) {
     out.push(el('h3', 'shop-group parts-group', t('partGroups')[group] ?? group));
     for (const p of list) {
-      const have = stock[p.id] ?? 0;
-      const row = el('button', `stock-row${have < 0 ? ' negative' : ''}`);
+      const row = el('button', 'stock-row');
       row.type = 'button';
-      row.append(
-        el('span', 'stock-name', p.name),
-        el('span', 'stock-qty', amountText(p, have)),
-        el('span', 'stock-meta', [p.number, p.countAt ? null : t('notCounted')].filter(Boolean).join(' · ')),
-      );
+      row.append(el('span', 'stock-name', p.name), el('span', 'stock-meta', p.number ?? ''));
       row.addEventListener('click', () => openPart(p.id));
       out.push(row);
     }
   }
   out.push(...kitCards());
   return out;
+}
+
+function renderKits() {
+  if (currentTab() !== 'kits') return;
+  showKits = true;
+  $('kits-body').replaceChildren(...partsSetup());
 }
 
 // What each service uses, per engine (oil, fuel filters) and per truck model
@@ -2383,7 +2349,7 @@ function kitCards() {
   head.type = 'button';
   head.setAttribute('aria-expanded', String(showKits));
   head.append(el('span', 'section-label', t('kitsTitle')), el('span', 'section-count', String(groups.length)), el('span', 'section-chevron', showKits ? '▾' : '▸'));
-  head.addEventListener('click', () => { showKits = !showKits; renderParts(); });
+  if (currentTab() !== 'kits') head.addEventListener('click', () => { showKits = !showKits; renderParts(); });
   const out = [head, el('p', 'parts-intro', [t('kitsIntro'), unset ? t('kitsUnset', unset) : null].filter(Boolean).join(' '))];
   if (!showKits) return out;
   for (const category of ['engine', 'chassis']) {
@@ -2759,7 +2725,6 @@ function partsReview(queue) {
   out.push(typed);
   section(t('secDoubts'), t('secDoubtsHint'), queue.doubts.map((x) => matchCard(x)), t('nothingToCheck'));
   section(t('secNoWork'), t('secNoWorkHint'), queue.noWork.map(noWorkCard), t('nothingToCheck'));
-  section(t('secOldStock'), t('secOldStockHint'), oldStock(receipts, itemUses, todayIso()).map(oldStockCard), t('nothingToCheck'));
   section(t('secNoParts'), t('secNoPartsHint'), queue.noParts.map(noPartsCard), t('nothingToCheck'));
 
   // The AI's own matches, folded: a spot check.
@@ -2823,31 +2788,6 @@ function noWorkCard(item) {
   return card;
 }
 
-// A stock batch bought 60+ days ago that no work log used: the shop used it,
-// or it's still on the shelf (asked again in 30 days).
-function oldStockCard(lot) {
-  const card = el('div', 'match-card match-nowork');
-  const name = partById(lot.part)?.name ?? lot.part;
-  card.append(
-    el('p', 'match-item', `${qtyText(lot.remaining)} × ${name}`),
-    el('p', 'match-cost', lot.unitCost != null ? money(lot.unitCost * lot.remaining) : ''),
-    el('p', 'match-meta', [lot.vendor, dateText(lot.date)].filter(Boolean).join(' · ')),
-    el('p', 'match-arrow', t('daysOnShelf', daysBetween(lot.date, todayIso()))),
-  );
-  const write = (data) => {
-    const ref = useRef(null);
-    return setDoc(ref, { id: ref.id, receiptId: lot.receiptId, lineId: lot.lineId, part: lot.part, by: 'admin', createdAt: serverTimestamp(), ...data })
-      .catch((err) => showAppError(t('couldNotSave', err.message)));
-  };
-  const shop = Object.assign(el('button', 'btn match-right', t('usedByShop')), { type: 'button' });
-  shop.addEventListener('click', () => write({ qty: lot.remaining, shop: true, status: 'confirmed' }));
-  const shelf = Object.assign(el('button', 'btn btn-ghost', t('stillOnShelf')), { type: 'button' });
-  shelf.addEventListener('click', () => write({ qty: 0, status: 'snooze', until: new Date(Date.now() + 30 * DAY_MS).toLocaleDateString('en-CA') }));
-  const actions = el('div', 'match-actions');
-  actions.append(shop, shelf, receiptLink(lot));
-  card.append(actions);
-  return card;
-}
 
 // A repair a week or more old with no bought part tied to it.
 function noPartsCard(entry) {
@@ -2971,7 +2911,7 @@ function pickForItem(item, fromUse) {
   const done = (p) => p.then(() => $('pdlg').close()).catch((err) => showAppError(t('couldNotSave', err.message)));
   const allowed = item.vehicleId ? [item.vehicleId] : item.truckChoices ?? [];
   // The AI's pick first, then the item's trucks, then the closest dates.
-  const around = serviceLog.filter((e) => isRepair(e) && inWindow(item, e))
+  const around = serviceLog.filter((e) => isWork(e) && inWindow(item, e))
     .sort((a, b) => Number(b.id === fromUse?.logId) - Number(a.id === fromUse?.logId)
       || Number(allowed.includes(b.vehicleId)) - Number(allowed.includes(a.vehicleId))
       || Math.abs(daysBetween(item.date, a.date)) - Math.abs(daysBetween(item.date, b.date)));
@@ -3979,9 +3919,6 @@ function openPart(id) {
   const number = Object.assign(el('input'), { type: 'text', value: p?.number ?? '', placeholder: t('partNumberPh') });
   const group = selectOf(PART_GROUPS.map((g) => [g, t('partGroups')[g]]), p?.group ?? 'filter');
   const unit = selectOf([['each', t('unitEach')], ['gal', t('unitGal')]], p?.unit ?? 'each');
-  const have = p ? onHand(p, receipts, serviceLog) : 0;
-  const count = numberInput(p ? have : '');
-  const auto = selectOf([['', t('autoNone')], ...AUTO_USES.map((u) => [u, t('autoUses')[u]])], p?.autoUse ?? '');
   // Packs: how it's bought (drum, case…), in gallons or units.
   const packs = (p?.packs ?? []).map((x) => ({ ...x }));
   const packBox = el('div', 'pack-box');
@@ -4006,12 +3943,8 @@ function openPart(id) {
   drawPacks();
   form.append(
     field(t('partName'), name), field(t('partNumber'), number), field(t('partGroup'), group), field(t('partUnit'), unit),
-    field(p ? t('onHandCount') : t('onHandStart'), count),
     field(t('packs'), packBox),
-    field(t('autoUse'), auto),
   );
-  if (p && !p.countAt) form.append(el('p', 'parts-hint', t('countHint')));
-  if (p) form.append(...partBatches(p));
   const { save, fail } = formActions(form, t('save'), {
     onDelete: p ? async () => {
       if (!confirm(t('confirmArchive', p.name))) return;
@@ -4029,13 +3962,9 @@ function openPart(id) {
       number: number.value.trim(),
       group: group.value,
       unit: unit.value,
-      autoUse: auto.value || null,
       packs: packs.filter((x) => x.name.trim() && Number(x.size) > 0).map((x) => ({ name: x.name.trim(), size: Number(x.size) })),
       updatedAt: serverTimestamp(),
     };
-    // A changed (or first) number on hand is a count: stock starts from it.
-    const counted = count.value !== '' && (!p || Number(count.value) !== have);
-    if (counted) Object.assign(data, { countQty: Number(count.value), countAt: serverTimestamp() });
     const ref = p ? doc(db, 'parts', p.id) : doc(collection(db, 'parts'));
     if (!p) Object.assign(data, { id: ref.id, createdAt: serverTimestamp() });
     try {
@@ -4048,26 +3977,6 @@ function openPart(id) {
   });
 }
 
-// A part's batches: what each receipt brought in and how much of it is left
-// (oldest is used first), newest first.
-function partBatches(p) {
-  const held = (lot) => itemUses.filter((u) => u.receiptId === lot.receiptId && u.lineId === lot.lineId && ['auto', 'doubt', 'confirmed'].includes(u.status))
-    .reduce((s, u) => s + (Number(u.qty) || 0), 0);
-  const lots = stockLots(receipts).filter((lot) => lot.part === p.id).sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '')).slice(0, 8);
-  if (!lots.length) return [];
-  const box = el('div', 'batch-list');
-  for (const lot of lots) {
-    const left = Math.max(0, Math.round((lot.qty - held(lot)) * 100) / 100);
-    const row = el('div', `batch-row${left ? '' : ' batch-empty'}`);
-    row.append(
-      el('span', 'batch-qty', `${qtyText(left)} of ${qtyText(lot.qty)} left`),
-      el('span', 'batch-cost', lot.unitCost != null ? `${money(lot.unitCost)} ${p.unit === 'gal' ? '/ gal' : 'each'}` : ''),
-      receiptChip(lot.receiptId, `${qtyText(lot.qty)} × ${p.name} · ${qtyText(left)} left`),
-    );
-    box.append(row);
-  }
-  return [el('div', 'section-title', 'Batches (oldest is used first)'), box];
-}
 
 // One kit: the parts a service uses on the trucks of one kit group.
 function openKit(key, tag, label) {
@@ -4210,11 +4119,13 @@ function openReceipt(id) {
   const vendorWrap = el('div', 'field');
   vendorWrap.append(el('span', null, t('vendor')), vendor.wrap);
 
-  // Where a line goes: a stock part, a kind (repair parts go to the pool,
-  // where the AI finds their repair), or a repair part for a known truck.
+  // Where a line goes: a kind (repair parts go to the pool, where the AI
+  // finds their repair or service), or a part for a known truck. Nothing goes
+  // on a shelf now; an older line already on one keeps that choice.
   const truckOptions = [...vehicles].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true })).map((v) => [`truck:${v.id}`, v.name]);
   const kindOptions = ['part', 'labor', 'core', 'fee', 'supplies', 'tool', 'credit', 'paperwork'].map((k) => [`kind:${k}`, t('kindOpt')[k]]);
-  const partOptions = [['', t('choosePart')], ...activeParts().map((p) => [`part:${p.id}`, [p.name, p.number].filter(Boolean).join(' · ')]), ...kindOptions, ...truckOptions.map(([v, n]) => [v, t('forTruck', n)])];
+  const partOptions = [['', t('choosePart')], ...kindOptions, ...truckOptions.map(([v, n]) => [v, t('forTruck', n)])];
+  const optionsFor = (l) => (l.part ? [[`part:${l.part}`, partById(l.part)?.name ?? l.part], ...partOptions] : partOptions);
   const linesBox = el('div', 'receipt-lines');
   const tax = numberInput(r?.tax ?? '');
   const feesNow = r?.feesTotal ?? (r?.fees ?? []).reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
@@ -4229,7 +4140,7 @@ function openReceipt(id) {
   function drawLines() {
     linesBox.replaceChildren(...state.lines.map((l, i) => {
       const row = el('div', 'receipt-line');
-      const what = selectOf(partOptions, lineValue(l));
+      const what = selectOf(optionsFor(l), lineValue(l));
       const part = () => partById(l.part);
       const text = Object.assign(el('input'), { type: 'text', value: l.text ?? '', placeholder: t('lineTextPh') });
       text.hidden = Boolean(l.part) || !lineValue(l);
@@ -4742,7 +4653,7 @@ function buildTrailerWork() {
       const ref = doc(collection(db, 'serviceLog'));
       // Log text stays in English, like the truck records.
       batch.set(ref, {
-        ...common, tires: order, partsUsed: tireParts(order, partsList, { trailer: true }),
+        ...common, tires: order,
         tireBrands: savedTireBrands(order, work.brands),
         itemName: `Tires changed: ${withBrands(order, positionName, savedTireBrands(order, work.brands))}`,
       });

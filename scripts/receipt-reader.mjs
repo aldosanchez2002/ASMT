@@ -29,18 +29,14 @@ export const RECEIPT_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['printed', 'partNumber', 'quantity', 'unitPrice', 'lineTotal', 'kind', 'matchPartId', 'matchSure', 'matchReason', 'stockQuantity', 'truck', 'truckSource'],
+        required: ['printed', 'partNumber', 'quantity', 'unitPrice', 'lineTotal', 'kind', 'truck', 'truckSource'],
         properties: {
           printed: { type: 'string', description: 'the item text as printed' },
           partNumber: { ...nullable('string'), description: 'the part number, without a store or location prefix' },
           quantity: { type: 'number', description: 'quantity as printed' },
           unitPrice: nullable('number'),
           lineTotal: { ...nullable('number'), description: 'the line amount as printed, before tax (negative for a return or credit)' },
-          kind: { type: 'string', enum: ['part', 'labor', 'core', 'fee', 'supplies', 'tool', 'credit'], description: 'what the item is (a stock list part is "part")' },
-          matchPartId: { ...nullable('string'), description: 'id from the stock list, or null if none fits' },
-          matchSure: { type: 'boolean', description: 'true only if the part number or an exact name/cross-reference identifies it' },
-          matchReason: { type: 'string' },
-          stockQuantity: { ...nullable('number'), description: "quantity in the matched part's counting unit (gallons for oil: 1 drum = its gallons)" },
+          kind: { type: 'string', enum: ['part', 'labor', 'core', 'fee', 'supplies', 'tool', 'credit'], description: 'what the item is' },
           truck: { ...nullable('string'), description: 'truck number from the truck list this item is for, or null if nothing says' },
           truckSource: { anyOf: [{ type: 'string', enum: ['printed', 'handwritten', 'note'] }, { type: 'null' }], description: 'what tied the item to the truck' },
         },
@@ -69,22 +65,20 @@ export const SYSTEM_PROMPT = `You read photos a trucking company's shop texts in
 2. Is it an inspection? An annual/DOT inspection report or sticker: set document to "inspection" (it is read again as that paper).
 3. Otherwise it is a receipt: document is "receipt". Read every item, then answer two questions:
 
-3.1 Is it shared by the shop? Set forShop to true when the buyer's note says the purchase is for the shop ("shop", "shop supplies", "for the shop", "inventory", "taller", "inventario", "para el taller") and names no truck. Everything on such a receipt is a shop cost, whatever the items are. Items that are shop costs by nature are shared too, on any receipt: supplies (cleaners, degreaser, rags, gloves, grease, shop towels, zip ties) and tools or shop equipment.
+3.1 Is it shared by the shop? Set forShop to true when the buyer's note says the purchase is for the shop ("shop", "shop supplies", "for the shop", "inventory", "taller", "inventario", "para el taller") and names no truck. Everything on such a receipt is a shop cost, whatever the items are. Items that are shop costs by nature are shared too, on any receipt: supplies (cleaners, degreaser, rags, gloves, shop towels, zip ties), fluids bought in bulk (oil, coolant, DEF, grease), and tools or shop equipment.
 3.2 Is it for a specific service? Everything else is for a truck or trailer's service: set truck when something says which (below); if nothing says, leave it null and it's matched to the work later.
 
 Each item gets a kind:
-- part: a part for a truck or trailer (filters, brake drums, sensors, lights, hoses, tires, batteries, oil, clamps).
+- part: a part for a truck or trailer (filters, brake drums, sensors, lights, hoses, tires, batteries, clamps).
 - labor: labor or a service done by the store or another shop.
 - core: a core charge or core deposit.
 - fee: a charge that comes with an item, like a state battery fee, a tire fee, or a disposal or recycling fee for a part. It goes with that item (and its truck).
-- supplies: shop supplies used up across the fleet.
+- supplies: shop supplies used up across the fleet, and fluids bought in bulk: engine oil, coolant or antifreeze, DEF, grease. (A part that holds or moves a fluid, like an oil filter, coolant hose or DEF pump, is a part.)
 - tool: a tool or shop equipment.
 - credit: a return or credit (negative amount).
 Charges for the whole receipt (card fees, surcharges, shipping, freight, shop fees) are not items: put them in fees, with the amount as printed. Do not list subtotal, tax or total lines as items or fees.
 
 Part numbers: some stores print a location or store prefix before the part number, like "104F/DB1655B" or "WAB 432..." for a brand code; give the part number itself ("DB1655B").
-
-For each part, find the stock list part it is, using the part number first (including the cross-reference numbers listed with each part), then the description. Set matchSure to true only when the part number or an unmistakable description identifies it; when it's only a likely guess, give the id but set matchSure to false. Items that aren't on the stock list get matchPartId null. For a matched part counted in gallons, give stockQuantity in gallons (a 55 gal drum bought once is 55).
 
 Which truck each item is for: one receipt often has parts for several trucks. Set truck (a name from the truck list) only when something says so, and set truckSource to what said it:
 - printed: the receipt prints a unit number, truck ID or VIN for the item (or for the whole receipt).
@@ -94,33 +88,34 @@ List every truck the note mentions in noteTrucks.
 
 Payment screenshots: sometimes the photo is not a store receipt but a screenshot of a payment (Cash App, Zelle, Venmo, PayPal, a bank transfer). Then set paidWith to that app (or "bank"), the vendor to who was paid, the date to the payment date, and the total to the amount paid. The items come from the buyer's note ("starter T-31" is one line: printed "Starter", quantity 1, lineTotal the amount paid, the truck from the note); with no note, make one line printed "Payment" for the amount. A payment screenshot has no tax or fees. For a store receipt, paidWith is "receipt".`;
 
-// The text that goes with the photo: the stock list, the trucks, what the AI
+// The text that goes with the photo: the trucks, what the AI
 // has been taught (ai-memory.mjs), and the note the buyer sent (if any).
 export function contextText(parts, vehicles, note = null, memory = '') {
-  const stock = parts.filter((p) => !p.archived).map((p) => {
-    const packs = (p.packs ?? []).map((x) => `${x.name} = ${x.size} ${p.unit === 'gal' ? 'gal' : 'pcs'}`).join(', ');
-    return `- id ${p.id}: ${p.name}${p.number ? ` | numbers: ${p.number}` : ''} | counted in ${p.unit === 'gal' ? 'gallons' : 'pieces'}${packs ? ` | sold as ${packs}` : ''}`;
-  });
   const trucks = vehicles.filter((v) => v.name).map((v) => `- ${v.name}${v.vin ? ` VIN ${v.vin}` : ''}`);
   const memoryPart = memory ? `\n\n${memory}` : '';
   const noteText = note ? `\n\nThe buyer's note sent with the photo: "${note.replace(/\s+/g, ' ')}"` : '';
-  return `Stock list:\n${stock.join('\n')}\n\nTrucks:\n${trucks.join('\n')}${memoryPart}${noteText}\n\nRead the receipt in the photo.`;
+  return `Trucks:\n${trucks.join('\n')}${memoryPart}${noteText}\n\nRead the receipt in the photo.`;
 }
 
 const round2 = (n) => Math.round(n * 100) / 100;
 // A note saying the purchase is for the shop.
 export const shopNote = (note) => /(?<![\p{L}\d])(shop|taller|inventory|inventario|supplies|suministros)(?![\p{L}\d])/iu.test(note ?? '');
+// A fluid bought in bulk, not a part that holds or moves one ("OIL FILTER", "COOLANT HOSE").
+const FLUID = /(?<![\p{L}\d])(oil|motor oil|engine oil|coolant|antifreeze|def|diesel exhaust fluid|grease|lubricant|aceite|anticongelante|rotella|delo|delvac|\d{1,2}w-?\d{2})(?![\p{L}\d])/iu;
+const FLUID_PART = /(?<![\p{L}\d])(filters?|fltr|seals?|pans?|coolers?|pumps?|caps?|gaskets?|hoses?|sensors?|lines?|tanks?|heaters?|plugs?|pressure|level|valves?|guns?)(?![\p{L}\d])/iu;
+export const bulkFluid = (text = '') => FLUID.test(text) && !FLUID_PART.test(text);
 const newLineId = () => Math.random().toString(36).slice(2, 10);
 const invoiceKey = (n) => String(n ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 /**
  * Claude's reading -> the fields saved on the receipt.
- * Sure matches go on the shelf (`part` set), noting the truck they were bought
- * for. Repair parts, labor and cores go to their truck if something says
- * which, else to the pool, where the matcher ties them to the work. Shop
- * supplies and tools go to the shop. Unsure stock matches, unclear
- * quantities and missing prices are flagged and wait for a person; so does
- * a total that doesn't add up, or an invoice already uploaded.
+ * Nothing goes on a shelf: parts are bought for the job. Repair parts
+ * (filters, tires and batteries too), labor and cores go to their truck if
+ * something says which, else to the pool, where the matcher ties them to the
+ * work (repairs and services). Shop supplies, bulk fluids and tools go to the
+ * shop, and so does everything on a receipt the note says is for the shop.
+ * Missing prices are flagged and wait for a person; so does a total that
+ * doesn't add up, or an invoice already uploaded.
  * `trucks` are the trucks the WhatsApp note named: when it named only one,
  * every item is for it; when it named several, items with no truck keep
  * those as the matcher's only choices.
@@ -130,7 +125,6 @@ const invoiceKey = (n) => String(n ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''
  *   tax, total, problems }
  */
 export function receiptFromReading(reading, parts, vehicles, { uploadedDate, trucks = [], others = [], note = null, newId = newLineId } = {}) {
-  const partById = new Map(parts.map((p) => [p.id, p]));
   const truckByName = new Map(vehicles.map((v) => [String(v.name ?? '').toUpperCase(), v]));
   const truckNamed = (name) => truckByName.get(String(name ?? '').toUpperCase()) ?? null;
   // The trucks the note named, by the Function or by the reader.
@@ -145,38 +139,29 @@ export function receiptFromReading(reading, parts, vehicles, { uploadedDate, tru
     return { ...base, status: 'unreadable', lines: [], fees: [], feesTotal: 0, tax: null, total: null, problems: [reading.problem || 'The photo could not be read'] };
   }
   const lines = reading.lines.map((l) => {
-    const part = l.matchPartId ? partById.get(l.matchPartId) : null;
-    const sure = Boolean(part && l.matchSure);
     const truck = truckNamed(l.truck) ?? (noted.length === 1 ? noted[0] : null);
     const price = l.lineTotal ?? (l.unitPrice != null ? round2(l.unitPrice * l.quantity) : null);
-    // Gallons for oil (a drum is its size), pieces for everything else.
-    const qty = sure && part.unit === 'gal' ? l.stockQuantity : l.quantity;
-    const flags = [];
-    if (part && !sure) flags.push('unsure');
-    if (sure && part.unit === 'gal' && !(l.stockQuantity > 0)) flags.push('quantity');
-    if (price == null) flags.push('noPrice');
-    const counts = sure && !flags.includes('quantity');
-    const read = counts ? 'stock' : l.kind === 'credit' || (price != null && price < 0) ? 'credit' : l.kind;
-    // A shop purchase: every item is a shop cost (tools stay tools, spread if big). Stock-list parts stay
-    // on the shelf, where the services that use them take them.
-    const kind = forShop && !counts && read !== 'credit' && read !== 'tool' ? 'supplies' : read;
-    const pool = POOL_KINDS.includes(kind) && !(part && !counts);
+    const flags = price == null ? ['noPrice'] : [];
+    // Fluids bought in bulk (oil, coolant, DEF, grease) are shop supplies, split across the fleet.
+    const read = l.kind === 'credit' || (price != null && price < 0) ? 'credit' : l.kind === 'part' && bulkFluid(l.printed) ? 'supplies' : l.kind;
+    // 3.1 A shop purchase: every item is a shop cost (tools stay tools, spread if big).
+    const kind = forShop && read !== 'credit' && read !== 'tool' ? 'supplies' : read;
+    const pool = POOL_KINDS.includes(kind);
     return {
       id: newId(),
-      part: counts ? part.id : null,
-      suggestedPart: part && !counts ? part.id : null,
+      part: null,
+      suggestedPart: null,
       kind,
       text: l.printed,
       partNumber: l.partNumber ?? null,
-      qty: qty ?? l.quantity,
+      qty: l.quantity,
       price,
-      to: counts ? 'stock' : SHOP_KINDS.includes(kind) ? 'shop' : truck && (pool || kind === 'credit') ? 'truck' : null,
-      vehicleId: truck && !counts && (pool || kind === 'credit') ? truck.id : null,
-      for: truck && counts ? [{ id: truck.id, name: truck.name }] : null,
+      to: SHOP_KINDS.includes(kind) ? 'shop' : truck && (pool || kind === 'credit') ? 'truck' : null,
+      vehicleId: truck && (pool || kind === 'credit') ? truck.id : null,
+      for: null,
       truckFrom: truck && !SHOP_KINDS.includes(kind) ? (truckNamed(l.truck) ? l.truckSource ?? null : 'note') : null,
       truckChoices: !truck && noted.length > 1 && pool ? noted.map((v) => v.id) : null,
       flags,
-      matchReason: l.matchReason,
     };
   });
   const fees = (reading.fees ?? []).filter((f) => Number(f.amount)).map((f) => ({ label: f.label, amount: round2(Number(f.amount)) }));

@@ -30,12 +30,13 @@ export const MATCH_SCHEMA = {
   },
 };
 
-export const MATCH_PROMPT = `You help a trucking company's shop work out which bought parts went into which repairs.
+export const MATCH_PROMPT = `You help a trucking company's shop work out which bought parts went into which repairs and services.
 
-You get the items bought recently that aren't tied to any work yet (from parts-store receipts), and the repairs mechanics recorded around the same time. Repair notes are short and often in Spanish ("balatas" = brake shoes, "disco" = brake drum or rotor, "copiloto" = passenger side, "piloto" = driver side, "eje" = axle, "sellos" = seals, "ultimo eje" = last axle).
+You get the items bought recently that aren't tied to any work yet (from parts-store receipts), and the work mechanics recorded around the same time: repairs, and services (PMs, oil changes, tire changes, battery changes). Parts are bought for the job, so every work entry is called a "repair" here. Repair notes are short and often in Spanish ("balatas" = brake shoes, "disco" = brake drum or rotor, "copiloto" = passenger side, "piloto" = driver side, "eje" = axle, "sellos" = seals, "ultimo eje" = last axle).
 
 For each item, decide which repair it was used in, if any:
 - Match by what the part is and what the repair says was fixed. A brake drum fits a repair that replaced drums or did brakes on that axle; a headlight fits a headlight repair.
+- Services: an oil filter or fuel filter kit fits a PM or oil change on that truck (one of each per service); an air filter fits a service that changed it; a steer or drive tire fits a tire change at that position; a battery fits a battery change (as many as were changed).
 - An item that says which truck it was bought for can only go to a repair on that truck. An item with "could be" trucks can only go to one of those.
 - Dates: parts are usually bought the same day or up to a few weeks before the repair; a receipt can also be from a few days after.
 - A core charge goes to the same repair as the part it came with.

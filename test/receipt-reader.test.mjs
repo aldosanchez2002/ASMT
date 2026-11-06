@@ -15,23 +15,23 @@ let n = 0;
 const newId = () => `L${++n}`;
 const read = (r, opts = {}) => receiptFromReading(r, parts, vehicles, { newId, ...opts });
 
-test('the prompt lists the stock (with numbers and packs), the trucks, the memory and the note', () => {
+test('the prompt lists the trucks, the memory and the note (no stock list: nothing is counted)', () => {
   const text = contextText(parts, vehicles);
-  assert.match(text, /id of5: Oil filter · DD15 Gen 5 \| numbers: A4711800209 · LF17800 \| counted in pieces/);
-  assert.match(text, /id oil: Engine oil \| counted in gallons \| sold as Drum = 55 gal/);
   assert.match(text, /- T-24 VIN 3AKJHHDR0PSNK0497/);
-  assert.doesNotMatch(text, /note/);
+  assert.doesNotMatch(text, /Stock list|note/);
   const full = contextText(parts, vehicles, 'T-24 drums,\n31 headlight', 'What the admin told you: balatas = brake shoes');
   assert.match(full, /balatas = brake shoes\n\nThe buyer's note sent with the photo: "T-24 drums, 31 headlight"/);
 });
 
-test('sure matches go on the shelf; oil counts in gallons; a clean receipt is read', () => {
+test('filters are parts for the job; oil and other bulk fluids are shop supplies; a clean receipt is read', () => {
   const r = read(reading([
-    line({ printed: 'DDE OIL FLTR A4711800209', partNumber: 'A4711800209', quantity: 2, unitPrice: 47.39, lineTotal: 94.78, matchPartId: 'of5', matchSure: true }),
-    line({ printed: 'ROTELLA T4 DRUM', quantity: 1, lineTotal: 742.5, matchPartId: 'oil', matchSure: true, stockQuantity: 55 }),
-  ], { tax: 66.85, total: 904.13 }));
+    line({ printed: 'DDE OIL FLTR A4711800209', partNumber: 'A4711800209', quantity: 2, unitPrice: 47.39, lineTotal: 94.78 }),
+    line({ printed: 'ROTELLA T4 15W40 DRUM', quantity: 1, lineTotal: 742.5 }),
+    line({ printed: 'COOLANT 50/50', quantity: 4, lineTotal: 60 }),
+    line({ printed: 'COOLANT HOSE', quantity: 1, lineTotal: 6.85 }),
+  ], { tax: 0, total: 904.13 }));
   assert.equal(r.status, 'read');
-  assert.deepEqual(r.lines.map((l) => [l.part, l.kind, l.qty, l.price, l.to]), [['of5', 'stock', 2, 94.78, 'stock'], ['oil', 'stock', 55, 742.5, 'stock']]);
+  assert.deepEqual(r.lines.map((l) => [l.part, l.kind, l.qty, l.to]), [[null, 'part', 2, null], [null, 'supplies', 1, 'shop'], [null, 'supplies', 4, 'shop'], [null, 'part', 1, null]]);
   assert.ok(r.lines.every((l) => /^L\d+$/.test(l.id)));
   assert.deepEqual(r.problems, []);
 });
@@ -47,10 +47,10 @@ test('repair parts with no truck go to the pool without a flag; supplies and too
   assert.equal(r.status, 'read');
 });
 
-test('an unsure stock match waits for a person with the best guess', () => {
-  const r = read(reading([line({ printed: 'OIL FILTER', matchPartId: 'of5', matchSure: false })]));
-  assert.equal(r.status, 'review');
-  assert.deepEqual([r.lines[0].part, r.lines[0].suggestedPart, r.lines[0].to, r.lines[0].flags], [null, 'of5', null, ['unsure']]);
+test('nothing waits on a stock-list guess any more: a part is a part', () => {
+  const r = read(reading([line({ printed: 'OIL FILTER' })]));
+  assert.equal(r.status, 'read');
+  assert.deepEqual([r.lines[0].part, r.lines[0].suggestedPart, r.lines[0].to, r.lines[0].flags], [null, null, null, []]);
 });
 
 test('each line gets its share of tax and fees; the fees count in the math (the MHC card fee)', () => {
@@ -68,16 +68,16 @@ test('a truck printed on the receipt ties the line to the truck', () => {
   assert.equal(r.status, 'read');
 });
 
-test('a note naming one truck puts every item on it; stock parts go on the shelf "for" it', () => {
+test('a note naming one truck puts every item on it (filters too); shop items stay the shop\'s', () => {
   const r = read(reading([
     line({ printed: 'DRUM-BRAKE 16.5X5' }),
-    line({ printed: 'DDE OIL FLTR', matchPartId: 'of5', matchSure: true }),
+    line({ printed: 'DDE OIL FLTR' }),
     line({ printed: 'RAGS', kind: 'supplies' }),
   ]), { trucks: ['T-24'] });
-  assert.deepEqual(r.lines.map((l) => [l.to, l.vehicleId, l.for?.[0].name ?? null, l.truckFrom]), [
-    ['truck', 'v24', null, 'note'],
-    ['stock', null, 'T-24', 'note'],
-    ['shop', null, null, null],
+  assert.deepEqual(r.lines.map((l) => [l.to, l.vehicleId, l.truckFrom]), [
+    ['truck', 'v24', 'note'],
+    ['truck', 'v24', 'note'],
+    ['shop', null, null],
   ]);
 });
 
@@ -100,12 +100,10 @@ test('a truck name not in the list is ignored', () => {
   assert.deepEqual([r.lines[0].to, r.lines[0].truckFrom], [null, null]);
 });
 
-test('a total that does not add up, or oil with no gallons, is flagged', () => {
-  const r = read(reading([line({ lineTotal: 10, matchPartId: 'of5', matchSure: true })], { tax: 1, total: 20 }));
+test('a total that does not add up is flagged', () => {
+  const r = read(reading([line({ lineTotal: 10 })], { tax: 1, total: 20 }));
   assert.equal(r.status, 'review');
   assert.match(r.problems[0], /come to \$11.00, but the receipt total is \$20.00/);
-  const oil = read(reading([line({ matchPartId: 'oil', matchSure: true, stockQuantity: null })]));
-  assert.deepEqual([oil.lines[0].part, oil.lines[0].flags], [null, ['quantity']]);
 });
 
 test('the time printed on the receipt is kept when it is a real time', () => {
@@ -157,12 +155,12 @@ test('3.1 a note saying it\'s for the shop makes every item a shop cost (Tony\'s
   assert.deepEqual(read(clamps, { note: 'para el taller' }).lines.map((l) => l.to), ['shop', 'shop']);
 });
 
-test('3.1 a shop note with a truck in it is for that truck; stock-list parts and tools keep their place', () => {
+test('3.1 a shop note with a truck in it is for that truck; tools on a shop receipt stay tools', () => {
   const r = read(reading([line({ printed: 'HEADLAMP' })], { noteTrucks: ['T-24'] }), { note: 'shop T-24 headlamp' });
   assert.deepEqual(r.lines.map((l) => [l.kind, l.vehicleId]), [['part', 'v24']]);
   const mixed = read(reading([
-    line({ printed: 'DDE OIL FLTR A4711800209', partNumber: 'A4711800209', quantity: 2, lineTotal: 94.78, matchPartId: 'of5', matchSure: true }),
+    line({ printed: 'DDE OIL FLTR A4711800209', partNumber: 'A4711800209', quantity: 2, lineTotal: 94.78 }),
     line({ printed: 'TORQUE WRENCH', kind: 'tool', lineTotal: 120 }),
   ]), { note: 'shop inventory' });
-  assert.deepEqual(mixed.lines.map((l) => [l.kind, l.to]), [['stock', 'stock'], ['tool', 'shop']]);
+  assert.deepEqual(mixed.lines.map((l) => [l.kind, l.to]), [['supplies', 'shop'], ['tool', 'shop']]);
 });

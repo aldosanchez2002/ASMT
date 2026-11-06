@@ -89,7 +89,7 @@
         <a href="#trucks" data-tabs="trucks trailers compliance">Fleet</a>
         <a href="#parts" data-tabs="parts">Parts<span id="parts-badge" class="nav-badge" hidden></span></a>
         <a href="#log" data-tabs="log">Records</a>
-        <a href="#settings" data-tabs="settings schedules">Setup</a>
+        <a href="#settings" data-tabs="settings schedules kits">Setup</a>
         <a href="/analytics" class="nav-page">Analytics ↗</a>
       </nav>
       <nav id="admin-subnav" class="subtabs" aria-label="Section" hidden></nav>
@@ -230,7 +230,6 @@
         <div id="parts-side" class="shop-side parts-side" role="tablist" aria-label="Parts">
           <button type="button" role="tab" data-side="receipts"><span class="side-name"></span><span class="side-count"></span></button>
           <button type="button" role="tab" data-side="buy"><span class="side-name"></span><span class="side-count"></span></button>
-          <button type="button" role="tab" data-side="stock"><span class="side-name"></span><span class="side-count"></span></button>
           <a id="side-analytics" class="side-link" href="/analytics" hidden>Analytics ↗</a>
         </div>
         <div id="parts-body"></div>
@@ -246,6 +245,9 @@
       <div id="schedules-view" hidden>
         <p id="sched-intro" class="muted"></p>
         <div id="sched-groups"></div>
+      </div>
+      <div id="kits-view" hidden>
+        <div id="kits-body"></div>
       </div>
       <div id="settings-view" hidden>
         <h2 class="settings-title">Settings</h2>

@@ -1,5 +1,5 @@
 // Reads the receipt photos the buyer uploaded ("waiting" receipts) with Claude
-// and fills in each receipt: store, date, items matched to the stock list,
+// and fills in each receipt: store, date, items sorted (shop or service),
 // tax and total. Run by the "Read receipts" GitHub Action.
 //
 // Needs ANTHROPIC_API_KEY (the workflow passes the AS_LOG_KEY GitHub secret

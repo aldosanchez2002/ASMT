@@ -130,17 +130,17 @@ test('walkthrough: the rules take each oil filter from the batch; the oil has no
   const before = costEvents({ receipts: [fleetPride], uses: [...rule, ...ai], log: work });
   const truck = (events, id) => events.filter((ev) => ev.unitId === id).map((ev) => [ev.kind, ev.text, ev.amount, ev.receiptId ?? null]);
   assert.deepEqual(truck(before, 'v24'), [
-    ['parts', 'of-gen5', 51.93, 'fp'], ['unpriced', 'oil', 0, null], ['parts', 'BRAKE DRUM DB1655B', 253.8, 'fp'],
+    ['parts', 'of-gen5', 51.93, 'fp'], ['parts', 'BRAKE DRUM DB1655B', 253.8, 'fp'],
   ]);
   assert.deepEqual(truck(before, 'v31'), [
-    ['parts', 'of-gen5', 51.92, 'fp'], ['unpriced', 'oil', 0, null], ['waiting', 'HEADLAMP', 98.62, 'fp'], // the last filter takes the leftover cent
+    ['parts', 'of-gen5', 51.92, 'fp'], ['waiting', 'HEADLAMP', 98.62, 'fp'], // the last filter takes the leftover cent
   ]);
   // Admin confirms the headlamp: now it counts, on the work's date.
   const after = costEvents({ receipts: [fleetPride], uses: [...rule, ai[0], { ...ai[1], status: 'confirmed' }], log: work });
   assert.deepEqual(truck(after, 'v31').at(-1), ['parts', 'HEADLAMP', 98.62, 'fp']);
   assert.deepEqual(after.filter((ev) => !ev.unitId).map((ev) => [ev.kind, ev.amount]), [['supplies', 52.6], ['tools', 65.74]]);
   const s = spending({ receipts: [fleetPride], uses: [...rule, ai[0], { ...ai[1], status: 'confirmed' }], log: work, from: '2026-11-01', to: '2026-11-30' });
-  assert.deepEqual(s.units.map((u) => [u.name, u.total, u.unpriced]), [['T-24', 305.73], ['T-31', 150.54]].map(([n, t]) => [n, t, 1]));
+  assert.deepEqual(s.units.map((u) => [u.name, u.total, u.unpriced]), [['T-24', 305.73], ['T-31', 150.54]].map(([n, t]) => [n, t, 0]));
 });
 
 test('rules: oldest batch first, across batches; batches set aside for a truck go to it; only batches bought by the work date', () => {
@@ -157,7 +157,7 @@ test('rules: oldest batch first, across batches; batches set aside for a truck g
   assert.equal(rule.some((u) => u.logId === 'old'), false);
   const ev = costEvents({ receipts: receipts2, uses: rule, log: log2 });
   assert.deepEqual(ev.filter((x) => x.logId === 'f').map((x) => x.amount), [99.9, 56.4]); // 7.4 gal at $13.50, 4 at $14.10
-  assert.deepEqual(ev.find((x) => x.logId === 'old'), { date: '2026-09-01', kind: 'unpriced', amount: 0, unitId: 'T-09', unitName: 'T-09', assetType: 'truck', text: 'oil', part: 'oil', qty: 11.4, logId: 'old' });
+  assert.equal(ev.find((x) => x.logId === 'old'), undefined); // shelf use with no batch isn't a missing cost any more
   // A receipt dated the day after the work still covers it; a week after doesn't.
   assert.equal(ruleUses({ receipts: [drum('late', '2026-11-05', 700)], uses: [], log: [oilChange('x', '2026-11-04', 'T-20')] }).length, 1);
   assert.equal(ruleUses({ receipts: [drum('late', '2026-11-11', 700)], uses: [], log: [oilChange('x', '2026-11-04', 'T-20')] }).length, 0);

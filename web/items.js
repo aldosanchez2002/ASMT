@@ -270,10 +270,20 @@ export function openItems(items, uses, { today, days = 60 } = {}) {
 
 // Repairs in the work log (free text, so the matcher can read them).
 export const isRepair = (e) => e.type === 'repair';
+// Any work a bought part can go into: repairs, and services too (a PM or oil
+// change uses its filters, a tire change its tires, a battery change its
+// batteries), since parts are bought for the job.
+export const isWork = (e) => e.type === 'repair' || e.type === 'tires' || e.type === 'batteries'
+  || (Array.isArray(e.services) && e.services.length > 0) || (Array.isArray(e.itemKeys) && e.itemKeys.length > 0);
 export const repairText = (e) => [e.itemName, e.note].filter(Boolean).join(' · ');
 export function repairEntries(log, { today, days = 60 } = {}) {
   const from = addDays(today, -days);
   return log.filter((e) => isRepair(e) && e.date && e.date >= from && e.date <= today);
+}
+// The work bought parts are matched to (repairs and services).
+export function workEntries(log, { today, days = 60 } = {}) {
+  const from = addDays(today, -days);
+  return log.filter((e) => isWork(e) && e.date && e.date >= from && e.date <= today);
 }
 
 // The repairs an item could have gone into: up to a week before it was
@@ -384,7 +394,6 @@ export function accuracy(uses, month) {
  *   parts     a use of a batch tied to a truck: stock the work log used (by
  *             rule), or a repair part, labor or core tied to its work, on the
  *             work's date (bought for a truck with no repair: the purchase date)
- *   unpriced  something the work log used that no receipt covers yet (amount 0)
  *   waiting   bought and set aside for a truck, not used yet (not a cost yet)
  *   open      repair parts not tied to anything yet (no unit, not a cost yet)
  *   supplies / tools   shop costs (and returns not tied to a truck), on the
@@ -416,14 +425,8 @@ export function costEvents({ receipts, uses, log }) {
       out.push({ date: lot.date, kind: 'waiting', amount: round2(lot.unitCost * left), unitId: lot.forIds[0], text: lot.part, part: lot.part, qty: left, ...ref(lot) });
     }
   }
-  // What the work log used that no batch covers.
-  for (const e of log) {
-    if (!e.partsUsed || !e.date) continue;
-    for (const partId of Object.keys(e.partsUsed)) {
-      const qty = uncovered(e, partId, uses);
-      if (qty) out.push({ date: e.date, kind: 'unpriced', amount: 0, unitId: e.vehicleId, unitName: e.vehicleName ?? null, assetType: assetOf(e), text: partId, part: partId, qty, logId: e.id });
-    }
-  }
+  // (Nothing is counted on a shelf any more, so what older work entries say
+  // they took from it isn't a missing cost: their parts come from receipts.)
   // Repair parts, labor, cores, shop costs and returns.
   for (const it of receiptItems(receipts)) {
     if (it.unitCost == null) continue;

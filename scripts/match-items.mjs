@@ -19,7 +19,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { commit, getDoc, listDocs, mergeWrite, queryDocs, setWrite } from './firestore-rest.mjs';
 import { memoryText } from './ai-memory.mjs';
 import { MATCH_PROMPT, MATCH_SCHEMA, candidateRepairs, matchContext, matchSignature, usesFromAnswer } from './item-matcher.mjs';
-import { openItems, receiptItems, repairEntries, ruleUses } from '../web/items.js';
+import { openItems, receiptItems, ruleUses, workEntries } from '../web/items.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const daysAgo = (n) => new Date(Date.now() - n * DAY_MS);
@@ -105,7 +105,7 @@ async function main() {
   // Pass 2: Claude, for repair parts, labor and cores.
   const allItems = receiptItems(receipts);
   const open = openItems(allItems, uses, { today });
-  const repairs = candidateRepairs(open, repairEntries(log, { today, days: 90 }));
+  const repairs = candidateRepairs(open, workEntries(log, { today, days: 90 }));
   console.log(`${open.length} item(s) not tied to work, ${repairs.length} repair(s) they could be from.`);
   if (!open.length || !repairs.length) {
     await markChecked();
@@ -140,7 +140,7 @@ async function main() {
   // What's left open after these matches: the next run skips Claude unless
   // something new comes in (a receipt, a repair, admin freeing an item).
   const after = openItems(allItems, [...uses, ...found], { today });
-  const afterSignature = matchSignature(after, candidateRepairs(after, repairEntries(log, { today, days: 90 })));
+  const afterSignature = matchSignature(after, candidateRepairs(after, workEntries(log, { today, days: 90 })));
   writes.push(mergeWrite('meta/matcher', { signature: afterSignature, lastRun: new Date().toISOString(), checkedAt: startedAt }));
   await commit(writes);
 }
