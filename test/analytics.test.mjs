@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  fleetBreakdown, milesIn, monthPeriods, periodsFor, unitBreakdown, weekPeriods, workKind,
+  fleetBreakdown, milesIn, monthPeriods, periodsFor, pieSlices, spendByKind, trendMonths, unitBreakdown, unmatchedItems, weekPeriods, workKind,
 } from '../web/analytics.js';
 
 test('months and weeks touching a range, cut to it', () => {
@@ -107,4 +107,49 @@ test('the whole fleet: every unit and the shop add up; units ranked by spend', (
   assert.deepEqual(rows[1].units.map((u) => [u.name, u.total]), [['T-19', 999], ['T-07', 258.25], ['501', 40]]);
   assert.deepEqual([totals.miles, totals.total, totals.shop, totals.perMile, totals.reporting], [18000, 1456.25, 69, 0.08, 2]);
   assert.deepEqual(byUnit.map((u) => [u.name, u.total, u.work, u.miles]), [['T-19', 999, 1, 4000], ['T-07', 338.25, 1, 14000], ['501', 40, 1, null], ['T-09', 0, 1, null]]);
+});
+
+test('dashboard: the trend is months; a month or a short range shows the 12 months up to it', () => {
+  const year = periodsFor({ mode: 'year', year: '2026' }, '2026-11-06');
+  assert.equal(trendMonths({ ...year, to: year.to }).length, 11);
+  const month = periodsFor({ mode: 'month', month: '2026-10' }, '2026-11-06');
+  const t = trendMonths(month);
+  assert.deepEqual([t.length, t[0].from, t.at(-1).to], [12, '2025-11-01', '2026-10-31']);
+});
+
+test('dashboard: spending by what it went to, the shop\'s only fleet-wide and when included', () => {
+  const log = [{ id: 'r', type: 'repair', date: '2026-10-02' }, { id: 's', type: 'service', date: '2026-10-03' }];
+  const events = [
+    { kind: 'parts', unitId: 'v1', date: '2026-10-02', amount: 100, logId: 'r' },
+    { kind: 'parts', unitId: 'v2', date: '2026-10-03', amount: 60, logId: 's' },
+    { kind: 'parts', unitId: 'v1', date: '2026-10-04', amount: 85.5, paperwork: true },
+    { kind: 'parts', unitId: 'v1', date: '2026-10-05', amount: 20 },
+    { kind: 'supplies', unitId: null, date: '2026-10-05', amount: 40 },
+    { kind: 'tools', unitId: null, date: '2026-10-05', amount: 300 },
+    { kind: 'open', unitId: null, date: '2026-10-05', amount: 999 },
+    { kind: 'parts', unitId: 'v1', date: '2026-09-30', amount: 500, logId: 'r' },
+  ];
+  const range = { events, log, from: '2026-10-01', to: '2026-10-31' };
+  assert.deepEqual(spendByKind(range).map((x) => [x.key, x.amount]), [['tools', 300], ['repair', 100], ['paperwork', 85.5], ['service', 60], ['supplies', 40], ['other', 20]]);
+  assert.deepEqual(spendByKind({ ...range, includeShop: false }).map((x) => x.key), ['repair', 'paperwork', 'service', 'other']);
+  assert.deepEqual(spendByKind({ ...range, unitId: 'v1' }).map((x) => [x.key, x.amount]), [['repair', 100], ['paperwork', 85.5], ['other', 20]]);
+  const open = unmatchedItems(events, '2026-10-01', '2026-10-31');
+  assert.deepEqual([open.total, open.count], [999, 1]);
+});
+
+test('dashboard: pie keeps the biggest, folds the rest, and always shows the pinned slice', () => {
+  const items = Array.from({ length: 10 }, (_, i) => ({ id: `v${i}`, label: `T-${i}`, amount: 100 - i }));
+  const slices = pieSlices(items, { max: 8, pinned: [{ id: 'shop', label: 'Fleet-wide', amount: 50 }] });
+  assert.deepEqual(slices.map((s) => s.id), ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'other', 'shop']);
+  assert.equal(slices[6].amount, 94 + 93 + 92 + 91);
+  assert.equal(pieSlices(items.slice(0, 3), { pinned: [{ id: 'shop', amount: 0 }] }).length, 3);
+});
+
+test('fleet totals can leave the fleet-wide costs out', () => {
+  const periods = monthPeriods('2026-10-01', '2026-10-31');
+  const events = [{ kind: 'parts', unitId: 'v1', date: '2026-10-02', amount: 100 }, { kind: 'supplies', unitId: null, date: '2026-10-05', amount: 40 }];
+  const units = [{ id: 'v1', name: 'T-01', trailer: false }];
+  assert.equal(fleetBreakdown({ units, periods, events, log: [] }).totals.total, 140);
+  const without = fleetBreakdown({ units, periods, events, log: [], includeShop: false }).totals;
+  assert.deepEqual([without.total, without.shop], [100, 40]);
 });

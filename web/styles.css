@@ -1513,6 +1513,70 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
 .an-more { width: 100%; margin-top: 6px; }
 
+/* Analytics dashboard: categorical slots for the trucks (validated order,
+   both modes), and two neutrals told apart by lightness: fleet-wide costs
+   (dark slate) and the trucks folded into "others" (light gray). */
+:root { --cat-1: #2a78d6; --cat-2: #eb6834; --cat-3: #1baf7a; --cat-4: #eda100; --cat-5: #e87ba4; --cat-6: #008300; --an-fleetwide: #4b5563; --an-other: #c4c9d1; }
+@media (prefers-color-scheme: dark) {
+  :root { --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500; --cat-5: #d55181; --cat-6: #008300; --an-fleetwide: #9aa3b2; --an-other: #4a515c; }
+}
+.an-share-note { margin-left: auto; color: var(--floor-muted); font-size: 13px; }
+.an-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+@media (max-width: 820px) { .an-grid2 { grid-template-columns: minmax(0, 1fr); } }
+.an-panel { min-width: 0; padding: 14px; border: 2px solid var(--floor-line); background: var(--floor-paper); }
+.an-panel > .an-title:first-child, .an-chart-head .an-title { margin-top: 0; }
+.an-panel .an-units .an-unit { border-width: 0 0 1px; padding: 8px 2px; background: none; box-shadow: none; border-radius: 0; }
+.an-panel.an-chart { margin-top: 12px; }
+.an-chart-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 14px; }
+.an-chart-head .an-title { margin-bottom: 0; }
+.an-key { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--floor-muted); }
+.an-key-item { display: inline-flex; align-items: center; gap: 6px; }
+.an-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.an-stack { position: relative; display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: 28px; }
+.an-seg { display: block; min-height: 0; flex-basis: 0; }
+.an-seg-own { background: var(--cat-1); }
+.an-seg-fleet { background: var(--an-fleetwide); }
+.an-stack > .an-seg:first-child { border-radius: 4px 4px 0 0; }
+.an-col.chosen .an-x { font-weight: 800; color: var(--floor-ink); }
+.an-col.chosen { background: var(--floor-track); }
+div.an-col { cursor: default; }
+/* Donut + legend */
+.an-pie-box { display: grid; grid-template-columns: minmax(150px, 200px) minmax(0, 1fr); gap: 16px; align-items: center; }
+@media (max-width: 480px) { .an-pie-box { grid-template-columns: minmax(0, 1fr); justify-items: center; } .an-legend { width: 100%; } }
+.an-pie-ring { position: relative; width: 100%; max-width: 200px; aspect-ratio: 1; }
+.an-donut { display: block; width: 100%; height: 100%; }
+.an-slice { stroke: var(--floor-paper); stroke-width: 2; stroke-linejoin: round; cursor: pointer; transition: opacity .15s; }
+.an-slice.dim { opacity: .3; }
+.an-pie-center { position: absolute; inset: 22%; display: grid; place-content: center; text-align: center; pointer-events: none; }
+.an-pie-center strong { font: 800 22px/1.1 var(--cond); color: var(--floor-ink); }
+.an-pie-center span { font-size: 12px; color: var(--floor-muted); overflow-wrap: anywhere; }
+.an-legend { display: grid; gap: 2px; min-width: 0; }
+.an-legend-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 3.2em; gap: 8px; align-items: center; width: 100%; padding: 5px 6px; border: none; border-radius: 6px; background: none; color: var(--floor-ink); font: inherit; font-size: 14px; text-align: left; }
+button.an-legend-row { cursor: pointer; }
+.an-legend-row.on, button.an-legend-row:focus-visible { background: var(--floor-track); outline: none; }
+.an-legend-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-legend-amount { font-weight: 700; font-variant-numeric: tabular-nums; }
+.an-legend-pct { color: var(--floor-muted); text-align: right; font-variant-numeric: tabular-nums; }
+/* Where it went */
+.an-kinds { display: grid; gap: 10px; }
+.an-kind { display: grid; grid-template-columns: minmax(0, 1fr) auto 3.2em; grid-template-areas: 'name amount pct' 'bar bar bar'; gap: 4px 8px; font-size: 14px; }
+.an-kind-name { grid-area: name; color: var(--floor-ink); }
+.an-kind-amount { grid-area: amount; font-weight: 700; font-variant-numeric: tabular-nums; }
+.an-kind-pct { grid-area: pct; color: var(--floor-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.an-kind-track { grid-area: bar; height: 8px; background: var(--floor-track); border-radius: 999px; overflow: hidden; }
+.an-kind-bar { display: block; height: 100%; min-width: 3px; background: var(--cat-1); border-radius: 999px; }
+/* Unmatched receipt items */
+.an-open-head { display: grid; gap: 2px; margin-bottom: 8px; }
+.an-open-total { font: 800 28px/1.1 var(--cond); color: var(--floor-ink); }
+.an-open-note { font-size: 13px; color: var(--floor-muted); }
+.an-open-list { display: grid; }
+.an-open-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--floor-track); font-size: 14px; }
+.an-open-row .rc-chip { grid-column: 1 / -1; justify-self: start; }
+.an-open-text { display: grid; min-width: 0; }
+.an-open-name { overflow-wrap: anywhere; }
+.an-open-meta { font-size: 12px; color: var(--floor-muted); }
+.an-open-more { margin: 6px 0 0; font-size: 13px; color: var(--floor-muted); }
+
 /* Admin: five groups (Today · Fleet · Money · Records · Setup), sections under them */
 .nav-badge { margin-left: 8px; padding: 0 7px; background: var(--floor-red); color: #fff; font: 800 14px/1.4 var(--cond); }
 .subtabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin: 2px 0 18px; border: 2px solid var(--floor-line); }
@@ -1644,6 +1708,11 @@ body.page-analytics {
 .page-analytics .an-tip strong { font: 700 17px var(--cond); }
 .page-analytics .an-share { border: 1px solid var(--floor-line); border-radius: 12px; color: var(--floor-muted); }
 .page-analytics .an-share input { accent-color: var(--soft-accent); }
+.page-analytics .an-panel { border: 1px solid var(--floor-line); border-radius: var(--soft-radius); box-shadow: var(--soft-shadow); }
+.page-analytics .an-panel .an-title { font: 700 17px var(--cond); }
+.page-analytics .an-pie-center strong, .page-analytics .an-open-total { font-weight: 700; }
+.page-analytics .an-col.chosen { border-radius: 8px; }
+.page-analytics .an-stack > .an-seg:first-child { border-radius: 6px 6px 0 0; }
 
 /* Lists: receipts, units, period cards */
 .page-analytics .an-receipts { border: 1px solid var(--floor-line); border-radius: var(--soft-radius); overflow: hidden; box-shadow: var(--soft-shadow); }

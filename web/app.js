@@ -33,7 +33,7 @@ import {
   POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isWork, itemKey, landedCosts,
   lineKind, needsApproval, openItems, receiptItems, receiptMatch, receiptWork, repairText, shopShare, spending,
 } from './items.js';
-import { fleetBreakdown, periodsFor, unitBreakdown, workKind } from './analytics.js';
+import { fleetBreakdown, periodsFor, pieSlices, spendByKind, trendMonths, unitBreakdown, unmatchedItems, workKind } from './analytics.js';
 import { complianceList, nextInspection, unitCompliance } from './compliance.js';
 
 const app = initializeApp(firebaseConfig);
@@ -3092,8 +3092,8 @@ const anPeriodName = (p, view) => (view === 'week'
 const workText = (r) => [r.service && plural(r.service, 'service'), r.repair && plural(r.repair, 'repair'), r.tires && `${fmt.format(r.tires)} tire change${r.tires === 1 ? '' : 's'}`, r.batteries && `${fmt.format(r.batteries)} battery change${r.batteries === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || 'No work logged';
 const costText = (r) => [
   `Parts ${money(r.parts)}`,
-  r.shop ? `shop supplies & tools ${money(r.shop)}` : null,
-  r.shopShare ? `shop share ${money(r.shopShare)}` : null,
+  r.shop ? `fleet-wide ${money(r.shop)}${anSettings.excludeShare ? ' (left out)' : ''}` : null,
+  r.shopShare ? `fleet-wide share ${money(r.shopShare)}` : null,
   r.unpriced ? `${fmt.format(r.unpriced)} with no receipt yet` : null,
 ].filter(Boolean).join(' · ');
 const milesText = (r) => (r.miles == null ? null : `${fmt.format(r.miles)} mi${r.perMile != null ? ` · $${r.perMile.toFixed(2)}/mi` : ''}`);
@@ -3101,7 +3101,8 @@ const milesText = (r) => (r.miles == null ? null : `${fmt.format(r.miles)} mi${r
 function renderAnalytics() {
   if (currentTab() !== 'analytics') return;
   const units = anUnits();
-  const fleet = anSettings.scope === 'fleet';
+  // The whole fleet is the dashboard, and what opens first.
+  const fleet = anSettings.scope !== 'unit';
   for (const b of $('an-scope').querySelectorAll('button')) {
     const on = (b.dataset.scope === 'fleet') === fleet;
     b.classList.toggle('active', on);
@@ -3140,17 +3141,44 @@ function renderAnalytics() {
     body.replaceChildren(el('p', 'parts-empty', 'Nothing to show yet for these dates.'));
     return;
   }
+  const range = { from: periods[0].from, to: periods.at(-1).to };
+  const includeShop = !anSettings.excludeShare;
+  const months = trendMonths({ grain, periods, to: range.to });
+  // Cards and chart columns are the same periods when the dates are months.
+  const sameAsCards = months === periods;
   if (fleet) {
     const daysById = Object.fromEntries(trucks.filter((id) => id in anDays).map((id) => [id, anDays[id]]));
-    const { rows, totals, byUnit } = fleetBreakdown({ units, periods, events, log: serviceLog, daysById });
+    const { rows, totals, byUnit } = fleetBreakdown({ units, periods, events, log: serviceLog, daysById, includeShop });
+    const trend = sameAsCards ? rows : fleetBreakdown({ units, periods: months, events, log: serviceLog, daysById, includeShop }).rows;
     const loading = trucks.some((id) => !(id in anDays));
-    body.replaceChildren(anTiles(totals, null, { loading }), anChart(rows, grain), ...anFleetUnits(byUnit, loading), ...anCards(rows, null, grain, events));
+    anTrackedPerMile(totals, rows, events);
+    const open = unmatchedItems(events, range.from, range.to);
+    const pinned = includeShop ? [{ id: 'shop', label: 'Fleet-wide (shop)', amount: totals.shop, color: 'var(--an-fleetwide)' }] : [];
+    const slices = pieSlices(byUnit.map((u) => ({ id: u.id, label: u.trailer ? `Trailer ${u.name}` : u.name, amount: u.total })), { max: 8, pinned });
+    let slot = 0;
+    for (const sl of slices) sl.color ??= sl.other ? 'var(--an-other)' : `var(--cat-${(slot += 1)})`;
+    // Fleet-wide first (from 12 o'clock), the trucks biggest first, "others" last.
+    slices.sort((a, b) => (b.id === 'shop') - (a.id === 'shop'));
+    const pie = anDonut(slices, totals.total, (sl) => (sl.id === 'shop' || sl.other ? null : saveAnSettings({ scope: 'unit', unit: sl.id })));
+    const kinds = anKinds(spendByKind({ events, log: serviceLog, ...range, includeShop }), totals.total);
+    const unitsPanel = el('section', 'an-panel');
+    unitsPanel.append(...anFleetUnits(byUnit, loading));
+    body.replaceChildren(
+      anShareToggle(true, trucks.length),
+      anTiles(totals, null, { loading, open }),
+      anGrid(pie, kinds),
+      anTrend(trend, { range, includeShop, fleet: true, clickable: sameAsCards }),
+      anGrid(unitsPanel, anUnmatched(open)),
+      ...anCards(rows, null, grain, events),
+    );
     return;
   }
-  const { rows, totals } = unitBreakdown({ unitId: unit.id, periods, events, log: serviceLog, days });
-  // Shop share: supplies and tools split evenly by the trucks, an estimate kept apart.
-  if (anSettings.shopShare && !unit.trailer) {
-    const shares = shopShare({ periods, events, trucks: trucks.length });
+  // A truck's share of the fleet-wide costs: shop supplies and tools split
+  // evenly by the trucks, kept apart from its own costs.
+  const share = includeShop && !unit.trailer;
+  const withShare = ({ rows, totals }, ps) => {
+    if (!share) return { rows, totals };
+    const shares = shopShare({ periods: ps, events, trucks: trucks.length });
     rows.forEach((r, i) => {
       Object.assign(r, { shopShare: shares[i].share, shopTotal: shares[i].shop, trucks: shares[i].trucks });
       r.total = Math.round((r.parts + r.shopShare) * 100) / 100;
@@ -3159,14 +3187,184 @@ function renderAnalytics() {
     totals.shopShare = Math.round(rows.reduce((s, r) => s + r.shopShare, 0) * 100) / 100;
     totals.total = Math.round((totals.parts + totals.shopShare) * 100) / 100;
     totals.perMile = totals.miles ? Math.round((totals.total / totals.miles) * 100) / 100 : null;
+    return { rows, totals };
+  };
+  const { rows, totals } = withShare(unitBreakdown({ unitId: unit.id, periods, events, log: serviceLog, days }), periods);
+  anTrackedPerMile(totals, rows, events);
+  const trend = sameAsCards ? rows : withShare(unitBreakdown({ unitId: unit.id, periods: months, events, log: serviceLog, days }), months).rows;
+  const kindRows = spendByKind({ events, log: serviceLog, ...range, unitId: unit.id });
+  if (totals.shopShare) kindRows.push({ key: 'share', label: 'Share of fleet-wide', amount: totals.shopShare });
+  kindRows.sort((a, b) => b.amount - a.amount);
+  body.replaceChildren(
+    anShareToggle(false, trucks.length, unit.trailer),
+    anTiles(totals, unit),
+    anGrid(anTrend(trend, { range, includeShop: share, fleet: false, clickable: sameAsCards }), anKinds(kindRows, totals.total)),
+    ...anReceipts(unit, range, events),
+    ...anCards(rows, unit, grain, events),
+  );
+}
+
+// Receipts only started being read on a certain day: miles from before that
+// would make the cost per mile look like nothing. So it's the cost over the
+// miles of the periods since the first receipt (totals.perMileSince says when).
+function anTrackedPerMile(totals, rows, events) {
+  const first = events.filter((ev) => ev.receiptId && ev.date).map((ev) => ev.date).sort()[0];
+  if (!first || totals.miles == null || rows[0].to >= first) return;
+  const tracked = rows.filter((r) => r.to >= first);
+  const miles = tracked.reduce((sum, r) => sum + (r.miles ?? 0), 0);
+  totals.perMile = miles ? Math.round((totals.total / miles) * 100) / 100 : null;
+  totals.perMileSince = tracked[0]?.from ?? first;
+}
+
+// Fleet-wide costs (shop supplies and tools) count unless this is checked:
+// in the fleet's totals, and as an even share in each truck's.
+function anShareToggle(fleet, truckCount, hidden = false) {
+  const label = el('label', 'an-share');
+  const box = Object.assign(el('input'), { type: 'checkbox', id: 'an-exclude-share', checked: Boolean(anSettings.excludeShare) });
+  box.addEventListener('change', () => saveAnSettings({ excludeShare: box.checked }));
+  label.append(box, el('span', null, 'Exclude share of fleet-wide expenses'),
+    el('span', 'an-share-note', fleet ? 'Shop supplies and tools' : `Shop supplies and tools ÷ ${fmt.format(truckCount)} trucks`));
+  label.hidden = hidden;
+  return label;
+}
+
+// Two panels side by side (one under the other on a phone).
+function anGrid(...panels) {
+  const grid = el('div', 'an-grid2');
+  grid.append(...panels);
+  return grid;
+}
+
+const anPct = (n, total) => {
+  if (!total) return '';
+  const p = (n / total) * 100;
+  return p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`;
+};
+
+// Spent by truck: a donut, fleet-wide costs first, the biggest trucks, the
+// rest folded into "others". The legend names every slice with its amount;
+// hover or focus a slice or a row to see it in the middle, tap a truck to
+// see it alone.
+function anDonut(slices, total, onPick) {
+  const wrap = el('section', 'an-panel an-pie');
+  wrap.append(el('h3', 'an-title', 'Spent by truck'));
+  if (!slices.length || !(total > 0)) {
+    wrap.append(el('p', 'muted', 'No costs for these dates.'));
+    return wrap;
   }
-  const share = el('label', 'an-share');
-  const box = Object.assign(el('input'), { type: 'checkbox', id: 'an-shop-share', checked: Boolean(anSettings.shopShare) });
-  box.addEventListener('change', () => saveAnSettings({ shopShare: box.checked }));
-  share.append(box, el('span', null, `Include a share of shop supplies and tools (shop total ÷ ${fmt.format(trucks.length)} trucks)`));
-  share.hidden = unit.trailer;
-  const range = { from: periods[0].from, to: periods.at(-1).to };
-  body.replaceChildren(anTiles(totals, unit), share, anChart(rows, grain), ...anReceipts(unit, range, events), ...anCards(rows, unit, grain, events));
+  const NS = 'http://www.w3.org/2000/svg';
+  const box = el('div', 'an-pie-box');
+  const ring = el('div', 'an-pie-ring');
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 200 200');
+  svg.setAttribute('class', 'an-donut');
+  svg.setAttribute('aria-hidden', 'true');
+  const center = el('div', 'an-pie-center');
+  const legend = el('div', 'an-legend');
+  const R = 96;
+  const r = 62;
+  const pt = (rad, a) => `${(100 + rad * Math.cos(a)).toFixed(3)} ${(100 + rad * Math.sin(a)).toFixed(3)}`;
+  const arc = (a0, a1) => {
+    const large = a1 - a0 > Math.PI ? 1 : 0;
+    return `M ${pt(R, a0)} A ${R} ${R} 0 ${large} 1 ${pt(R, a1)} L ${pt(r, a1)} A ${r} ${r} 0 ${large} 0 ${pt(r, a0)} Z`;
+  };
+  const showCenter = (sl) => center.replaceChildren(
+    el('strong', null, money(sl ? sl.amount : total)),
+    el('span', null, sl ? `${sl.label} · ${anPct(sl.amount, total)}` : 'Total spent'),
+  );
+  const paths = [];
+  const rows = [];
+  const focus = (i) => {
+    paths.forEach((p, j) => p.classList.toggle('dim', i != null && j !== i));
+    rows.forEach((row, j) => row.classList.toggle('on', j === i));
+    showCenter(i == null ? null : slices[i]);
+  };
+  let a0 = -Math.PI / 2;
+  slices.forEach((sl, i) => {
+    const frac = sl.amount / total;
+    const a1 = a0 + frac * 2 * Math.PI;
+    const path = document.createElementNS(NS, 'path');
+    // A slice that's the whole ring is drawn as two halves.
+    path.setAttribute('d', frac > 0.9999 ? `${arc(-Math.PI / 2, Math.PI / 2)} ${arc(Math.PI / 2, (3 * Math.PI) / 2)}` : arc(a0, a1));
+    path.setAttribute('fill', sl.color);
+    path.setAttribute('class', 'an-slice');
+    path.addEventListener('pointerenter', () => focus(i));
+    path.addEventListener('pointerleave', () => focus(null));
+    if (onPick && sl.id !== 'shop' && !sl.other) path.addEventListener('click', () => onPick(sl));
+    svg.append(path);
+    paths.push(path);
+    a0 = a1;
+
+    const pickable = sl.id !== 'shop' && !sl.other;
+    const row = el(pickable ? 'button' : 'div', 'an-legend-row');
+    if (pickable) {
+      row.type = 'button';
+      row.setAttribute('aria-label', `${sl.label}: ${money(sl.amount)}, ${anPct(sl.amount, total)}. Show only ${sl.label}`);
+      row.addEventListener('click', () => onPick(sl));
+    }
+    const swatch = el('span', 'an-swatch');
+    swatch.style.background = sl.color;
+    row.append(swatch, el('span', 'an-legend-name', sl.label), el('span', 'an-legend-amount', money(sl.amount)), el('span', 'an-legend-pct', anPct(sl.amount, total)));
+    row.addEventListener('pointerenter', () => focus(i));
+    row.addEventListener('pointerleave', () => focus(null));
+    row.addEventListener('focus', () => focus(i));
+    row.addEventListener('blur', () => focus(null));
+    legend.append(row);
+    rows.push(row);
+  });
+  showCenter(null);
+  ring.append(svg, center);
+  box.append(ring, legend);
+  wrap.append(box);
+  return wrap;
+}
+
+// Where the money went: one bar per kind of work (and the shop's supplies
+// and tools), biggest first, each with its amount and share of the total.
+function anKinds(kinds, total) {
+  const wrap = el('section', 'an-panel');
+  wrap.append(el('h3', 'an-title', 'Where it went'));
+  if (!kinds.length) {
+    wrap.append(el('p', 'muted', 'No costs for these dates.'));
+    return wrap;
+  }
+  const top = Math.max(...kinds.map((k) => k.amount));
+  const list = el('div', 'an-kinds');
+  for (const k of kinds) {
+    const row = el('div', 'an-kind');
+    const track = el('span', 'an-kind-track');
+    const bar = el('span', 'an-kind-bar');
+    bar.style.width = `${(k.amount / top) * 100}%`;
+    track.append(bar);
+    row.append(el('span', 'an-kind-name', k.label), el('span', 'an-kind-amount', money(k.amount)), track, el('span', 'an-kind-pct', anPct(k.amount, total)));
+    list.append(row);
+  }
+  wrap.append(list);
+  return wrap;
+}
+
+// Receipt items bought in the dates that no work or shop use explains yet:
+// money spent that isn't in any truck's cost. Biggest first, each with its
+// receipt.
+function anUnmatched(open) {
+  const wrap = el('section', 'an-panel');
+  wrap.append(el('h3', 'an-title', 'Unmatched receipt items'));
+  const head = el('div', 'an-open-head');
+  head.append(el('strong', 'an-open-total', money(open.total)),
+    el('span', 'an-open-note', open.count ? `${plural(open.count, 'item')} bought in these dates, not tied to any work yet` : 'Everything bought in these dates is tied to work or the shop'));
+  wrap.append(head);
+  const SHOWN = 6;
+  const list = el('div', 'an-open-list');
+  for (const ev of open.items.slice(0, SHOWN)) {
+    const row = el('div', 'an-open-row');
+    const text = el('span', 'an-open-text');
+    text.append(el('span', 'an-open-name', anCostName(ev)));
+    row.append(text, el('strong', 'an-row-amount', money(ev.amount)), receiptChip(ev.receiptId, `${anCostName(ev)} · not tied to work`));
+    list.append(row);
+  }
+  if (open.count) wrap.append(list);
+  if (open.count > SHOWN) wrap.append(el('p', 'an-open-more', `and ${plural(open.count - SHOWN, 'more item')}`));
+  return wrap;
 }
 
 // The receipts behind a unit's costs in the dates: one row each, with what
@@ -3228,7 +3426,7 @@ function anFleetUnits(byUnit, loading) {
   };
   list.append(...busy.map(row));
   if (!busy.length) list.append(el('p', 'muted', 'No costs for these dates.'));
-  const out = [el('h3', 'an-title', 'By truck'), list];
+  const out = [el('h3', 'an-title', 'All trucks and trailers'), list];
   if (idle.length) {
     if (anShowIdle) list.append(...idle.map(row));
     const more = Object.assign(el('button', 'btn btn-ghost an-more', anShowIdle ? 'Hide units with no costs' : `${plural(idle.length, 'more unit')} with no costs`), { type: 'button' });
@@ -3432,7 +3630,7 @@ document.addEventListener('keydown', (e) => {
 
 // The totals for the whole range: spent, miles, cost per mile, work. With no
 // unit, the fleet's (miles from every truck with readings).
-function anTiles(totals, unit, { loading = false } = {}) {
+function anTiles(totals, unit, { loading = false, open = null } = {}) {
   const tiles = el('div', 'an-tiles');
   const tile = (label, value, note) => {
     const t2 = el('div', 'an-tile');
@@ -3445,18 +3643,38 @@ function anTiles(totals, unit, { loading = false } = {}) {
     unit
       ? tile('Miles', totals.miles == null ? '—' : fmt.format(totals.miles), unit.trailer ? 'Trailers have no odometer in Samsara' : totals.miles == null ? 'Loading Samsara readings…' : null)
       : tile('Miles', totals.miles == null ? '—' : fmt.format(totals.miles), loading ? 'Loading Samsara readings…' : `${plural(totals.reporting, 'truck')} with readings`),
-    tile('Cost per mile', totals.perMile == null ? '—' : `$${totals.perMile.toFixed(2)}`),
+    tile('Cost per mile', totals.perMile == null ? '—' : `$${totals.perMile.toFixed(2)}`, totals.perMileSince ? `Since ${niceDate(totals.perMileSince)}, when receipts started` : null),
     tile('Work', fmt.format(totals.service + totals.repair + totals.tires + totals.batteries), workText(totals)),
   );
+  if (open) tiles.append(tile('Unmatched receipt items', money(open.total), open.count ? `${plural(open.count, 'item')} not tied to work yet` : 'All tied to work'));
   return tiles;
 }
 
-// Spent per period: one column each, oldest on the left. Hover or focus a
-// column for its numbers; tap it to open that period below.
-function anChart(rows, view) {
-  const wrap = el('section', 'an-chart');
-  wrap.append(el('h3', 'an-title', `Spent per ${view}`));
-  const top = niceTop(Math.max(...rows.map((r) => r.total), 0));
+// Month by month: one column each, oldest on the left, the unit's own costs
+// with the fleet-wide ones stacked on top (unless they're excluded). The
+// chosen dates' months are marked when the chart shows more. Hover or focus a
+// column for its numbers; when the columns are the cards' months, tap one to
+// open it below.
+function anTrend(rows, { range, includeShop, fleet, clickable }) {
+  const wrap = el('section', 'an-panel an-chart');
+  const head = el('div', 'an-chart-head');
+  head.append(el('h3', 'an-title', 'Monthly trend'));
+  const fleetPart = (r) => (includeShop ? (fleet ? r.shop : r.shopShare) ?? 0 : 0);
+  const stacked = includeShop && rows.some((r) => fleetPart(r) > 0);
+  if (stacked) {
+    const key = el('div', 'an-key');
+    for (const [label, color] of [[fleet ? 'Trucks & trailers' : 'Own costs', 'var(--cat-1)'], [fleet ? 'Fleet-wide' : 'Share of fleet-wide', 'var(--an-fleetwide)']]) {
+      const item = el('span', 'an-key-item');
+      const sw = el('span', 'an-swatch');
+      sw.style.background = color;
+      item.append(sw, el('span', null, label));
+      key.append(item);
+    }
+    head.append(key);
+  }
+  wrap.append(head);
+  const totalOf = (r) => r.parts + fleetPart(r);
+  const top = niceTop(Math.max(...rows.map(totalOf), 0));
   const plot = el('div', 'an-plot');
   for (const f of [1, 0.5, 0]) {
     const line = el('div', 'an-grid');
@@ -3467,19 +3685,30 @@ function anChart(rows, view) {
   const cols = el('div', 'an-cols');
   const tip = el('div', 'an-tip');
   tip.hidden = true;
-  const maxRow = rows.reduce((m, r) => (r.total > (m?.total ?? 0) ? r : m), null);
-  const every = Math.ceil(rows.length / 8);
+  const maxRow = rows.reduce((m, r) => (totalOf(r) > (m ? totalOf(m) : 0) ? r : m), null);
+  const every = Math.ceil(rows.length / (window.matchMedia('(max-width: 560px)').matches ? 6 : 12));
+  const marks = rows.length > 1 && !clickable;
   rows.forEach((r, i) => {
-    const col = el('button', `an-col${anOpenPeriod === r.key ? ' open' : ''}`);
-    col.type = 'button';
-    col.setAttribute('aria-label', `${anPeriodName(r, view)}: ${money(r.total)}`);
-    const bar = el('span', 'an-bar');
-    bar.style.height = `${(r.total / top) * 100}%`;
-    if (r === maxRow) bar.append(el('span', 'an-cap', compactMoney(r.total)));
-    col.append(bar, el('span', 'an-x', i % every === 0 || i === rows.length - 1 ? r.label : ''));
+    const chosen = marks && r.to >= range.from && r.from <= range.to;
+    const col = el(clickable ? 'button' : 'div', `an-col${anOpenPeriod === r.key ? ' open' : ''}${chosen ? ' chosen' : ''}`);
+    if (clickable) col.type = 'button';
+    col.tabIndex = 0;
+    col.setAttribute('aria-label', `${anPeriodName(r, 'month')}: ${money(totalOf(r))}`);
+    const stack = el('span', 'an-stack');
+    stack.style.height = `${(totalOf(r) / top) * 100}%`;
+    const own = el('span', 'an-seg an-seg-own');
+    own.style.flexGrow = String(r.parts);
+    const shared = el('span', 'an-seg an-seg-fleet');
+    shared.style.flexGrow = String(fleetPart(r));
+    if (fleetPart(r) > 0) stack.append(shared);
+    if (r.parts > 0) stack.append(own);
+    if (r === maxRow && totalOf(r) > 0) stack.append(el('span', 'an-cap', compactMoney(totalOf(r))));
+    col.append(stack, el('span', 'an-x', i % every === 0 || i === rows.length - 1 ? r.label : ''));
     const show = () => {
-      tip.replaceChildren(el('strong', null, money(r.total)), el('span', null, anPeriodName(r, view)),
-        el('span', null, `Parts ${money(r.parts)}${r.shop ? ` · shop ${money(r.shop)}` : ''}${r.shopShare ? ` · shop share ${money(r.shopShare)}` : ''}`), ...(milesText(r) ? [el('span', null, milesText(r))] : []));
+      const lines = [el('strong', null, money(totalOf(r))), el('span', null, anPeriodName(r, 'month'))];
+      if (stacked) lines.push(el('span', null, `${fleet ? 'Trucks & trailers' : 'Own costs'} ${money(r.parts)}`), el('span', null, `${fleet ? 'Fleet-wide' : 'Share of fleet-wide'} ${money(fleetPart(r))}`));
+      if (milesText(r)) lines.push(el('span', null, milesText(r)));
+      tip.replaceChildren(...lines);
       tip.hidden = false;
       // Centered over the column, kept inside the chart.
       const half = tip.offsetWidth / 2;
@@ -3490,11 +3719,13 @@ function anChart(rows, view) {
     col.addEventListener('focus', show);
     col.addEventListener('pointerleave', () => { tip.hidden = true; });
     col.addEventListener('blur', () => { tip.hidden = true; });
-    col.addEventListener('click', () => {
-      anOpenPeriod = anOpenPeriod === r.key ? null : r.key;
-      renderAnalytics();
-      document.querySelector('.an-card.open')?.scrollIntoView({ block: 'nearest' });
-    });
+    if (clickable) {
+      col.addEventListener('click', () => {
+        anOpenPeriod = anOpenPeriod === r.key ? null : r.key;
+        renderAnalytics();
+        document.querySelector('.an-card.open')?.scrollIntoView({ block: 'nearest' });
+      });
+    }
     cols.append(col);
   });
   plot.append(cols, tip);

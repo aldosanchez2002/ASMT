@@ -140,12 +140,14 @@ export function unitBreakdown({ unitId, periods, events, log, days = null }) {
  * The whole fleet, period by period: every truck's and trailer's costs and
  * work, plus the shop's supplies and tools, and the miles of every truck
  * with readings. Also each unit's totals, biggest spend first.
+ * includeShop false leaves the fleet-wide costs (shop supplies and tools)
+ * out of the totals; `shop` still says what they were.
  * @param units [{ id, name, trailer }]
  * @param daysById vehicleId -> odometerDaily days (trucks with readings)
  * @returns { rows: [{ ...unitBreakdown row, shop, units: [{ id, name, total }] }],
  *   totals: same sums plus shop, byUnit: [{ id, name, trailer, ...totals }] }
  */
-export function fleetBreakdown({ units, periods, events, log, daysById = {} }) {
+export function fleetBreakdown({ units, periods, events, log, daysById = {}, includeShop = true }) {
   const each = units.map((u) => ({ ...u, ...unitBreakdown({ unitId: u.id, periods, events, log, days: u.trailer ? null : daysById[u.id] ?? null }) }));
   // Costs and work for units no longer in the list still count fleet-wide.
   const known = new Set(units.map((u) => u.id));
@@ -160,7 +162,7 @@ export function fleetBreakdown({ units, periods, events, log, daysById = {} }) {
       ...p, miles, service: add('service'), repair: add('repair'), tires: add('tires'), batteries: add('batteries'),
       parts: round2(add('parts')), unpriced: add('unpriced'), shop,
     };
-    row.total = round2(row.parts + shop);
+    row.total = round2(row.parts + (includeShop ? shop : 0));
     row.perMile = miles ? round2(row.total / miles) : null;
     row.units = each.map((u) => ({ id: u.id, name: u.name, trailer: u.trailer, total: u.rows[i].total })).filter((u) => u.total).sort((a, b) => b.total - a.total);
     return row;
@@ -177,4 +179,70 @@ export function fleetBreakdown({ units, periods, events, log, daysById = {} }) {
   const byUnit = each.map((u) => ({ id: u.id, name: u.name, trailer: u.trailer, ...u.totals, work: work(u.totals) }))
     .sort((a, b) => b.total - a.total || b.work - a.work);
   return { rows, totals, byUnit };
+}
+
+/**
+ * The months for the trend chart: the chosen periods when they're already
+ * months (3 or more), otherwise the 12 months ending with the chosen dates.
+ */
+export function trendMonths({ grain, periods, to }) {
+  if (grain === 'month' && periods.length >= 3) return periods;
+  const [y, m] = to.split('-').map(Number);
+  return monthPeriods(iso(new Date(Date.UTC(y, m - 12, 1, 12))), to);
+}
+
+// What the money went to, in the order they're listed when tied.
+export const SPEND_KINDS = [
+  ['repair', 'Repairs'], ['service', 'Services'], ['tires', 'Tires'], ['batteries', 'Batteries'],
+  ['paperwork', 'Registration & inspection'], ['other', 'Other parts'], ['supplies', 'Shop supplies'], ['tools', 'Tools'],
+];
+
+/**
+ * Spending in [from, to] by what it went to: each unit cost by the kind of
+ * work that used it (or registration and inspection fees), then the shop's
+ * supplies and tools. unitId: one unit's costs (no shop costs); left out:
+ * every unit's, plus the shop's when includeShop.
+ * @returns [{ key, label, amount }] biggest first, no zeros
+ */
+export function spendByKind({ events, log, from, to, unitId, includeShop = true }) {
+  const byId = new Map(log.map((e) => [e.id, e]));
+  const sums = new Map();
+  const add = (k, n) => sums.set(k, round2((sums.get(k) ?? 0) + n));
+  for (const ev of events) {
+    if (!ev.date || ev.date < from || ev.date > to) continue;
+    if (ev.kind === 'parts' && (unitId === undefined ? ev.unitId : ev.unitId === unitId)) {
+      const entry = ev.logId ? byId.get(ev.logId) : null;
+      add(ev.paperwork ? 'paperwork' : (entry && workKind(entry)) || 'other', ev.amount);
+    } else if (unitId === undefined && includeShop && !ev.unitId && (ev.kind === 'supplies' || ev.kind === 'tools')) add(ev.kind, ev.amount);
+  }
+  const order = SPEND_KINDS.map(([k]) => k);
+  return SPEND_KINDS.map(([key, label]) => ({ key, label, amount: sums.get(key) ?? 0 }))
+    .filter((x) => x.amount > 0)
+    .sort((a, b) => b.amount - a.amount || order.indexOf(a.key) - order.indexOf(b.key));
+}
+
+/**
+ * Pie slices: the biggest items, the rest folded into one "others" slice so
+ * there are never more than `max`; `pinned` slices (fleet-wide costs) always
+ * show, last. Items: [{ id, label, amount }].
+ */
+export function pieSlices(items, { max = 8, pinned = [] } = {}) {
+  const keep = pinned.filter((p) => p.amount > 0);
+  const sorted = items.filter((x) => x.amount > 0).sort((a, b) => b.amount - a.amount);
+  const room = max - keep.length;
+  if (sorted.length <= room) return [...sorted, ...keep];
+  const top = sorted.slice(0, room - 1);
+  const rest = sorted.slice(room - 1);
+  const other = { id: 'other', label: `${rest.length} others`, amount: round2(rest.reduce((s, x) => s + x.amount, 0)), other: true, count: rest.length };
+  return [...top, other, ...keep];
+}
+
+/**
+ * Receipt items bought in [from, to] that aren't tied to any work or to the
+ * shop yet (costEvents' 'open'), biggest first.
+ * @returns { total, count, items: [event] }
+ */
+export function unmatchedItems(events, from, to) {
+  const items = events.filter((ev) => ev.kind === 'open' && ev.date && ev.date >= from && ev.date <= to).sort((a, b) => b.amount - a.amount);
+  return { total: round2(items.reduce((s, ev) => s + ev.amount, 0)), count: items.length, items };
 }
