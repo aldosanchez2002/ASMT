@@ -12,7 +12,7 @@ import { writeFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { commit, getDoc, listDocs, mergeWrite, queryDocs } from './firestore-rest.mjs';
 import { memoryText } from './ai-memory.mjs';
-import { RECEIPT_SCHEMA, SYSTEM_PROMPT, contextText, receiptFromReading } from './receipt-reader.mjs';
+import { RECEIPT_SCHEMA, SYSTEM_PROMPT, contextText, copyToKeep, receiptFromReading, withoutDuplicate } from './receipt-reader.mjs';
 import { readReplyText, sendReadReply } from './receipt-reply.mjs';
 import { PAPERWORK_PROMPT, PAPERWORK_SCHEMA, paperworkContext, paperworkFromReading, paperworkReplyText } from './paperwork-reader.mjs';
 
@@ -104,7 +104,7 @@ async function main() {
   const client = new Anthropic();
   // Receipts read in the last year, to catch the same invoice uploaded twice.
   const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const others = (await queryDocs('receipts', [['date', '>=', yearAgo]])).filter((r) => r.status === 'read' || r.status === 'review');
+  const others = (await queryDocs('receipts', [['date', '>=', yearAgo]])).filter((r) => (r.status === 'read' || r.status === 'review') && !r.replacedBy);
 
   let done = 0;
   let units = null; // trucks and trailers, loaded once if a paper comes in
@@ -132,7 +132,23 @@ async function main() {
         done += 1;
         continue;
       }
-      const result = receiptFromReading(reading, parts, vehicles, { uploadedDate: r.date, trucks: r.trucks ?? [], others, note: r.note });
+      let result = receiptFromReading(reading, parts, vehicles, { uploadedDate: r.date, trucks: r.trucks ?? [], others, note: r.note });
+      // The same invoice sent twice: one copy stays, the other is set aside
+      // (replacedBy), so only one receipt counts and asks.
+      const setAside = [];
+      if (result.duplicateOf) {
+        const older = others.find((o) => o.id === result.duplicateOf);
+        const olderUses = await queryDocs('itemUses', [['receiptId', '==', result.duplicateOf]]);
+        if (copyToKeep(older, olderUses) === 'newer') {
+          console.log(`  same invoice as ${result.duplicateOf}: this newer copy replaces it`);
+          setAside.push(mergeWrite(`receipts/${result.duplicateOf}`, { replacedBy: r.id, replacedAt: new Date().toISOString() }));
+          others.splice(others.indexOf(older), 1);
+          result = withoutDuplicate(result);
+        } else {
+          console.log(`  same invoice as ${result.duplicateOf}, which the admin already worked on: this copy is set aside`);
+          result = { ...result, replacedBy: result.duplicateOf, replacedAt: new Date().toISOString() };
+        }
+      }
       // The decision, in order: legible, registration, inspection, receipt (shop or service).
       const shop = result.lines.filter((l) => l.to === 'shop').length;
       const stock = result.lines.filter((l) => l.to === 'stock').length;
@@ -145,9 +161,9 @@ async function main() {
         const choices = l.truckChoices ? ` (${l.truckChoices.map(truckName).join(' or ')})` : '';
         console.log(`    ${l.text}${l.partNumber ? ` [${l.partNumber}]` : ''} x${l.qty} ${l.price ?? '?'} (real ${l.cost ?? '?'}) ${l.kind} -> ${where}${choices}${l.truckFrom ? ` via ${l.truckFrom}` : ''}${l.flags.length ? ` [${l.flags.join(', ')}]` : ''}`);
       }
-      if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...result, readAt: new Date().toISOString(), readError: null })]);
+      if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...result, readAt: new Date().toISOString(), readError: null }), ...setAside]);
       if (!dryRun) await replyToSender(r, readReplyText(result, vehicles));
-      others.push({ ...result, id: r.id }); // two photos of one receipt in the same batch
+      if (!result.replacedBy) others.push({ ...result, id: r.id }); // two photos of one receipt in the same batch
       readNow.push({ ...r, ...result });
       done += 1;
     } catch (err) {

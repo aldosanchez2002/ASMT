@@ -229,7 +229,8 @@ export function tireUses({ receipts, uses, log }) {
 // A purchase with no store receipt (cash, a payment screenshot) counts only
 // once admin approves it.
 export const needsApproval = (r) => r.approval === 'pending';
-const counts = (r) => isRead(r) && r.approval !== 'pending' && r.approval !== 'rejected';
+// A receipt sent twice: the copy a newer one replaced doesn't count.
+const counts = (r) => isRead(r) && r.approval !== 'pending' && r.approval !== 'rejected' && !r.replacedBy;
 
 /**
  * The stock batches: lines of read receipts matched to a part in the parts
@@ -385,6 +386,8 @@ export function receiptMatch(receipt, uses) {
   if (state0 === 'waiting' || state0 === 'unreadable' || state0 === 'error') return { state: state0, placed: 0, total: lines.length, open: [] };
   // No store receipt: waiting for admin's approval, or turned down.
   if (receipt.approval === 'pending' || receipt.approval === 'rejected') return { state: receipt.approval, placed: 0, total: lines.length, open: [] };
+  // Sent twice: a newer copy took its place.
+  if (receipt.replacedBy) return { state: 'replaced', placed: 0, total: lines.length, open: [] };
   const open = [];
   const cores = addOnLinks(receipt);
   lines.forEach((l, i) => {

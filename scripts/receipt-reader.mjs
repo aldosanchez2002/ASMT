@@ -189,8 +189,31 @@ export function receiptFromReading(reading, parts, vehicles, { uploadedDate, tru
   const twin = key && others.find((o) => invoiceKey(o.invoiceNumber) === key && (!o.vendor || !base.vendor || o.vendor.toLowerCase() === base.vendor.toLowerCase()));
   if (twin) problems.push(`Invoice ${base.invoiceNumber} was already uploaded${twin.date ? ` (${twin.date})` : ''}; it may be the same receipt twice`);
   const status = problems.length || lines.some((l) => l.flags.length) ? 'review' : 'read';
+  const duplicateOf = twin?.id ?? null;
   // A payment screenshot isn't a store receipt: it counts once admin approves it.
   const paidWith = reading.paidWith && reading.paidWith !== 'receipt' ? reading.paidWith : null;
   const approval = paidWith ? { paidWith, noReceipt: true, approval: 'pending' } : {};
-  return { ...base, status, lines, fees, feesTotal, tax, total: reading.total ?? (lines.length ? sum : null), problems, ...approval };
+  return { ...base, status, lines, fees, feesTotal, tax, total: reading.total ?? (lines.length ? sum : null), problems, ...approval, ...(duplicateOf ? { duplicateOf } : {}) };
+}
+
+/**
+ * The same invoice sent twice: the newer copy replaces the older one, unless
+ * the admin already worked on the older one (edited it, approved or turned
+ * it down, or confirmed, rejected or made a match on it). Then the newer
+ * copy is the one set aside. Either way only one copy counts and asks.
+ * @param older the receipt already read; olderUses its itemUses
+ * @returns 'newer' (the new copy stays) or 'older'
+ */
+export function copyToKeep(older, olderUses = []) {
+  const touched = Boolean(older.updatedAt) || ['approved', 'rejected'].includes(older.approval)
+    || olderUses.some((u) => u.by === 'admin' || u.status === 'confirmed' || u.status === 'rejected');
+  return touched ? 'older' : 'newer';
+}
+
+// The new copy once the older one is replaced: no "sent twice" problem.
+export function withoutDuplicate(result) {
+  const problems = result.problems.filter((p) => !/was already uploaded/.test(p));
+  const status = problems.length || result.lines.some((l) => l.flags.length) ? 'review' : 'read';
+  const { duplicateOf, ...rest } = result;
+  return { ...rest, problems, status, replaced: duplicateOf };
 }

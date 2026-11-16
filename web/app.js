@@ -2473,7 +2473,7 @@ function openLinesBox(r) {
 
 // Receipts with lines the reader couldn't place (or whose math is off).
 // A purchase waiting for approval is reviewed there instead.
-const toCheck = () => receipts.filter((r) => ['review', 'unreadable', 'error'].includes(r.status) && !needsApproval(r)).sort((a, b) => b.createdMs - a.createdMs);
+const toCheck = () => receipts.filter((r) => ['review', 'unreadable', 'error'].includes(r.status) && !needsApproval(r) && !r.replacedBy).sort((a, b) => b.createdMs - a.createdMs);
 
 // A registration or inspection paper texted in: "Registration · 54231".
 const paperLabel = (r) => `${r.paperwork.kind === 'inspection' ? 'Inspection' : 'Registration'}${r.paperwork.unitName ? ` · ${r.paperwork.unitName}` : ''}`;
@@ -2535,6 +2535,15 @@ function noReceiptMonth() {
   return [...by].sort((a, b) => b[1] - a[1]).map(([who, n]) => `${who} ${money(n)}`).join(' · ');
 }
 
+// What's wrong with a receipt to check, in a few words.
+const problemLabel = (r) => {
+  const p = (r.problems ?? []).join(' ');
+  if (/already uploaded/.test(p)) return t('maybeTwice');
+  if (/date was read/.test(p)) return t('checkDate');
+  if (/No items/.test(p)) return t('noItemsRead');
+  return t('checkTotal');
+};
+
 // Receipts to check: the ones the reader wasn't sure of, each opening the
 // receipt form (what was read, the best guess, pick where each line goes).
 function receiptsToCheck() {
@@ -2547,7 +2556,7 @@ function receiptsToCheck() {
     row.append(
       el('span', 'receipt-vendor', r.vendor || t('noVendor')),
       el('span', 'receipt-total', r.total != null ? money(r.total) : ''),
-      el('span', 'receipt-status', r.status !== 'review' ? t('receiptStatus')[r.status] : open ? t('linesToPlace', open) : t('checkTotal')),
+      el('span', 'receipt-status', r.status !== 'review' ? t('receiptStatus')[r.status] : open ? t('linesToPlace', open) : problemLabel(r)),
       el('span', 'receipt-meta', receiptMeta(r)),
     );
     row.addEventListener('click', () => openReceipt(r.id));
@@ -2691,7 +2700,9 @@ const todayIso = () => new Date().toLocaleDateString('en-CA');
 const matchQueue = () => auditQueue({ items: receiptItems(receipts), uses: itemUses, log: serviceLog, today: todayIso() });
 // How many things wait in Parts → Receipts → To review: purchases to approve,
 // receipts to check, unsure matches, parts no work explains, repairs with no parts.
-const partsToReview = (queue = matchQueue()) => toApprove().length + toCheck().length + queue.doubts.length + queue.noWork.length + queue.noParts.length;
+// Unsure matches count once per receipt: one question each.
+const doubtReceipts = (queue) => new Set(queue.doubts.map((x) => x.item.receiptId)).size;
+const partsToReview = (queue = matchQueue()) => toApprove().length + toCheck().length + doubtReceipts(queue) + queue.noWork.length + queue.noParts.length;
 const unitName = (id) => vehicles.find((v) => v.id === id)?.name ?? trailers.find((c) => c.id === id)?.name ?? id;
 const SPEND_PERIODS = ['month', 'd90', 'year'];
 let spendPeriod = 'month';
@@ -2723,7 +2734,7 @@ function partsReview(queue) {
   const typed = Object.assign(el('button', 'link-btn type-receipt-link', t('typeReceipt')), { type: 'button' });
   typed.addEventListener('click', () => openReceipt(null));
   out.push(typed);
-  section(t('secDoubts'), t('secDoubtsHint'), queue.doubts.map((x) => matchCard(x)), t('nothingToCheck'));
+  section(t('secDoubts'), t('secDoubtsHint'), receiptQuestions(queue.doubts), t('nothingToCheck'));
   section(t('secNoWork'), t('secNoWorkHint'), queue.noWork.map(noWorkCard), t('nothingToCheck'));
   section(t('secNoParts'), t('secNoPartsHint'), queue.noParts.map(noPartsCard), t('nothingToCheck'));
 
@@ -2757,6 +2768,70 @@ function matchCard({ use, item, entry }) {
   change.addEventListener('click', () => pickForItem(item, use));
   const actions = el('div', 'match-actions');
   actions.append(right, change, receiptLink(item));
+  card.append(actions);
+  return card;
+}
+
+// The AI's unsure matches, one question per receipt: "Is this receipt for
+// T-02: Replace steering motor?" Correct confirms every match on it; Change
+// picks the right work (line by line when it has several); See receipt
+// shows the photo.
+function receiptQuestions(doubts) {
+  const byReceipt = new Map();
+  for (const x of doubts) {
+    if (!byReceipt.has(x.item.receiptId)) byReceipt.set(x.item.receiptId, []);
+    byReceipt.get(x.item.receiptId).push(x);
+  }
+  return [...byReceipt.values()].map(questionCard);
+}
+
+function questionCard(list) {
+  const { item } = list[0];
+  const r = receiptOf(item);
+  const card = el('div', 'match-card match-doubt question-card');
+  // Where it would go, once per job: "T-27: Cambio de Radiador".
+  const placeText = ({ use, entry }) => {
+    const truck = entry?.vehicleName ?? use.vehicleName ?? unitName(entry?.vehicleId ?? use.vehicleId);
+    return entry && repairText(entry) ? `${truck}: ${repairText(entry)}` : truck;
+  };
+  const places = [...new Set(list.map(placeText))];
+  const many = places.length > 1;
+  card.append(
+    el('p', 'question', t('receiptQuestion', places.join(t('andWord')))),
+    el('p', 'match-meta', [r?.vendor ?? item.vendor, dateText(r?.date ?? item.date), r?.total != null ? money(r.total) : null].filter(Boolean).join(' · ')),
+  );
+  const lines = el('div', 'question-lines');
+  for (const x of list) {
+    const row = el('div', 'question-line');
+    row.append(el('span', 'question-item', itemLine(x.item, x.use.qty)), el('span', 'question-cost', x.item.unitCost != null ? money(x.item.unitCost * x.use.qty) : ''));
+    if (many) row.append(el('span', 'question-to', `→ ${placeText(x)}${x.entry?.date ? ` · ${dateText(x.entry.date)}` : ''}`));
+    else if (x.entry?.date) row.append(el('span', 'question-to', `${t('workOn')} ${dateText(x.entry.date)}`));
+    if (x.use.reason) row.append(el('span', 'match-why', t('aiSure', x.use.confidence ?? 0, x.use.reason)));
+    const one = Object.assign(el('button', 'link-btn question-change', t('change')), { type: 'button' });
+    one.addEventListener('click', () => pickForItem(x.item, x.use));
+    row.append(one);
+    lines.append(row);
+  }
+  card.append(lines);
+  const correct = Object.assign(el('button', 'btn match-right', t('correct')), { type: 'button' });
+  correct.addEventListener('click', async () => {
+    correct.disabled = true;
+    const batch = writeBatch(db);
+    for (const { use } of list) batch.set(useRef(use.id), { status: 'confirmed', checkedAt: serverTimestamp() }, { merge: true });
+    try {
+      await batch.commit();
+    } catch (err) {
+      correct.disabled = false;
+      showAppError(t('couldNotSave', err.message));
+    }
+  });
+  const change = Object.assign(el('button', 'btn btn-ghost', t('change')), { type: 'button' });
+  // One line: pick its work. Several: each line gets its own Change.
+  change.addEventListener('click', () => (list.length === 1 ? pickForItem(item, list[0].use) : card.classList.toggle('changing')));
+  const see = Object.assign(el('button', 'link-btn', t('seeReceipt')), { type: 'button' });
+  see.addEventListener('click', () => (r?.hasPhoto ? showReceiptPhoto(r) : r && openReceipt(r.id)));
+  const actions = el('div', 'match-actions');
+  actions.append(correct, change, see);
   card.append(actions);
   return card;
 }

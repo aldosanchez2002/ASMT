@@ -1513,6 +1513,17 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
 .an-more { width: 100%; margin-top: 6px; }
 
+/* Parts → To review: one question per receipt */
+.question-card .question { margin: 0 0 4px; font: 800 20px/1.25 var(--cond); color: var(--floor-ink); }
+.question-lines { display: grid; gap: 6px; margin: 10px 0 4px; }
+.question-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 0 0; border-top: 1px solid var(--floor-track); font-size: 14px; }
+.question-item { font-weight: 700; overflow-wrap: anywhere; }
+.question-cost { font-weight: 700; white-space: nowrap; }
+.question-to, .question-line .match-why { grid-column: 1 / -1; }
+.question-to { color: var(--floor-muted); }
+.question-change { grid-column: 1 / -1; justify-self: start; display: none; }
+.question-card.changing .question-change { display: inline; }
+
 /* Analytics dashboard: categorical slots for the trucks (validated order,
    both modes), and two neutrals told apart by lightness: fleet-wide costs
    (dark slate) and the trucks folded into "others" (light gray). */
