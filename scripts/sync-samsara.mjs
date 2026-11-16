@@ -4,6 +4,8 @@
 //
 // Env vars:
 //   SAMSARA_API_KEY            (required) Samsara API token, read-only is enough
+//   SAMSARA_API_KEY_2          (optional) the token of a second Samsara account
+//                              (and _3…_5); its trucks and trailers are merged in
 //   FIREBASE_SERVICE_ACCOUNT   (optional) service account JSON. Without it, the
 //                              script writes through Firestore's public REST API
 //                              using the web config in web/firebase-config.js,
@@ -24,7 +26,7 @@ import { WINDOW_DAYS, classify, metricsFromReport, nextState } from './duty.mjs'
 import { addGpsMiles, pointsByTrailer } from './trailer-miles.mjs';
 import { missingTireStarts } from '../web/truck-tires.js';
 import {
-  METERS_PER_MILE, dailyField, faultsFromStats, locationFromStats, samsaraGetAll,
+  METERS_PER_MILE, dailyField, faultsFromStats, locationFromStats, samsaraAccounts, samsaraGetAllAccounts,
 } from './samsara.mjs';
 
 // Trucks that haven't reported in this many days are left off the site.
@@ -40,13 +42,13 @@ if (!process.env.SAMSARA_API_KEY) {
 // haven't (so they can be removed from Firestore).
 async function fetchFleet() {
   const [vehicles, odoStats, gpsStats, faultStats] = await Promise.all([
-    samsaraGetAll('/fleet/vehicles'),
-    samsaraGetAll('/fleet/vehicles/stats', {
+    samsaraGetAllAccounts('/fleet/vehicles'),
+    samsaraGetAllAccounts('/fleet/vehicles/stats', {
       types: 'obdOdometerMeters,gpsOdometerMeters,obdEngineSeconds',
     }),
-    samsaraGetAll('/fleet/vehicles/stats', { types: 'gps' }),
+    samsaraGetAllAccounts('/fleet/vehicles/stats', { types: 'gps' }),
     // Fault codes are a nice-to-have: the sync still runs without them.
-    samsaraGetAll('/fleet/vehicles/stats', { types: 'faultCodes' }).catch((err) => {
+    samsaraGetAllAccounts('/fleet/vehicles/stats', { types: 'faultCodes' }).catch((err) => {
       console.warn(`Skipping fault codes: ${err.message}`);
       return [];
     }),
@@ -75,6 +77,7 @@ async function fetchFleet() {
       location: gpsById.has(v.id) ? locationFromStats(gpsById.get(v.id)) : null,
       faults: faultById.has(v.id) ? faultsFromStats(faultById.get(v.id)) : null,
       scheduleIds: scheduleIdsFor(v),
+      samsaraAccount: v._account ?? 1,
     };
   });
 
@@ -90,8 +93,8 @@ async function fetchFleet() {
 // the last STALE_AFTER_DAYS) and stale.
 async function fetchTrailers() {
   const [trailers, stats] = await Promise.all([
-    samsaraGetAll('/fleet/trailers'),
-    samsaraGetAll('/fleet/trailers/stats', { types: 'gps' }),
+    samsaraGetAllAccounts('/fleet/trailers'),
+    samsaraGetAllAccounts('/fleet/trailers/stats', { types: 'gps' }),
   ]);
   const gpsById = new Map(stats.map((s) => [s.id, s.gps]));
   const units = trailers.map((t) => {
@@ -106,6 +109,7 @@ async function fetchTrailers() {
       location: gps?.reverseGeo?.formattedLocation ?? null,
       speedMph: gps?.speedMilesPerHour ?? null,
       lastReportedAt: gps?.time ?? null,
+      samsaraAccount: t._account ?? 1,
     };
   });
   const cutoff = Date.now() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000;
@@ -123,7 +127,7 @@ async function trailerMilesDocs(activeTrailers) {
   const now = new Date();
   const lastTimes = Object.values(prev).map((d) => d.last?.time).filter(Boolean).sort();
   const since = new Date(Math.max(now.getTime() - 24 * 3600000, lastTimes.length ? Date.parse(lastTimes[0]) : now.getTime() - 3600000));
-  const history = await samsaraGetAll('/fleet/trailers/stats/history', {
+  const history = await samsaraGetAllAccounts('/fleet/trailers/stats/history', {
     types: 'gps', startTime: since.toISOString(), endTime: now.toISOString(),
   });
   const points = pointsByTrailer(history);
@@ -135,23 +139,31 @@ async function trailerMilesDocs(activeTrailers) {
   return docs;
 }
 
-// Samsara fuel & energy report for the last WINDOW_DAYS: vehicleId -> metrics.
+// Samsara fuel & energy report for the last WINDOW_DAYS, from every account:
+// vehicleId -> metrics. A second account failing skips only its trucks.
 async function fetchDutyMetrics() {
   const end = new Date();
   const start = new Date(end.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const reports = [];
-  let after;
-  do {
-    const url = new URL('/fleet/reports/vehicles/fuel-energy', 'https://api.samsara.com');
-    url.searchParams.set('startDate', start.toISOString());
-    url.searchParams.set('endDate', end.toISOString());
-    if (after) url.searchParams.set('after', after);
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${process.env.SAMSARA_API_KEY}`, Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`Samsara fuel-energy report failed: ${res.status} ${await res.text()}`);
-    const body = await res.json();
-    reports.push(...(body.data?.vehicleReports ?? []));
-    after = body.pagination?.hasNextPage ? body.pagination.endCursor : undefined;
-  } while (after);
+  for (const account of samsaraAccounts()) {
+    try {
+      let after;
+      do {
+        const url = new URL('/fleet/reports/vehicles/fuel-energy', 'https://api.samsara.com');
+        url.searchParams.set('startDate', start.toISOString());
+        url.searchParams.set('endDate', end.toISOString());
+        if (after) url.searchParams.set('after', after);
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${account.key}`, Accept: 'application/json' } });
+        if (!res.ok) throw new Error(`Samsara fuel-energy report failed: ${res.status} ${await res.text()}`);
+        const body = await res.json();
+        reports.push(...(body.data?.vehicleReports ?? []));
+        after = body.pagination?.hasNextPage ? body.pagination.endCursor : undefined;
+      } while (after);
+    } catch (err) {
+      if (account.n === 1) throw err;
+      console.warn(`Samsara account ${account.n}: skipping duty classification: ${err.message}`);
+    }
+  }
   return new Map(reports.map((r) => [r.vehicle.id, metricsFromReport(r)]));
 }
 
@@ -341,6 +353,20 @@ console.log(
   `Fetched ${trailers.active.length + trailers.staleIds.length} trailers: ` +
   `${trailers.active.length} active, ${trailers.staleIds.length} stale (removed)`,
 );
+const accounts = samsaraAccounts();
+if (accounts.length > 1) {
+  const count = (list, n) => list.filter((x) => x.samsaraAccount === n).length;
+  console.log(`Samsara accounts: ${accounts.map((a) => `#${a.n} ${count(fleet, a.n)} trucks, ${count(trailers.active, a.n)} trailers`).join(' · ')}`);
+}
+// The same unit number in two places makes "T-24" ambiguous in texts and notes.
+for (const [kind, list] of [['truck', fleet], ['trailer', trailers.active]]) {
+  const seen = new Map();
+  for (const x of list) {
+    const key = String(x.name).trim().toUpperCase();
+    if (key && seen.has(key)) console.warn(`Two ${kind}s are named ${x.name} (Samsara accounts ${seen.get(key)} and ${x.samsaraAccount}): rename one in Samsara`);
+    else seen.set(key, x.samsaraAccount);
+  }
+}
 const unmatched = fleet.filter((v) => v.scheduleIds.length === 0);
 if (unmatched.length) {
   console.warn(

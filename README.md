@@ -46,6 +46,7 @@ In the repo: **Settings → Secrets and variables → Actions → New repository
 | Name | Value |
 |---|---|
 | `SAMSARA_API_KEY` | Your Samsara API token (read-only is enough) |
+| `SAMSARA_API_KEY_2` | *(Optional)* The token of a second Samsara account under the same administration. Its trucks and trailers are merged in as if they were one account (each doc keeps `samsaraAccount`: 1 or 2). If this key fails, the main fleet still syncs and the log says why. Unit numbers should be different across the two accounts: the sync warns about any name used twice. |
 | `FIREBASE_SERVICE_ACCOUNT` | *(Optional)* The entire contents of the service-account JSON file. Without it, the sync writes through Firestore's public API, which only works while your Firestore rules allow public writes. Add it before locking writes down. |
 | `ALLOWED_EMAILS` | *(Only if sign-in is on)* Google account(s) allowed to view the site, comma-separated |
 | `AS_LOG_KEY` | *(For receipt reading)* A Claude API key from console.anthropic.com (set a monthly spend limit there). The "Read receipts" Action uses it with Claude Sonnet 5.5 to read the receipts the buyer sends (about 2–3¢ a receipt) and match the parts to repairs; without it, receipts stay "Waiting to be read". |
@@ -150,6 +151,8 @@ Tracking starts from the first sync after schedules are assigned: for every serv
 SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs --days 365          # dry run
 SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs --days 365 --apply
 ```
+
+For trucks added later (like a second Samsara account's), run **Actions → Backfill odometer** with the account number: first with *apply* off to see the summary, then on to write.
 
 On the site, the **Next service** column shows each truck's most urgent item. Click a truck to see every item with its due point (miles, engine hours or date, whichever comes first) and status: overdue, due soon (within 10% of the interval, at least 2,500 mi, or 30 days) or OK. **Record work** on an item logs a service; miles, hours and date default to the truck's current values and can be edited to back-date a service.
 

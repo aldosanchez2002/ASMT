@@ -4,16 +4,23 @@
 // only if the truck actually reported that day. The sync adds today's
 // reading every run after that.
 //
+// Reads every Samsara account (SAMSARA_API_KEY, SAMSARA_API_KEY_2, …), or one
+// with --account 2. Also runs from GitHub: Actions → "Backfill odometer".
+//
 // Usage:
-//   SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs [--days 365]           # dry run: prints a summary
-//   SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs [--days 365] --apply   # writes
+//   SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs [--days 365] [--account 2]           # dry run: prints a summary
+//   SAMSARA_API_KEY=... node scripts/backfill-odometer.mjs [--days 365] [--account 2] --apply   # writes
 
 import { commit, listDocs, mergeWrite } from './firestore-rest.mjs';
-import { dailyField, readingFromStats, samsaraGetAll } from './samsara.mjs';
+import { dailyField, readingFromStats, samsaraAccounts, samsaraGetAllAccounts } from './samsara.mjs';
 
 const args = process.argv.slice(2);
 const days = Number(args.includes('--days') ? args[args.indexOf('--days') + 1] : 365);
 const apply = args.includes('--apply');
+const only = args.includes('--account') ? Number(args[args.indexOf('--account') + 1]) : null;
+const accounts = samsaraAccounts().filter((a) => !only || a.n === only);
+if (!accounts.length) throw new Error(only ? `No key for Samsara account ${only}` : 'Missing SAMSARA_API_KEY');
+console.log(`Samsara account(s): ${accounts.map((a) => a.n).join(', ')}`);
 
 const vehicles = await listDocs('vehicles');
 const ids = new Set(Object.keys(vehicles).filter((id) => !vehicles[id].local));
@@ -27,10 +34,10 @@ for (let i = days; i >= 1; i -= 1) {
 // A few days at a time keeps it quick without hammering the API.
 for (let i = 0; i < dayList.length; i += 5) {
   await Promise.all(dayList.slice(i, i + 5).map(async (day) => {
-    const stats = await samsaraGetAll('/fleet/vehicles/stats', {
+    const stats = await samsaraGetAllAccounts('/fleet/vehicles/stats', {
       types: 'obdOdometerMeters,gpsOdometerMeters,obdEngineSeconds',
       time: `${day}T23:59:59Z`,
-    });
+    }, { accounts });
     for (const s of stats) {
       const reading = readingFromStats(s);
       // Only a reading taken that day; otherwise the truck didn't report.

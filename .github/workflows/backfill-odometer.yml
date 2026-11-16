@@ -1,0 +1,41 @@
+name: Backfill odometer
+
+# Fills past daily miles and engine hours (odometerDaily) from Samsara, for
+# trucks added later, like a second Samsara account's. Run it by hand from the
+# Actions tab: first with "apply" off to see the summary, then on to write.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: How many days back
+        default: '365'
+      account:
+        description: Which Samsara account (1, 2…), or blank for all
+        default: '2'
+      apply:
+        description: Write to Firestore (off = dry run)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/backfill-odometer.mjs --days "$DAYS" ${ACCOUNT:+--account "$ACCOUNT"} ${APPLY:+--apply}
+        env:
+          DAYS: ${{ inputs.days }}
+          ACCOUNT: ${{ inputs.account }}
+          APPLY: ${{ inputs.apply && 'yes' || '' }}
+          SAMSARA_API_KEY: ${{ secrets.SAMSARA_API_KEY }}
+          SAMSARA_API_KEY_2: ${{ secrets.SAMSARA_API_KEY_2 }}

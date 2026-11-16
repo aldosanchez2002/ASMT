@@ -1,5 +1,9 @@
-// Samsara API helpers shared by the sync and the odometer backfill. The key
-// comes from SAMSARA_API_KEY (a GitHub secret); it never reaches the website.
+// Samsara API helpers shared by the sync and the odometer backfill. The keys
+// come from GitHub secrets; they never reach the website. The fleet can span
+// several Samsara accounts under the same administration: SAMSARA_API_KEY is
+// the main one, SAMSARA_API_KEY_2 (and _3, _4, _5) the others. Their trucks
+// and trailers are merged as if they were one account (Samsara IDs are
+// unique across accounts).
 
 const SAMSARA_BASE = 'https://api.samsara.com';
 export const METERS_PER_MILE = 1609.344;
@@ -27,9 +31,35 @@ export async function fetchWithRetry(url, headers, waits = RETRY_WAITS_MS) {
   }
 }
 
+// Every Samsara account to read: [{ n: 1, key }, { n: 2, key }, …].
+export function samsaraAccounts(env = process.env) {
+  return [env.SAMSARA_API_KEY, ...[2, 3, 4, 5].map((n) => env[`SAMSARA_API_KEY_${n}`])]
+    .map((key, i) => ({ n: i + 1, key: (key ?? '').trim() }))
+    .filter((a) => a.key);
+}
+
+/**
+ * The same request to every account, the items merged, each tagged with its
+ * account number (_account). The main account failing fails the call, as
+ * before; another account failing is skipped with a warning, so a bad second
+ * key never stops the main fleet from syncing.
+ */
+export async function samsaraGetAllAccounts(path, params = {}, { accounts = samsaraAccounts(), get = samsaraGetAll } = {}) {
+  if (!accounts.length) throw new Error('Missing SAMSARA_API_KEY');
+  const lists = await Promise.all(accounts.map(async (a) => {
+    try {
+      return (await get(path, params, a.key)).map((item) => ({ ...item, _account: a.n }));
+    } catch (err) {
+      if (a.n === 1) throw err;
+      console.warn(`Samsara account ${a.n}: skipping ${path} this run: ${err.message}`);
+      return [];
+    }
+  }));
+  return lists.flat();
+}
+
 // Follows Samsara's cursor pagination and returns every item.
-export async function samsaraGetAll(path, params = {}) {
-  const apiKey = process.env.SAMSARA_API_KEY;
+export async function samsaraGetAll(path, params = {}, apiKey = process.env.SAMSARA_API_KEY) {
   if (!apiKey) throw new Error('Missing SAMSARA_API_KEY');
   const items = [];
   let after;
