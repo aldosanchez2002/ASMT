@@ -37,3 +37,24 @@ test('a replaced copy counts for nothing and asks nothing', () => {
   const { doubts } = auditQueue({ items: receiptItems(receipts), uses, log, today: '2026-11-16' });
   assert.deepEqual(doubts.map((x) => x.use.receiptId), ['new1']);
 });
+
+test('the very same photo sent again is caught; a retake or a failed read is not', async () => {
+  const { photoHash, samePhoto } = await import('../scripts/receipt-reader.mjs');
+  const { duplicatePhotoText } = await import('../scripts/receipt-reply.mjs');
+  const a = `data:image/jpeg;base64,${Buffer.from('the same bytes').toString('base64')}`;
+  const b = `data:image/jpeg;base64,${Buffer.from('the same bytez').toString('base64')}`;
+  assert.equal(photoHash(a), photoHash(a.replace(/^data:[^;]+;base64,/, '')));
+  assert.notEqual(photoHash(a), photoHash(b));
+  const earlier = { id: 'r1', status: 'read', vendor: 'Doggett Freightliner', date: '2026-11-10', total: 1546.54, photoHash: photoHash(a) };
+  assert.equal(samePhoto(photoHash(a), [earlier])?.id, 'r1');
+  assert.equal(samePhoto(photoHash(b), [earlier]), null);
+  assert.equal(samePhoto(photoHash(a), [{ ...earlier, status: 'error' }]), null);
+  assert.equal(samePhoto(photoHash(a), [{ ...earlier, status: 'duplicate' }]), null);
+  assert.equal(duplicatePhotoText(earlier), 'This picture is a duplicate of one already sent on Nov 10 (Doggett Freightliner $1546.54), so it was ignored.');
+});
+
+test('a duplicate photo counts for nothing', () => {
+  const r = { id: 'd1', status: 'duplicate', date: '2026-11-10', lines: [] };
+  assert.equal(receiptMatch(r, []).state, 'duplicate');
+  assert.deepEqual(receiptItems([{ ...r, lines: [{ id: 'a', kind: 'part', text: 'X', qty: 1, price: 5 }] }]), []);
+});

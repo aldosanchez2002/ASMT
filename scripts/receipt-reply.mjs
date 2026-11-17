@@ -40,6 +40,13 @@ export function readReplyText(receipt, vehicles = []) {
   return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS - 1)}…` : text;
 }
 
+// The same photo sent again (the very same file): it was skipped.
+export function duplicatePhotoText(earlier) {
+  const when = earlier?.date ? ` on ${new Date(`${earlier.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : '';
+  const what = earlier?.vendor ? ` (${earlier.vendor}${earlier.total != null ? ` ${money(earlier.total)}` : ''})` : '';
+  return `This picture is a duplicate of one already sent${when}${what}, so it was ignored.`;
+}
+
 // Asks the Twilio Function to text the sender. Never throws: a reply that
 // can't be sent shouldn't stop the reading.
 export async function sendReadReply(receiptId, text, { secret = process.env.READ_REPLY_SECRET, fetchFn = fetch } = {}) {

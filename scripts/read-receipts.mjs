@@ -12,8 +12,8 @@ import { writeFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { commit, getDoc, listDocs, mergeWrite, queryDocs } from './firestore-rest.mjs';
 import { memoryText } from './ai-memory.mjs';
-import { RECEIPT_SCHEMA, SYSTEM_PROMPT, contextText, copyToKeep, receiptFromReading, withoutDuplicate } from './receipt-reader.mjs';
-import { readReplyText, sendReadReply } from './receipt-reply.mjs';
+import { RECEIPT_SCHEMA, SYSTEM_PROMPT, contextText, copyToKeep, photoHash, receiptFromReading, samePhoto, withoutDuplicate } from './receipt-reader.mjs';
+import { duplicatePhotoText, readReplyText, sendReadReply } from './receipt-reply.mjs';
 import { PAPERWORK_PROMPT, PAPERWORK_SCHEMA, paperworkContext, paperworkFromReading, paperworkReplyText } from './paperwork-reader.mjs';
 
 const MAX_TRIES = 3;
@@ -104,7 +104,17 @@ async function main() {
   const client = new Anthropic();
   // Receipts read in the last year, to catch the same invoice uploaded twice.
   const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const others = (await queryDocs('receipts', [['date', '>=', yearAgo]])).filter((r) => (r.status === 'read' || r.status === 'review') && !r.replacedBy);
+  const recent = await queryDocs('receipts', [['date', '>=', yearAgo]]);
+  const others = recent.filter((r) => (r.status === 'read' || r.status === 'review') && !r.replacedBy);
+  // Every photo's fingerprint, to catch the very same picture sent again.
+  // Receipts read before fingerprints existed get theirs once, here.
+  const photos = recent.filter((r) => r.hasPhoto && r.status !== 'waiting');
+  const missing = photos.filter((r) => !r.photoHash);
+  if (missing.length) {
+    await Promise.all(missing.map(async (r) => { r.photoHash = photoHash((await getDoc(`receiptPhotos/${r.id}`))?.data ?? ''); }));
+    if (!dryRun) await commit(missing.map((r) => mergeWrite(`receipts/${r.id}`, { photoHash: r.photoHash })));
+    console.log(`Fingerprinted ${missing.length} earlier photo(s).`);
+  }
 
   let done = 0;
   let units = null; // trucks and trailers, loaded once if a paper comes in
@@ -114,9 +124,20 @@ async function main() {
     try {
       const photo = (await getDoc(`receiptPhotos/${r.id}`))?.data;
       if (!photo) throw new Error('No photo saved for this receipt');
+      // The very same picture sent again (byte for byte): skip it, say so.
+      const hash = photoHash(photo);
+      const earlier = samePhoto(hash, photos);
+      if (earlier) {
+        console.log(`  same photo as receipt ${earlier.id} (${earlier.vendor ?? '?'} ${earlier.date ?? ''}): ignored`);
+        if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { status: 'duplicate', duplicatePhotoOf: earlier.id, photoHash: hash, readAt: new Date().toISOString(), readError: null })]);
+        if (!dryRun) await replyToSender(r, duplicatePhotoText(earlier));
+        done += 1;
+        continue;
+      }
+      photos.push({ ...r, photoHash: hash, status: 'read' }); // the same photo twice in one batch
       if (r.docType) {
         const { receipt, writes } = await readPaperwork(client, r, photo, units ??= await paperworkUnits(vehicles));
-        if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...receipt, readAt: new Date().toISOString(), readError: null }), ...writes]);
+        if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...receipt, photoHash: hash, readAt: new Date().toISOString(), readError: null }), ...writes]);
         if (!dryRun) await replyToSender(r, paperworkReplyText(receipt));
         done += 1;
         continue;
@@ -127,7 +148,7 @@ async function main() {
         console.log(`  this is a ${reading.document}, not a receipt`);
         const paper = { ...r, docType: reading.document };
         const { receipt, writes } = await readPaperwork(client, paper, photo, units ??= await paperworkUnits(vehicles));
-        if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...receipt, docType: reading.document, readAt: new Date().toISOString(), readError: null }), ...writes]);
+        if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...receipt, docType: reading.document, photoHash: hash, readAt: new Date().toISOString(), readError: null }), ...writes]);
         if (!dryRun) await replyToSender(paper, paperworkReplyText(receipt));
         done += 1;
         continue;
@@ -161,7 +182,7 @@ async function main() {
         const choices = l.truckChoices ? ` (${l.truckChoices.map(truckName).join(' or ')})` : '';
         console.log(`    ${l.text}${l.partNumber ? ` [${l.partNumber}]` : ''} x${l.qty} ${l.price ?? '?'} (real ${l.cost ?? '?'}) ${l.kind} -> ${where}${choices}${l.truckFrom ? ` via ${l.truckFrom}` : ''}${l.flags.length ? ` [${l.flags.join(', ')}]` : ''}`);
       }
-      if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...result, readAt: new Date().toISOString(), readError: null }), ...setAside]);
+      if (!dryRun) await commit([mergeWrite(`receipts/${r.id}`, { ...result, photoHash: hash, readAt: new Date().toISOString(), readError: null }), ...setAside]);
       if (!dryRun) await replyToSender(r, readReplyText(result, vehicles));
       if (!result.replacedBy) others.push({ ...result, id: r.id }); // two photos of one receipt in the same batch
       readNow.push({ ...r, ...result });

@@ -4,6 +4,7 @@
 // go to the pool for the matcher), works out each line's real cost with its
 // share of tax and fees, and checks the math. No network here, so it's tested.
 
+import { createHash } from 'node:crypto';
 import { POOL_KINDS, SHOP_KINDS, isTireText, landedCosts, mountedHere } from '../web/items.js';
 
 const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
@@ -105,6 +106,20 @@ const FLUID = /(?<![\p{L}\d])(oil|motor oil|engine oil|coolant|antifreeze|def|di
 const FLUID_PART = /(?<![\p{L}\d])(filters?|fltr|seals?|pans?|coolers?|pumps?|caps?|gaskets?|hoses?|sensors?|lines?|tanks?|heaters?|plugs?|pressure|level|valves?|guns?)(?![\p{L}\d])/iu;
 export const bulkFluid = (text = '') => FLUID.test(text) && !FLUID_PART.test(text);
 const newLineId = () => Math.random().toString(36).slice(2, 10);
+
+/**
+ * A photo's fingerprint: the SHA-256 of its exact bytes (a data URL or plain
+ * base64). Two photos share it only when they're the very same file, so a
+ * retake of the same paper, however close, never counts as a duplicate.
+ */
+export function photoHash(photo = '') {
+  const data = String(photo).replace(/^data:[^;]+;base64,/, '');
+  return createHash('sha256').update(Buffer.from(data, 'base64')).digest('hex');
+}
+
+// The earlier receipt with this exact photo, if it was read. One that
+// couldn't be read (or failed) is read again; a duplicate never counts.
+export const samePhoto = (hash, receipts) => receipts.find((o) => o.photoHash === hash && !['duplicate', 'waiting', 'error', 'unreadable'].includes(o.status)) ?? null;
 const invoiceKey = (n) => String(n ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 /**

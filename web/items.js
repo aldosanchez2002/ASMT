@@ -162,7 +162,7 @@ export function receiptItems(receipts) {
   return out;
 }
 
-const isRead = (r) => r.status !== 'waiting' && r.status !== 'unreadable' && r.status !== 'error';
+const isRead = (r) => r.status !== 'waiting' && r.status !== 'unreadable' && r.status !== 'error' && r.status !== 'duplicate';
 
 // ---- Tires ---------------------------------------------------------------
 // Tires are usually bought before anyone knows which unit gets them, so the
@@ -383,7 +383,7 @@ export const NEW_DAYS = 3;
 export function receiptMatch(receipt, uses) {
   const state0 = receipt.status ?? 'read';
   const lines = receipt.lines ?? [];
-  if (state0 === 'waiting' || state0 === 'unreadable' || state0 === 'error') return { state: state0, placed: 0, total: lines.length, open: [] };
+  if (state0 === 'waiting' || state0 === 'unreadable' || state0 === 'error' || state0 === 'duplicate') return { state: state0, placed: 0, total: lines.length, open: [] };
   // No store receipt: waiting for admin's approval, or turned down.
   if (receipt.approval === 'pending' || receipt.approval === 'rejected') return { state: receipt.approval, placed: 0, total: lines.length, open: [] };
   // Sent twice: a newer copy took its place.
