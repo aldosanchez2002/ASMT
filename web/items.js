@@ -182,7 +182,7 @@ export const mountedHere = (lines = []) => lines.some((l) => l.kind === 'labor' 
 export function tireType(text = '') {
   if (/(?<![\p{L}])(steer|direcci[oó]n|delanter\w*)(?![\p{L}])/iu.test(text)) return 'steer';
   if (/(?<![\p{L}])(drive|tracci[oó]n|traction)(?![\p{L}])/iu.test(text)) return 'drive';
-  if (/(?<![\p{L}])(trailer|remolque|caja)(?![\p{L}])/iu.test(text)) return 'trailer';
+  if (/(?<![\p{L}])(trailer|trl|remolque|caja)(?![\p{L}])/iu.test(text)) return 'trailer';
   return null;
 }
 // The kind of tire a position takes: trailers take trailer tires, a
@@ -213,11 +213,11 @@ export function tireUses({ receipts, uses, log }) {
         .sort((a, b) => rank(a) - rank(b) || a.date.localeCompare(b.date) || a.key.localeCompare(b.key))[0];
       if (!pick) break;
       left.set(pick.key, round2(left.get(pick.key) - 1));
-      taken.set(pick, (taken.get(pick) ?? 0) + 1);
+      taken.set(pick, [...(taken.get(pick) ?? []), pos]);
     }
-    for (const [it, qty] of taken) {
+    for (const [it, positions] of taken) {
       added.push({
-        receiptId: it.receiptId, lineId: it.lineId, qty, logId: e.id, vehicleId: e.vehicleId ?? null,
+        receiptId: it.receiptId, lineId: it.lineId, qty: positions.length, positions, logId: e.id, vehicleId: e.vehicleId ?? null,
         vehicleName: e.vehicleName ?? null, assetType, shop: false, tire: true,
         by: 'rule', status: 'auto', confidence: 100, reason: 'Oldest tire bought by the tire change',
       });

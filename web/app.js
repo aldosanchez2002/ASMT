@@ -33,7 +33,7 @@ import {
   POOL_KINDS, SHOP_KINDS, accuracy, auditQueue, costEvents, daysBetween, inWindow, isWork, itemKey, landedCosts,
   lineKind, needsApproval, openItems, receiptItems, receiptMatch, receiptWork, repairText, shopShare, spending,
 } from './items.js';
-import { fleetBreakdown, periodsFor, pieSlices, spendByKind, trendMonths, unitBreakdown, unmatchedItems, workKind } from './analytics.js';
+import { fleetBreakdown, periodsFor, pieSlices, spendByKind, tireReport, trendMonths, unitBreakdown, unmatchedItems, workKind } from './analytics.js';
 import { complianceList, nextInspection, unitCompliance } from './compliance.js';
 
 const app = initializeApp(firebaseConfig);
@@ -3179,10 +3179,11 @@ const milesText = (r) => (r.miles == null ? null : `${fmt.format(r.miles)} mi${r
 function renderAnalytics() {
   if (currentTab() !== 'analytics') return;
   const units = anUnits();
-  // The whole fleet is the dashboard, and what opens first.
-  const fleet = anSettings.scope !== 'unit';
+  // The whole fleet is the dashboard, and what opens first; Tires is fleet-wide too.
+  const scope = ['unit', 'tires'].includes(anSettings.scope) ? anSettings.scope : 'fleet';
+  const fleet = scope !== 'unit';
   for (const b of $('an-scope').querySelectorAll('button')) {
-    const on = (b.dataset.scope === 'fleet') === fleet;
+    const on = b.dataset.scope === scope;
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
   }
@@ -3199,8 +3200,8 @@ function renderAnalytics() {
 
   const trucks = units.filter((u) => !u.trailer).map((u) => u.id);
   let days = null;
-  if (fleet) loadAnFleetDays(trucks);
-  else if (!unit.trailer) {
+  if (scope === 'fleet') loadAnFleetDays(trucks);
+  else if (!fleet && !unit.trailer) {
     if (!(unit.id in anDays)) loadAnDays(unit.id);
     days = anDays[unit.id] ?? null;
   }
@@ -3220,6 +3221,10 @@ function renderAnalytics() {
     return;
   }
   const range = { from: periods[0].from, to: periods.at(-1).to };
+  if (scope === 'tires') {
+    body.replaceChildren(...anTires(range));
+    return;
+  }
   // The fleet's costs always include the fleet-wide ones; a truck's share of
   // them can be left out.
   const includeShop = fleet || !anSettings.excludeShare;
@@ -3305,6 +3310,176 @@ function anShareToggle(truckCount, hidden = false) {
     el('span', 'an-share-note', `Shop supplies and tools ÷ ${fmt.format(truckCount)} trucks`));
   label.hidden = hidden;
   return label;
+}
+
+// ---- Analytics → Tires: every tire bought in the dates, fleet-wide ---------------
+// What was spent, which truck or trailer each tire went on (and where), each
+// tire receipt split by where its tires went, the tires still on hand, and
+// every tire in one table. The dates are when the tires were bought.
+const anTireOpen = new Set(); // units shown open in "Spent on tires by truck"
+let anTireFilter = 'all'; // the "Every tire" table: 'all', a unit id, or 'onhand'
+const tireUnitLabel = (u) => (u.trailer ? `Trl ${u.name}` : u.name);
+const shortDay = (iso) => (iso ? rpDate(iso, { month: 'short', day: 'numeric' }) : '—');
+const typesText = (types) => Object.entries(types).map(([k, n]) => `${fmt.format(n)} ${k}`).join(', ');
+const posTags = (positions) => {
+  const box = el('span', 'tr-positions');
+  for (const p of positions) box.append(el('span', 'tr-pos', p));
+  return box;
+};
+function seeReceiptChip(receiptId, context) {
+  const r = receipts.find((x) => x.id === receiptId);
+  const b = Object.assign(el('button', 'rc-chip'), { type: 'button', disabled: !r });
+  b.innerHTML = RECEIPT_ICON;
+  b.append(document.createTextNode(r ? t('seeReceipt') : 'Receipt removed'));
+  if (r) b.addEventListener('click', () => showReceiptPhoto(r, { context }));
+  return b;
+}
+
+function anTires(range) {
+  const nameOf = (id) => {
+    const v = vehicles.find((x) => x.id === id);
+    if (v) return { name: v.name, trailer: false };
+    const c = trailers.find((x) => x.id === id);
+    return c ? { name: c.name, trailer: true } : null;
+  };
+  const rep = tireReport({ receipts, uses: itemUses, log: serviceLog, ...range, nameOf });
+  const t2 = rep.totals;
+  // Colors follow the units, biggest spend first; past six they're gray.
+  const color = new Map(rep.units.map((u, i) => [u.unitId, i < 6 ? `var(--cat-${i + 1})` : 'var(--an-other)']));
+  const tiles = el('div', 'an-tiles');
+  const tile = (label, value, note) => {
+    const x = el('div', 'an-tile');
+    x.append(el('span', 'an-tile-label', label), el('span', 'an-tile-value', value));
+    if (note) x.append(el('span', 'an-tile-note', note));
+    return x;
+  };
+  const where = [t2.trucks && plural(t2.trucks, 'truck'), t2.trailers && plural(t2.trailers, 'trailer')].filter(Boolean).join(' and ');
+  tiles.append(
+    tile('Spent on tires', money(t2.spent), `${plural(t2.receiptCount, 'receipt')} · fees and tax included`),
+    tile('Tires bought', fmt.format(t2.bought), t2.average != null ? `${money(t2.average)} a tire on average` : null),
+    tile('Installed', fmt.format(t2.installed), t2.installed ? `on ${where} · ${money(t2.installedAmount)}` : 'None yet'),
+    tile('On hand', fmt.format(t2.onHand), t2.onHand ? `${typesText(t2.onHandTypes)} · ${money(t2.onHandAmount)} waiting for a tire change` : 'Every tire is on a unit'),
+  );
+  if (!t2.bought) return [tiles, el('p', 'parts-empty', 'No tires were bought in these dates.')];
+
+  // By truck: the units that got tires, biggest spend first; each opens to its tire changes.
+  const unitsPanel = el('section', 'an-panel');
+  unitsPanel.append(el('h3', 'an-title', 'Spent on tires by truck'));
+  const list = el('div', 'tr-units');
+  const top = Math.max(...rep.units.map((u) => u.total), t2.onHandAmount, 0);
+  const unitRow = (key, name, total, note, barColor, installs) => {
+    const row = el('div', 'tr-unit');
+    const open = anTireOpen.has(key);
+    const head = Object.assign(el('button', 'tr-unit-head'), { type: 'button' });
+    head.setAttribute('aria-expanded', String(open));
+    const track = el('span', 'tr-unit-track');
+    const bar = el('span', `tr-unit-bar${barColor ? '' : ' tr-hatch'}`);
+    bar.style.width = `${top ? Math.max((total / top) * 100, 2) : 0}%`;
+    if (barColor) bar.style.background = barColor;
+    track.append(bar);
+    head.append(el('span', `tr-unit-name${barColor ? '' : ' muted'}`, name), track, el('span', 'tr-unit-total', money(total)), el('span', 'tr-chev', open ? '▾' : '▸'), el('span', 'tr-unit-note', note));
+    head.addEventListener('click', () => { if (open) anTireOpen.delete(key); else anTireOpen.add(key); renderAnalytics(); });
+    row.append(head);
+    if (open) {
+      const body = el('div', 'tr-unit-body');
+      for (const x of installs) {
+        const line = el('div', 'tr-line');
+        line.append(el('span', null, x.date ? shortDay(x.date) : '—'), x.positions.length ? posTags(x.positions) : el('span', 'muted', `${fmt.format(x.qty)} × ${x.what ?? 'tire'}`),
+          receiptChip(x.receiptId, `${fmt.format(x.qty)} tire${x.qty === 1 ? '' : 's'} → ${name}`), el('strong', null, money(x.amount)));
+        body.append(line);
+      }
+      row.append(body);
+    }
+    return row;
+  };
+  for (const u of rep.units) {
+    const note = [plural(u.tires, 'tire'), typesText(u.types), plural(u.receiptCount, 'receipt')].filter(Boolean).join(' · ');
+    list.append(unitRow(u.unitId, tireUnitLabel(u), u.total, note, color.get(u.unitId), u.installs));
+  }
+  if (t2.onHand) {
+    const waiting = rep.tires.filter((x) => !x.unitId).map((x) => ({ date: null, positions: [], qty: x.qty, what: x.text, amount: x.amount, receiptId: x.receiptId }));
+    list.append(unitRow('onhand', 'On hand', t2.onHandAmount, `${plural(t2.onHand, 'tire')} bought, not installed yet`, null, waiting));
+  }
+  unitsPanel.append(list);
+
+  // The receipts, each split by where its tires went.
+  const recPanel = el('section', 'an-panel');
+  recPanel.append(el('h3', 'an-title', `Tire receipts · ${fmt.format(rep.receipts.length)}`));
+  const recList = el('div', 'tr-receipts');
+  for (const r of rep.receipts) {
+    const box = el('div', 'tr-receipt');
+    const head = el('div', 'tr-receipt-head');
+    const kept = r.keptFor ? `unit kept: ${nameOf(r.keptFor)?.name ?? r.keptFor}` : r.unitOnReceipt ? `receipt said ${r.unitOnReceipt} (ignored)` : null;
+    head.append(el('span', 'tr-receipt-vendor', r.vendor || t('receipt')), el('span', 'tr-receipt-total', money(r.amount)),
+      el('span', 'tr-receipt-meta', [shortDay(r.date), r.invoiceNumber ? `Inv ${r.invoiceNumber}` : null, r.what.join(', '), kept].filter(Boolean).join(' · ')));
+    const split = el('div', 'tr-split');
+    const legend = el('div', 'tr-split-legend');
+    for (const s of r.splits) {
+      const seg = el('span', 'tr-seg', `${tireUnitLabel(s)} × ${fmt.format(s.qty)}`);
+      seg.style.flex = String(s.qty);
+      seg.style.background = color.get(s.unitId);
+      seg.title = `${tireUnitLabel(s)}: ${fmt.format(s.qty)} tire${s.qty === 1 ? '' : 's'}, ${money(s.amount)}`;
+      split.append(seg);
+      const item = el('span');
+      item.append(el('b', null, tireUnitLabel(s)), document.createTextNode(` ${[s.positions.join(' '), shortDay(s.date), money(s.amount)].filter(Boolean).join(' · ')}`));
+      legend.append(item);
+    }
+    if (r.onHand.qty) {
+      const seg = el('span', 'tr-seg tr-hatch', `On hand × ${fmt.format(r.onHand.qty)}`);
+      seg.style.flex = String(r.onHand.qty);
+      split.append(seg);
+      const item = el('span');
+      item.append(el('b', null, 'On hand'), document.createTextNode(` ${fmt.format(r.onHand.qty)} · ${money(r.onHand.amount)}`));
+      legend.append(item);
+    }
+    const actions = el('div', 'tr-receipt-actions');
+    actions.append(seeReceiptChip(r.receiptId, `Tires · ${r.vendor}`));
+    box.append(head, split, legend, actions);
+    recList.append(box);
+  }
+  recPanel.append(recList);
+
+  // Every tire, newest first, with a filter by unit.
+  const tablePanel = el('section', 'an-panel tr-every');
+  const tableHead = el('div', 'an-chart-head');
+  const filters = el('div', 'tr-filters');
+  const chip = (key, label) => {
+    const b = Object.assign(el('button', `tr-filter${anTireFilter === key ? ' on' : ''}`, label), { type: 'button' });
+    b.setAttribute('aria-pressed', String(anTireFilter === key));
+    b.addEventListener('click', () => { anTireFilter = key; renderAnalytics(); });
+    return b;
+  };
+  if (anTireFilter !== 'all' && anTireFilter !== 'onhand' && !rep.units.some((u) => u.unitId === anTireFilter)) anTireFilter = 'all';
+  filters.append(chip('all', `All ${fmt.format(t2.bought)}`), ...rep.units.map((u) => chip(u.unitId, tireUnitLabel(u))));
+  if (t2.onHand) filters.append(chip('onhand', 'On hand'));
+  tableHead.append(el('h3', 'an-title', 'Every tire'), filters);
+  const table = el('table', 'tr-table');
+  const thead = el('thead');
+  const hr = el('tr');
+  for (const [label, cls] of [['Installed'], ['Unit'], ['Position'], ['Tire', 'hide-sm'], ['Receipt'], ['Cost', 'num']]) hr.append(el('th', cls ?? null, label));
+  thead.append(hr);
+  const tbody = el('tbody');
+  const shown = rep.tires.filter((x) => anTireFilter === 'all' || (anTireFilter === 'onhand' ? !x.unitId : x.unitId === anTireFilter));
+  for (const x of shown) {
+    const tr = el('tr', x.unitId ? null : 'onhand');
+    const unitCell = el('td');
+    if (x.unitId) {
+      const sw = el('span', 'sw');
+      sw.style.background = color.get(x.unitId);
+      unitCell.append(sw, document.createTextNode(tireUnitLabel(x)));
+    } else unitCell.textContent = 'On hand';
+    const posCell = el('td');
+    posCell.append(x.positions.length ? posTags(x.positions) : document.createTextNode('—'));
+    const recCell = el('td');
+    recCell.append(receiptChip(x.receiptId, `${x.text}${x.unitId ? ` → ${tireUnitLabel(x)}` : ' · on hand'}`));
+    tr.append(el('td', null, x.date ? shortDay(x.date) : '—'), unitCell, posCell, el('td', 'hide-sm', `${x.text}${x.qty > 1 ? ` × ${fmt.format(x.qty)}` : ''}`), recCell, el('td', 'num', money(x.amount)));
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+  const wrap = el('div', 'tr-table-wrap');
+  wrap.append(table);
+  tablePanel.append(tableHead, wrap);
+  return [tiles, anGrid(unitsPanel, recPanel), tablePanel];
 }
 
 // Two panels side by side (one under the other on a phone).

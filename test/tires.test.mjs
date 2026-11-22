@@ -52,6 +52,7 @@ const log = [
 
 test('each tire change takes the oldest tires bought by that day, of the right kind first', () => {
   const uses = tireUses({ receipts, uses: [], log });
+  assert.deepEqual(uses.map((u) => u.positions), [['2LO', '2RO'], ['1LO'], ['3RI', '3RO']]);
   assert.deepEqual(uses.map((u) => [u.logId, u.receiptId, u.lineId, u.qty, u.vehicleName, u.by, u.status]), [
     ['w1', 'r1', 'a', 2, 'T-24', 'rule', 'auto'],
     ['w2', 'r2', 'b', 1, 'T-31', 'rule', 'auto'], // axle 1: a steer tire
@@ -84,4 +85,27 @@ test('tires on hand say why on the receipt, and aren\'t flagged as parts no work
   assert.deepEqual(open.map((x) => [x.why, x.unitOnReceipt]), [['tire', 'T-99']]);
   const items = receiptItems(receipts);
   assert.deepEqual(auditQueue({ items, uses: [], log, today: '2026-11-06' }).noWork, []);
+});
+
+test('the tire report: spending by unit, where each receipt\'s tires went, and what\'s on hand', async () => {
+  const { tireReport } = await import('../web/analytics.js');
+  const roadCall = { id: 'r3', status: 'read', date: '2026-10-20', vendor: 'TA Truck Service', lines: [
+    { id: 'd', kind: 'part', text: '11R22.5 DRIVE TIRE', qty: 1, price: 500, to: 'truck', vehicleId: 'v24', tire: false },
+    { id: 'e', kind: 'labor', text: 'ROAD SERVICE CALL', qty: 1, price: 150, to: 'truck', vehicleId: 'v24' },
+  ] };
+  const all = [...receipts, roadCall];
+  const uses = tireUses({ receipts: all, uses: [], log });
+  const names = { v24: { name: 'T-24' }, v31: { name: 'T-31' } };
+  const report = tireReport({ receipts: all, uses, log, from: '2026-10-01', to: '2026-10-31', nameOf: (id) => names[id] });
+  const t = report.totals;
+  assert.deepEqual([t.spent, t.bought, t.installed, t.installedAmount, t.onHand, t.onHandAmount, t.receiptCount, t.trucks], [3820, 9, 6, 2550, 3, 1270, 3, 2]);
+  assert.deepEqual(t.onHandTypes, { steer: 1, drive: 2 });
+  assert.deepEqual(report.units.map((u) => [u.name, u.total, u.tires, u.receiptCount]), [['T-24', 1300, 3, 2], ['T-31', 1250, 3, 2]]);
+  assert.deepEqual(report.units[1].installs.map((x) => [x.date, x.positions, x.amount]), [['2026-10-12', ['3RI', '3RO'], 800], ['2026-10-12', ['1LO'], 450]]);
+  const first = report.receipts.find((r) => r.receiptId === 'r1');
+  assert.deepEqual([first.unitOnReceipt, first.splits.map((x) => [x.name, x.qty, x.positions.join(' ')]), first.onHand], ['T-99', [['T-24', 2, '2LO 2RO'], ['T-31', 2, '3RI 3RO']], { qty: 0, amount: 0 }]);
+  assert.equal(report.receipts.find((r) => r.receiptId === 'r3').keptFor, 'v24');
+  assert.deepEqual(report.tires.filter((x) => !x.unitId).map((x) => [x.text, x.qty, x.amount]), [['295/80R22.5 STEER TIRE', 1, 450], ['11R22.5 DRIVE TIRE', 2, 820]]);
+  // Only tires bought in the dates count.
+  assert.equal(tireReport({ receipts: all, uses, log, from: '2026-10-15', to: '2026-10-31' }).totals.spent, 500);
 });

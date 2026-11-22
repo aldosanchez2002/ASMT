@@ -3,6 +3,7 @@
 // dependencies, shared by the website and the tests.
 
 import { visitServices } from './maintenance.js';
+import { COUNTED, isTireText, itemKey, receiptItems, tireType, usesFor } from './items.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -252,4 +253,104 @@ export function pieSlices(items, { max = 8, pinned = [] } = {}) {
 export function unmatchedItems(events, from, to) {
   const items = events.filter((ev) => ev.kind === 'open' && ev.date && ev.date >= from && ev.date <= to).sort((a, b) => b.amount - a.amount);
   return { total: round2(items.reduce((s, ev) => s + ev.amount, 0)), count: items.length, items };
+}
+
+/**
+ * Every tire bought in [from, to] (the receipt's date) and where it went:
+ * each tire change that used it (unit, date, positions), the unit it was
+ * bought for when the receipt kept its unit (a road call), or on hand.
+ * Costs include each tire's share of the receipt's fees and tax.
+ * @param receipts read receipts; uses itemUses; log the work log
+ * @param nameOf unitId -> { name, trailer }
+ * @returns { totals, units, receipts, tires }:
+ *   totals { spent, bought, installed, installedAmount, unitCount, trucks, trailers, onHand, onHandAmount, onHandTypes, receiptCount }
+ *   units [{ unitId, name, trailer, total, tires, types, receiptCount, installs: [{ date, positions, qty, amount, receiptId }] }] biggest first
+ *   receipts [{ receiptId, vendor, date, invoiceNumber, amount, qty, what, unitOnReceipt, keptFor, splits: [{ unitId, name, qty, amount, positions, date }], onHand: { qty, amount } }] newest first
+ *   tires [{ date, unitId, name, positions, qty, text, type, amount, receiptId, vendor, receiptDate }] newest install first, on hand last
+ */
+export function tireReport({ receipts, uses, log, from, to, nameOf = () => null }) {
+  const round = (n) => Math.round(n * 100) / 100;
+  const byId = new Map(log.map((e) => [e.id, e]));
+  const receiptById = new Map(receipts.map((r) => [r.id, r]));
+  const isTire = (it) => it.tire || (it.kind === 'part' && isTireText(it.text));
+  const items = receiptItems(receipts).filter((it) => isTire(it) && it.date && it.date >= from && it.date <= to && it.cost != null);
+  const units = new Map();
+  const unitOf = (unitId) => {
+    if (!units.has(unitId)) {
+      const n = nameOf(unitId) ?? {};
+      units.set(unitId, { unitId, name: n.name ?? unitId, trailer: Boolean(n.trailer), total: 0, tires: 0, types: {}, receiptIds: new Set(), installs: [] });
+    }
+    return units.get(unitId);
+  };
+  const outReceipts = new Map();
+  const tires = [];
+  let onHand = 0;
+  let onHandAmount = 0;
+  const onHandTypes = {};
+  for (const it of items) {
+    const r = receiptById.get(it.receiptId) ?? {};
+    const each = it.unitCost ?? 0;
+    const type = tireType(it.text);
+    const rec = outReceipts.get(it.receiptId) ?? {
+      receiptId: it.receiptId, vendor: r.vendor ?? it.vendor ?? '', date: it.date, invoiceNumber: r.invoiceNumber ?? null,
+      amount: 0, qty: 0, what: [], unitOnReceipt: null, keptFor: null, splits: [], onHand: { qty: 0, amount: 0 },
+    };
+    outReceipts.set(it.receiptId, rec);
+    rec.amount = round(rec.amount + it.cost);
+    rec.qty += it.qty;
+    rec.what.push(`${it.qty} × ${it.text}`);
+    if (it.unitOnReceipt) rec.unitOnReceipt = it.unitOnReceipt;
+    const place = (unitId, qty, positions, date) => {
+      const amount = round(each * qty);
+      const u = unitOf(unitId);
+      u.total = round(u.total + amount);
+      u.tires += qty;
+      if (type) u.types[type] = (u.types[type] ?? 0) + qty;
+      u.receiptIds.add(it.receiptId);
+      u.installs.push({ date, positions, qty, amount, receiptId: it.receiptId, text: it.text });
+      const split = rec.splits.find((x) => x.unitId === unitId && x.date === date);
+      if (split) { split.qty += qty; split.amount = round(split.amount + amount); split.positions.push(...positions); } else rec.splits.push({ unitId, name: u.name, trailer: u.trailer, qty, amount, positions: [...positions], date });
+      tires.push({ date, unitId, name: u.name, trailer: u.trailer, positions, qty, text: it.text, type, amount, receiptId: it.receiptId, vendor: rec.vendor, receiptDate: it.date });
+    };
+    let left = it.qty;
+    for (const u of usesFor(itemKey(it.receiptId, it.lineId), uses).filter((x) => COUNTED.includes(x.status))) {
+      const e = u.logId ? byId.get(u.logId) : null;
+      const unitId = u.vehicleId ?? e?.vehicleId;
+      if (!unitId || u.shop) continue;
+      const qty = Math.min(Number(u.qty) || 0, left);
+      if (!qty) continue;
+      left -= qty;
+      place(unitId, qty, u.positions ?? [], e?.date ?? it.date);
+    }
+    // A tire the receipt kept for its unit (a road call), not tied to a tire change yet.
+    if (left > 0 && it.vehicleId) {
+      rec.keptFor = it.vehicleId;
+      place(it.vehicleId, left, [], it.date);
+      left = 0;
+    }
+    if (left > 0) {
+      const amount = round(each * left);
+      onHand += left;
+      onHandAmount = round(onHandAmount + amount);
+      onHandTypes[type ?? 'other'] = (onHandTypes[type ?? 'other'] ?? 0) + left;
+      rec.onHand = { qty: rec.onHand.qty + left, amount: round(rec.onHand.amount + amount) };
+      tires.push({ date: null, unitId: null, name: null, positions: [], qty: left, text: it.text, type, amount, receiptId: it.receiptId, vendor: rec.vendor, receiptDate: it.date });
+    }
+  }
+  const unitList = [...units.values()].map(({ receiptIds, ...u }) => ({
+    ...u, receiptCount: receiptIds.size, installs: u.installs.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '')),
+  })).sort((a, b) => b.total - a.total);
+  const spent = round(items.reduce((s, it) => s + it.cost, 0));
+  const bought = items.reduce((s, it) => s + it.qty, 0);
+  const installedAmount = round(unitList.reduce((s, u) => s + u.total, 0));
+  return {
+    totals: {
+      spent, bought, installed: unitList.reduce((s, u) => s + u.tires, 0), installedAmount,
+      unitCount: unitList.length, trucks: unitList.filter((u) => !u.trailer).length, trailers: unitList.filter((u) => u.trailer).length,
+      onHand, onHandAmount, onHandTypes, receiptCount: outReceipts.size, average: bought ? round(spent / bought) : null,
+    },
+    units: unitList,
+    receipts: [...outReceipts.values()].sort((a, b) => b.date.localeCompare(a.date)),
+    tires: tires.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.receiptDate ?? '').localeCompare(a.receiptDate ?? '')),
+  };
 }
