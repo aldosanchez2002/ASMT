@@ -17,7 +17,8 @@
 //   node scripts/sync-samsara.mjs            # sync to Firestore
 //   node scripts/sync-samsara.mjs --dry-run  # just print what would be written
 
-import { commit, deleteWrite, listDocs, mergeWrite, setWrite } from './firestore-rest.mjs';
+import { commit, deleteWrite, getDoc, listDocs, mergeWrite, setWrite } from './firestore-rest.mjs';
+import { dutyDue, onlyChanged, scheduleSignature } from './sync-state.mjs';
 import {
   assignmentsDoc, dutyModels, missingBaselines, scheduleById, scheduleDocs, scheduleIdsFor,
   schedulesVersion, validate,
@@ -288,12 +289,19 @@ async function writeWithServiceAccount(fleet, staleIds, trailers, metricsById, s
 }
 
 // Writes with the public web API key (see firestore-rest.mjs).
-async function writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles = {}, tireStarts = {}) {
-  const baselines = missingBaselines(fleet, await listDocs('serviceRecords'));
+// Writes through the public API, only what changed since the last run
+// (meta/syncState), so a sync every 12 minutes stays inside Firestore's free
+// daily writes. Baselines are only looked for when a truck is new or its
+// schedules changed.
+async function writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles = {}, tireStarts = {}, syncState = {}) {
+  const known = new Set(syncState.baselined ?? []);
+  // A new schedules version can add items: look again then too.
+  const needBaselines = syncState.schedulesVersion !== schedulesVersion || fleet.some((v) => !known.has(scheduleSignature(v)));
+  const baselines = needBaselines ? missingBaselines(fleet, await listDocs('serviceRecords')) : {};
   const duty = metricsById
     ? classifyFleet(fleet, metricsById, await listDocs('dutyCycles'))
     : { docs: {}, changes: [] };
-  await commit([
+  const all = [
     // updateMask leaves the app's manual `override` field alone
     ...Object.entries(duty.docs).map(([vehicleId, d]) => mergeWrite(`dutyCycles/${vehicleId}`, d)),
     ...duty.changes.map(({ id, ...entry }) => setWrite(`serviceLog/${id}`, entry, 'loggedAt')),
@@ -314,7 +322,16 @@ async function writeWithPublicApi(fleet, staleIds, trailers, metricsById, traile
     setWrite('meta/sync', {
       vehicleCount: fleet.length, trailerCount: trailers.active.length, schedulesVersion,
     }, 'lastRun'),
-  ]);
+  ];
+  const { writes, skipped, state } = onlyChanged(all, syncState, { always: ['meta/sync'] });
+  await commit([...writes, setWrite('meta/syncState', {
+    ...state,
+    dutyAt: metricsById ? new Date().toISOString() : syncState.dutyAt ?? null,
+    baselined: fleet.map(scheduleSignature),
+    schedulesVersion,
+    tireStarted: [...new Set([...(syncState.tireStarted ?? []), ...fleet.map((v) => v.id)])],
+  })]);
+  console.log(`Firestore: ${writes.length} doc(s) written, ${skipped} unchanged skipped`);
   return { baselines, dutyChanges: duty.changes, dutyClassified: Object.keys(duty.docs).length };
 }
 
@@ -336,13 +353,17 @@ async function removableStaleIds(staleIds) {
 }
 
 validate();
+// What the last run wrote (to skip what didn't change) and when duty cycles were last classified.
+const syncState = dryRun || process.env.FIREBASE_SERVICE_ACCOUNT ? {} : (await getDoc('meta/syncState').catch(() => null)) ?? {};
+const classifyNow = dryRun || process.env.FIREBASE_SERVICE_ACCOUNT || dutyDue(syncState);
 const [{ active: fleet, staleIds: allStaleIds }, trailers, metricsById] = await Promise.all([
   fetchFleet(),
   // Trailers are best-effort: if Samsara fails on them even after retries, the
   // trucks still sync and the trailers simply keep their last data (nothing removed).
   fetchTrailers().catch((err) => { console.warn(`Skipping trailers this run: ${err.message}`); return { active: [], staleIds: [] }; }),
-  // Duty classification is best-effort: if the report fails, the sync still runs.
-  fetchDutyMetrics().catch((err) => { console.warn(`Skipping duty classification: ${err.message}`); return null; }),
+  // Duty classification is best-effort (if the report fails, the sync still
+  // runs) and only every 6 hours: it's 90 days of data.
+  classifyNow ? fetchDutyMetrics().catch((err) => { console.warn(`Skipping duty classification: ${err.message}`); return null; }) : null,
 ]);
 const staleIds = dryRun ? allStaleIds : await removableStaleIds(allStaleIds);
 console.log(
@@ -385,7 +406,8 @@ console.log(`Trailer miles: ${Object.keys(trailerMiles).length} trailer(s), ${mo
 
 // Truck tire miles count from each truck's odometer the first time it's seen
 // (best-effort too). Existing starts are never changed.
-const tireStarts = await listDocs('truckTires').then((existing) => missingTireStarts(fleet, existing)).catch((err) => {
+const started = new Set(syncState.tireStarted ?? []);
+const tireStarts = fleet.every((v) => started.has(v.id)) ? {} : await listDocs('truckTires').then((existing) => missingTireStarts(fleet, existing)).catch((err) => {
   console.warn(`Skipping truck tire starts: ${err.message}`);
   return {};
 });
@@ -407,8 +429,8 @@ if (dryRun) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
   const { baselines, dutyChanges, dutyClassified } = serviceAccount
     ? await writeWithServiceAccount(fleet, staleIds, trailers, metricsById, serviceAccount, trailerMiles, tireStarts)
-    : await writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles, tireStarts);
-  console.log(`Classified duty cycles for ${dutyClassified} truck(s); ${dutyChanges.length} change(s)`);
+    : await writeWithPublicApi(fleet, staleIds, trailers, metricsById, trailerMiles, tireStarts, syncState);
+  console.log(metricsById ? `Classified duty cycles for ${dutyClassified} truck(s); ${dutyChanges.length} change(s)` : 'Duty cycles: classified less than 6 hours ago, skipped this run');
   for (const c of dutyChanges) console.log(`  ${c.vehicleName}: ${c.itemName} (${c.note})`);
   const added = Object.values(baselines).reduce((n, items) => n + Object.keys(items).length, 0);
   console.log(

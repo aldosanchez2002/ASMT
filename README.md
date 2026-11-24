@@ -17,7 +17,7 @@ Each sync also saves, on every truck: `faults` (dash lamps: STOP, check engine, 
 ## How it works (and why your Samsara key stays safe)
 
 ```
- GitHub Actions (every 30 min)            Firestore               Your site (GitHub Pages)
+ GitHub Actions (every 12 min)            Firestore               Your site (GitHub Pages)
  ┌───────────────────────────┐   write   ┌──────────┐   read    ┌──────────────────────────┐
  │ scripts/sync-samsara.mjs  │ ────────► │ vehicles │ ◄──────── │ web/  (sign in w/ Google)│
  │ uses SAMSARA_API_KEY      │  (admin)  │ meta     │  (rules)  │ no secrets in this code  │
@@ -52,7 +52,7 @@ In the repo: **Settings → Secrets and variables → Actions → New repository
 | `AS_LOG_KEY` | *(For receipt reading)* A Claude API key from console.anthropic.com (set a monthly spend limit there). The "Read receipts" Action uses it with Claude Sonnet 5.5 to read the receipts the buyer sends (about 2–3¢ a receipt) and match the parts to repairs; without it, receipts stay "Waiting to be read". |
 
 ### 3. Run the first sync
-**Actions → Sync Samsara to Firestore → Run workflow.** After that it runs every 30 minutes on its own. You should then see a `vehicles` collection in Firestore.
+**Actions → Sync Samsara to Firestore → Run workflow.** After that it runs every 12 minutes on its own (:03, :15, :27, :39, :51; GitHub may delay a run at busy times). To stay inside Firestore's free daily writes, each run writes only the documents that changed since the last one: it remembers a fingerprint of everything it wrote in `meta/syncState` (`scripts/sync-state.mjs`), doesn't delete what's already gone, classifies duty cycles every 6 hours, and only looks for new baselines or tire starts when a truck is new. You should then see a `vehicles` collection in Firestore.
 
 ### 4. Publish the site on your domain
 1. **Settings → Pages → Build and deployment → Source: GitHub Actions**.

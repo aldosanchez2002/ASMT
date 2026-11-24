@@ -2,10 +2,12 @@ name: Sync Samsara to Firestore
 
 on:
   schedule:
-    # Every 30 minutes, at :07 and :37. GitHub runs schedules "best effort":
-    # at busy times (especially :00 and :30) runs are delayed or skipped, so
-    # off-peak minutes get through more often.
-    - cron: '7,37 * * * *'
+    # Every 12 minutes, at :03 :15 :27 :39 :51. GitHub runs schedules "best
+    # effort": at busy times (especially :00 and :30) runs are delayed or
+    # skipped, so off-peak minutes get through more often. Each run only
+    # writes what changed (scripts/sync-state.mjs), to stay inside
+    # Firestore's free daily writes.
+    - cron: '3,15,27,39,51 * * * *'
   workflow_dispatch: # lets you run it by hand from the Actions tab
 
 concurrency:
