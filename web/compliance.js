@@ -96,3 +96,46 @@ export function nextInspection(today) {
   const [y, m] = today.split('-').map(Number);
   return `${y + 1}-${pad(m)}-${pad(lastDay(y + 1, m))}`;
 }
+
+// A total split into n shares that add up to the cent (the first shares take
+// any leftover cents): $100 over 3 -> 33.34, 33.33, 33.33.
+export function splitEvenly(total, n) {
+  if (!(n > 0) || total == null || total === '') return Array.from({ length: Math.max(n, 0) }, () => null);
+  const cents = Math.round(Number(total) * 100);
+  const base = Math.floor(cents / n);
+  const extra = cents - base * n;
+  return Array.from({ length: n }, (_, i) => (base + (i < extra ? 1 : 0)) / 100);
+}
+
+/**
+ * Several units renewed in one transaction (Inspections → Renew together):
+ * one receipt with a line per unit (its share counts as that unit's cost,
+ * like a texted registration), and each unit's new date with a history entry
+ * that says who it was renewed with.
+ * @param kind 'registration' | 'inspection'
+ * @param units [{ id, name, unitType, share }] share: dollars or null
+ * @returns { receipt: fields to save on the receipt, changes: [{ unitId, fields, entry }] }
+ */
+export function groupRenewal({ kind, units, expires, date, agency = '', receiptId, newId }) {
+  const label = kind === 'inspection' ? 'Inspection' : 'Registration';
+  const shares = units.map((u) => (u.share == null || u.share === '' ? null : Math.round(Number(u.share) * 100) / 100));
+  const total = shares.some((s) => s != null) ? Math.round(shares.reduce((s, x) => s + (x ?? 0), 0) * 100) / 100 : null;
+  const lines = units.map((u, i) => ({
+    id: newId(), kind: 'paperwork', text: `${label} · ${u.name} (to ${expires})`, qty: 1, price: shares[i], cost: shares[i],
+    to: 'truck', vehicleId: u.id, assetType: u.unitType === 'trailer' ? 'trailer' : 'truck', flags: [],
+  }));
+  const receipt = {
+    status: 'read', vendor: agency || '', date, total, tax: null, fees: [], feesTotal: 0, problems: [], lines,
+    paperwork: {
+      kind, group: true, count: units.length, expires, fee: total, unitId: null, unitName: `${units.length} units`,
+      units: units.map((u, i) => ({ id: u.id, name: u.name, unitType: u.unitType, share: shares[i] })),
+    },
+  };
+  const field = kind === 'inspection' ? 'inspectionExpires' : 'registrationExpires';
+  const changes = units.map((u, i) => ({
+    unitId: u.id,
+    fields: { [field]: expires },
+    entry: { kind, expires, fee: shares[i], date, receiptId, group: units.length, groupTotal: total },
+  }));
+  return { receipt, changes };
+}

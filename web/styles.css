@@ -1513,6 +1513,20 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
 .an-more { width: 100%; margin-top: 6px; }
 
+/* Inspections → Renew together */
+.cp-together { margin-left: auto; min-height: 44px; }
+.cp-together + .cp-add { margin-left: 0; }
+.rt-units { display: grid; gap: 6px; max-height: 340px; overflow-y: auto; padding: 8px; border: 2px solid var(--floor-line); background: var(--floor-field); }
+.rt-group { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 6px; font: 800 14px var(--cond); letter-spacing: .03em; color: var(--floor-muted); }
+.rt-group:first-child { margin-top: 0; }
+.rt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.rt-unit { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 8px; border: 2px solid var(--floor-line); background: var(--floor-paper); font: 700 15px var(--cond); cursor: pointer; }
+.rt-unit.on { background: var(--floor-yellow); color: #111; }
+.rt-unit input { width: 18px; height: 18px; margin: 0; }
+.rt-shares { display: grid; gap: 6px; }
+.rt-shares-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-weight: 700; }
+.rt-share { display: grid; grid-template-columns: 1fr 140px; gap: 10px; align-items: center; font-weight: 700; }
+
 /* Analytics → Tires */
 .an-scope:has(> :nth-child(3)) { grid-template-columns: repeat(3, 1fr); }
 .tr-units { display: grid; }

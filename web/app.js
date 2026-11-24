@@ -34,7 +34,7 @@ import {
   lineKind, needsApproval, openItems, receiptItems, receiptMatch, receiptWork, repairText, shopShare, spending,
 } from './items.js';
 import { fleetBreakdown, periodsFor, pieSlices, spendByKind, tireReport, trendMonths, unitBreakdown, unmatchedItems, workKind } from './analytics.js';
-import { complianceList, nextInspection, unitCompliance } from './compliance.js';
+import { complianceList, groupRenewal, nextInspection, splitEvenly, unitCompliance } from './compliance.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -4208,7 +4208,9 @@ function renderCompliance() {
   state.addEventListener('change', () => { cpState = state.value; renderCompliance(); });
   const add = Object.assign(el('button', 'btn btn-ghost cp-add', '+ Add a trailer'), { type: 'button' });
   add.addEventListener('click', () => openAddTrailer());
-  $('cp-filters').replaceChildren(scope, state, add);
+  const together = Object.assign(el('button', 'btn btn-ghost cp-together', 'Renew together'), { type: 'button' });
+  together.addEventListener('click', () => openRenewTogether());
+  $('cp-filters').replaceChildren(scope, state, together, add);
 
   const body = $('cp-body');
   const out = [];
@@ -4298,7 +4300,10 @@ function openCompliance(x) {
     box.append(el('div', 'section-title', 'History'));
     for (const h of [...rec.history].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))) {
       const row = el('div', 'cp-history-row');
-      row.append(el('span', null, [`${h.kind === 'inspection' ? 'Inspected' : 'Registered'}${h.date ? ` ${niceDate(h.date)}` : ''}`, h.expires ? `good to ${niceDate(h.expires)}` : null, h.fee != null ? money(h.fee) : null].filter(Boolean).join(' · ')));
+      // Renewed with others (Renew together): "with 11 others · $248.10 of $2,977.20".
+      const others = h.group > 1 ? `with ${plural(h.group - 1, 'other')}` : null;
+      const fee = h.fee != null ? `${money(h.fee)}${h.group > 1 && h.groupTotal != null ? ` of ${money(h.groupTotal)}` : ''}` : null;
+      row.append(el('span', null, [`${h.kind === 'inspection' ? 'Inspected' : 'Registered'}${h.date ? ` ${niceDate(h.date)}` : ''}`, others, h.expires ? `good to ${niceDate(h.expires)}` : null, fee].filter(Boolean).join(' · ')));
       const paper = receipts.find((r) => r.id === h.receiptId);
       if (paper?.hasPhoto) {
         const see = Object.assign(el('button', 'link-btn', 'See paper'), { type: 'button' });
@@ -4330,6 +4335,192 @@ function openCompliance(x) {
     try {
       await setDoc(doc(db, 'compliance', x.id), data, { merge: true });
       $('pdlg').close();
+    } catch (err) {
+      save.disabled = false;
+      fail(t('couldNotSave', err.message));
+    }
+  });
+}
+
+// Several units registered (or inspected) in one transaction, set by the
+// admin: pick the units (grouped by the date they expire now), the new date,
+// what was paid in total (split evenly, or per unit), and the paper: a photo,
+// or a paper already texted in. One receipt with a line per unit, so each
+// share is that unit's cost; each unit gets its new date and a history entry.
+// Undo puts everything back.
+function openRenewTogether() {
+  const body = partsDialog('Renew together', 'Several units, one transaction');
+  const form = pform();
+  const today = todayIso();
+  const units = complianceList(cpUnits(), compliance, today).filter((x) => x.group !== 'out');
+  const picked = new Set();
+  const state = { kind: 'registration', split: false, shares: new Map() };
+
+  const kind = selectOf([['registration', 'Registration'], ['inspection', 'Annual inspection']], state.kind);
+  const expires = Object.assign(el('input'), { type: 'date', required: true });
+  const nextYear = Object.assign(el('button', 'link-btn'), { type: 'button' });
+  const expWrap = el('div', 'cp-field');
+  expWrap.append(expires, nextYear);
+  const paidOn = Object.assign(el('input'), { type: 'date', required: true, max: today, value: today });
+  const total = Object.assign(numberInput('', { step: '0.01' }), { placeholder: 'Total paid, like 2977.20' });
+  const agency = Object.assign(el('input'), { type: 'text', placeholder: 'IRP office, county tax office…' });
+  const list = el('div', 'rt-units');
+  const shares = el('div', 'rt-shares');
+  const photo = Object.assign(el('input'), { type: 'file', accept: 'image/*' });
+  // A paper already sent in: registrations and inspections, and anything waiting in To review, from the last 90 days.
+  const since = new Date(Date.now() - 90 * DAY_MS).toLocaleDateString('en-CA');
+  const papers = receipts.filter((r) => (r.date ?? '') >= since && (r.paperwork || r.status === 'review') && !r.paperwork?.group && !r.replacedBy)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const sent = selectOf([['', 'None'], ...papers.map((r) => [r.id, [r.paperwork ? paperLabel(r) : r.vendor || 'Receipt', dateText(r.date), r.total != null ? money(r.total) : null, r.uploadedBy].filter(Boolean).join(' · ')])], '');
+
+  const currentOf = (x) => (state.kind === 'inspection' ? x.inspection.expires : x.registration.expires);
+  // The new date: a year after the date most of the picked units expire now
+  // (inspections: the end of this month next year).
+  const suggestion = () => {
+    if (state.kind === 'inspection') return nextInspection(today);
+    const counts = new Map();
+    for (const x of units.filter((u) => picked.has(u.id))) { const c = currentOf(x); if (c) counts.set(c, (counts.get(c) ?? 0) + 1); }
+    const most = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (!most) return null;
+    const [y, m, d] = most.split('-').map(Number);
+    return `${y + 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  };
+  const drawSuggestion = () => {
+    const s = suggestion();
+    nextYear.hidden = !s;
+    nextYear.textContent = s ? `${state.kind === 'inspection' ? 'Inspected now' : 'A year later'} → ${niceDate(s)}` : '';
+    nextYear.onclick = () => { if (s) expires.value = s; };
+  };
+
+  // The units, grouped by when they expire now, soonest first.
+  const drawUnits = () => {
+    const groups = new Map();
+    for (const x of units) {
+      const c = currentOf(x) ?? '';
+      if (!groups.has(c)) groups.set(c, []);
+      groups.get(c).push(x);
+    }
+    const order = [...groups.keys()].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)));
+    list.replaceChildren();
+    for (const c of order) {
+      const rows = groups.get(c);
+      const head = el('div', 'rt-group');
+      const all = rows.every((x) => picked.has(x.id));
+      const toggle = Object.assign(el('button', 'link-btn', all ? 'Clear' : `Select all ${rows.length}`), { type: 'button' });
+      toggle.addEventListener('click', () => { for (const x of rows) { if (all) picked.delete(x.id); else picked.add(x.id); } redraw(); });
+      head.append(el('span', null, c ? `${new Date(`${c}T12:00:00`) < new Date(`${today}T12:00:00`) ? 'Expired' : 'Expires'} ${niceDate(c)} · ${plural(rows.length, 'unit')}` : `No date on file · ${plural(rows.length, 'unit')}`), toggle);
+      list.append(head);
+      const grid = el('div', 'rt-grid');
+      for (const x of rows) {
+        const l = el('label', `rt-unit${picked.has(x.id) ? ' on' : ''}`);
+        const box = Object.assign(el('input'), { type: 'checkbox', checked: picked.has(x.id) });
+        box.addEventListener('change', () => { if (box.checked) picked.add(x.id); else picked.delete(x.id); redraw(); });
+        l.append(box, el('span', null, `${x.unitType === 'trailer' ? 'Trl ' : ''}${x.name}`));
+        grid.append(l);
+      }
+      list.append(grid);
+    }
+  };
+
+  // Each picked unit's share: the total split evenly, or typed per unit.
+  const chosen = () => units.filter((x) => picked.has(x.id));
+  const drawShares = () => {
+    const sel = chosen();
+    shares.replaceChildren();
+    if (!sel.length) return;
+    const even = splitEvenly(total.value === '' ? null : Number(total.value), sel.length);
+    const head = el('div', 'rt-shares-head');
+    const mode = Object.assign(el('button', 'link-btn', state.split ? 'Split evenly' : 'Different amount per unit'), { type: 'button' });
+    mode.addEventListener('click', () => {
+      state.split = !state.split;
+      if (state.split) sel.forEach((x, i) => state.shares.set(x.id, even[i]));
+      drawShares();
+    });
+    head.append(el('span', null, state.split ? 'Amount per unit' : even[0] != null ? `${money(even[0])} each (${plural(sel.length, 'unit')})` : `${plural(sel.length, 'unit')} picked`), mode);
+    shares.append(head);
+    if (!state.split) return;
+    for (const x of sel) {
+      const row = el('label', 'rt-share');
+      const input = numberInput(state.shares.get(x.id) ?? '', { step: '0.01' });
+      input.addEventListener('input', () => {
+        state.shares.set(x.id, input.value === '' ? null : Number(input.value));
+        const sum = sel.reduce((s, u) => s + (Number(state.shares.get(u.id)) || 0), 0);
+        total.value = sum ? (Math.round(sum * 100) / 100).toFixed(2) : '';
+      });
+      row.append(el('span', null, `${x.unitType === 'trailer' ? 'Trl ' : ''}${x.name}`), input);
+      shares.append(row);
+    }
+  };
+  const redraw = () => { drawUnits(); drawShares(); drawSuggestion(); save.textContent = picked.size ? `Renew ${plural(picked.size, 'unit')}` : 'Pick the units'; };
+  kind.addEventListener('change', () => { state.kind = kind.value; redraw(); });
+  total.addEventListener('input', () => { if (!state.split) drawShares(); });
+
+  form.append(
+    field('What was renewed', kind), field('Units', list), field('Good to (new expiration)', expWrap), field('Paid on', paidOn),
+    field('Total paid ($)', total), shares, field('Agency (optional)', agency),
+    field('Paper: a photo (optional)', photo), field('…or a paper already texted in', sent),
+  );
+  const { save, fail } = formActions(form, 'Pick the units');
+  body.append(form);
+  redraw();
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const sel = chosen();
+    if (!sel.length) return fail('Pick at least one unit.');
+    if (!expires.value) return fail('Set the new expiration date.');
+    save.disabled = true;
+    try {
+      const even = splitEvenly(total.value === '' ? null : Number(total.value), sel.length);
+      const withShares = sel.map((x, i) => ({ id: x.id, name: x.name, unitType: x.unitType, share: state.split ? state.shares.get(x.id) ?? null : even[i] }));
+      const old = sent.value ? receipts.find((r) => r.id === sent.value) : null;
+      const ref = old ? doc(db, 'receipts', old.id) : doc(collection(db, 'receipts'));
+      const { receipt, changes } = groupRenewal({
+        kind: state.kind, units: withShares, expires: expires.value, date: paidOn.value, agency: agency.value.trim() || old?.vendor || '',
+        receiptId: ref.id, newId: () => Math.random().toString(36).slice(2, 10),
+      });
+      const batch = writeBatch(db);
+      const undo = []; // [ref, data before or null]
+      const photoData = photo.files[0] ? await shrinkPhoto(photo.files[0]) : null;
+      if (old) {
+        const { createdMs, ...before } = old;
+        undo.push([ref, before]);
+        batch.set(ref, { ...receipt, updatedAt: serverTimestamp() }, { merge: true });
+        // A texted paper the reader had applied to a unit outside the group: put that unit back.
+        const was = old.paperwork?.applied ? old.paperwork : null;
+        if (was?.unitId && !picked.has(was.unitId) && was.before) {
+          const rec = compliance[was.unitId] ?? {};
+          undo.push([doc(db, 'compliance', was.unitId), rec]);
+          batch.set(doc(db, 'compliance', was.unitId), { ...was.before, history: (rec.history ?? []).filter((h) => h.receiptId !== old.id), updatedAt: serverTimestamp() }, { merge: true });
+        }
+      } else {
+        undo.push([ref, null]);
+        batch.set(ref, { ...receipt, id: ref.id, source: 'typed', hasPhoto: Boolean(photoData), uploadedBy: rememberedName() || null, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      }
+      if (photoData) {
+        batch.set(doc(db, 'receiptPhotos', ref.id), { data: photoData });
+        if (old) batch.set(ref, { hasPhoto: true }, { merge: true });
+      }
+      for (const c of changes) {
+        const x = sel.find((u) => u.id === c.unitId);
+        const rec = compliance[c.unitId] ?? {};
+        undo.push([doc(db, 'compliance', c.unitId), rec]);
+        batch.set(doc(db, 'compliance', c.unitId), {
+          unitId: c.unitId, unitType: x.unitType, name: x.name, ...c.fields,
+          history: [...(rec.history ?? []).filter((h) => h.receiptId !== ref.id), c.entry], updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+      await batch.commit();
+      $('pdlg').close();
+      showUndo(`${state.kind === 'inspection' ? 'Inspection' : 'Registration'} renewed for ${plural(sel.length, 'unit')}`, async () => {
+        const back = writeBatch(db);
+        for (const [r, before] of undo) {
+          if (before == null) back.delete(r);
+          else back.set(r, before);
+        }
+        if (!old && photoData) back.delete(doc(db, 'receiptPhotos', ref.id));
+        await back.commit();
+      });
     } catch (err) {
       save.disabled = false;
       fail(t('couldNotSave', err.message));
