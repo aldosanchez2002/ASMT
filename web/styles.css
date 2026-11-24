@@ -1513,6 +1513,23 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
 .an-more { width: 100%; margin-top: 6px; }
 
+/* Repairs for a truck's next visit */
+.todo-line { margin: 4px 0; padding: 4px 8px; border-left: 6px solid var(--floor-ink); background: var(--floor-track); font: 700 15px var(--cond); color: var(--floor-ink); }
+.todo-line.urgent { border-left-color: var(--floor-red); }
+.todo-box { margin: 6px 0 12px; }
+.todo-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 8px 10px; margin-bottom: 6px; border: 2px solid var(--floor-line); border-left-width: 8px; background: var(--floor-paper); }
+.todo-row.urgent { border-left-color: var(--floor-red); }
+.todo-text { display: grid; gap: 2px; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.todo-meta { font-size: 12px; font-weight: 400; color: var(--floor-muted); }
+.todo-btn { min-height: 40px; }
+.todo-add { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.todo-add input[type="text"] { min-height: 44px; padding: 0 10px; border: 2px solid var(--floor-line); background: var(--floor-field); color: var(--floor-ink); font-size: 15px; min-width: 0; }
+.todo-urgent { display: flex; align-items: center; gap: 4px; font-weight: 700; white-space: nowrap; }
+.todo-add-btn { min-height: 44px; }
+.todo-hint { margin: 6px 0 0; font-size: 13px; }
+.work-todos { margin-bottom: 12px; }
+@media (max-width: 480px) { .todo-add { grid-template-columns: 1fr auto; } .todo-add input[type="text"] { grid-column: 1 / -1; } }
+
 /* Inspections → Renew together */
 .cp-together { margin-left: auto; min-height: 44px; }
 .cp-together + .cp-add { margin-left: 0; }

@@ -50,6 +50,12 @@ let assignments = null; // meta/schedules doc: year/model groups
 let savedSettings = {}; // meta/settings doc: fleet setup toggles
 let dutyDocs = {}; // vehicleId -> dutyCycles doc ({ current, state, metrics, override })
 let statusDocs = {}; // vehicleId -> vehicleStatus doc ({ outOfService, reason, since })
+// Repairs to do when a truck is next in the yard (repairTodos docs:
+// { vehicleId, vehicleName, text, urgent, status: open|done|removed,
+// createdBy, createdAt, doneAt, doneBy, logId }).
+let repairTodos = [];
+const openTodos = (vehicleId) => repairTodos.filter((x) => x.vehicleId === vehicleId && x.status === 'open')
+  .sort((a, b) => Number(Boolean(b.urgent)) - Number(Boolean(a.urgent)) || (a.createdMs ?? 0) - (b.createdMs ?? 0));
 const dutyModels = () => assignments?.dutyModels ?? {};
 const settings = () => effectiveSettings(assignments?.settings, savedSettings);
 const company = () => ({ name: savedSettings.companyName ?? '', usdot: savedSettings.usdot ?? '' });
@@ -145,9 +151,11 @@ function withMaintenance(v) {
   // Needs service (one rule for the shop list and the admin count): something
   // due, a STOP lamp or check engine light, a tire over its limit, or out of
   // service. An emissions or protect lamp alone shows but doesn't count.
-  const needsService = Boolean(rows.some(DUE) || shop || faults?.stop || faults?.lamps?.includes('warning') || wornTires.length);
+  // A repair someone set for its next visit counts too.
+  const todos = openTodos(v.id);
+  const needsService = Boolean(rows.some(DUE) || shop || faults?.stop || faults?.lamps?.includes('warning') || wornTires.length || todos.length);
   return {
-    ...v, rows, next, shop, faults, oldFaults, here, quiet, tires, wornTires, needsService, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)),
+    ...v, rows, next, shop, faults, oldFaults, here, quiet, tires, wornTires, todos, needsService, nextRank: rank * 10 + Math.max(-5, Math.min(5, next?.urgency ?? 5)),
   };
 }
 
@@ -1069,6 +1077,61 @@ function openTruck(id) {
   showDialog($('truck'));
 }
 
+// "Repairs for next visit" on a truck's page. Anyone (admin or mechanic) adds
+// one; it puts the truck on the yard list when it's back. Done or Remove
+// closes it; Record work can close it too.
+function todoSection(v) {
+  const box = el('div', 'todo-box');
+  box.append(el('h3', 'section-title', t('todoTitle')));
+  for (const x of v.todos) {
+    const row = el('div', `todo-row${x.urgent ? ' urgent' : ''}`);
+    const text = el('div', 'todo-text');
+    text.append(el('span', null, x.text), el('span', 'todo-meta', [x.urgent ? t('todoUrgent') : null, x.createdBy, x.createdMs ? dateText(new Date(x.createdMs).toLocaleDateString('en-CA')) : null].filter(Boolean).join(' · ')));
+    const done = Object.assign(el('button', 'btn btn-ghost todo-btn', t('todoDone')), { type: 'button' });
+    done.addEventListener('click', () => closeTodo(x, 'done'));
+    const remove = Object.assign(el('button', 'link-btn todo-remove', t('todoRemove')), { type: 'button' });
+    remove.addEventListener('click', () => closeTodo(x, 'removed'));
+    row.append(text, done, remove);
+    box.append(row);
+  }
+  const form = el('form', 'todo-add');
+  const input = Object.assign(el('input'), { type: 'text', placeholder: t('todoPlaceholder'), maxLength: 200 });
+  input.setAttribute('aria-label', t('todoPlaceholder'));
+  const urgent = Object.assign(el('input'), { type: 'checkbox' });
+  const urgentLabel = el('label', 'todo-urgent');
+  urgentLabel.append(urgent, document.createTextNode(` ${t('todoUrgent')}`));
+  const add = Object.assign(el('button', 'btn todo-add-btn', t('todoAdd')), { type: 'submit' });
+  form.append(input, urgentLabel, add);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) { input.focus(); return; }
+    add.disabled = true;
+    try {
+      const ref = doc(collection(db, 'repairTodos'));
+      await setDoc(ref, {
+        id: ref.id, vehicleId: v.id, vehicleName: v.name, text, urgent: urgent.checked, status: 'open',
+        createdBy: rememberedName() || null, createdAt: serverTimestamp(),
+      });
+    } catch (err) {
+      add.disabled = false;
+      showAppError(t('couldNotSave', err.message));
+    }
+  });
+  box.append(form);
+  if (!v.todos.length) box.append(el('p', 'muted todo-hint', v.local ? t('todoHintLocal') : t('todoHint')));
+  return box;
+}
+
+async function closeTodo(x, status, extra = {}) {
+  try {
+    await setDoc(doc(db, 'repairTodos', x.id), { status, doneAt: serverTimestamp(), doneBy: rememberedName() || null, ...extra }, { merge: true });
+    showUndo(t(status === 'done' ? 'todoClosed' : 'todoRemoved', x.text), () => setDoc(doc(db, 'repairTodos', x.id), { status: 'open', doneAt: null, doneBy: null, logId: null }, { merge: true }));
+  } catch (err) {
+    showAppError(t('couldNotSave', err.message));
+  }
+}
+
 function dutySection(v, models) {
   const dutyDoc = dutyDocs[v.id] ?? {};
   const section = el('details', 'duty');
@@ -1374,6 +1437,7 @@ function shopTrucks({ all = false } = {}) {
     .filter((entry) => entry.group)
     .sort((a, b) => ORDER[a.group] - ORDER[b.group]
       || flag(b.v.faults?.stop) - flag(a.v.faults?.stop)
+      || flag(b.v.todos.some((x) => x.urgent)) - flag(a.v.todos.some((x) => x.urgent))
       || flag(b.due.some((r) => r.status === 'overdue')) - flag(a.due.some((r) => r.status === 'overdue'))
       || flag(b.due.length) - flag(a.due.length)
       || (a.due[0]?.urgency ?? 0) - (b.due[0]?.urgency ?? 0)
@@ -1557,12 +1621,15 @@ function shopCard({ v, due }, { record: withRecord = true } = {}) {
   // Kept short: one fault code and two due items (a bar on the first only), then "+N more".
   const codes = v.faults?.major ?? [];
   codes.slice(0, 1).forEach((c) => card.append(el('div', `fault-line${v.faults?.stop ? '' : ' fault-soft'}`, codeText(c))));
+  // Repairs set for this visit, first.
+  v.todos.slice(0, 2).forEach((x) => card.append(el('div', `todo-line${x.urgent ? ' urgent' : ''}`, t('todoLine', x.text))));
+  if (v.todos.length > 2) card.append(el('div', 'due-more', t('todoMore', v.todos.length - 2)));
   due.slice(0, 2).forEach((r, i) => card.append(dueLine(r, { meter: i === 0 })));
   if (v.wornTires.length) {
     const top = v.wornTires[0];
     card.append(el('div', 'tire-worn-line', t('truckTiresWorn', v.wornTires.length, truckPositionName(top, getLang()), fmt.format(v.tires[top].miles))));
   }
-  if (!due.length && !codes.length && !v.shop && !v.wornTires.length) card.append(el('div', 'due-none', t('nothingDue')));
+  if (!due.length && !codes.length && !v.shop && !v.wornTires.length && !v.todos.length) card.append(el('div', 'due-none', t('nothingDue')));
   const hidden = Math.max(0, codes.length - 1) + Math.max(0, due.length - 2);
   if (hidden) card.append(el('div', 'due-more', t('more', hidden)));
   card.addEventListener('click', () => openTruck(v.id));
@@ -1604,6 +1671,8 @@ function renderTruck(v) {
     const minor = v.faults?.minor?.length ?? 0;
     if (minor) body.append(el('div', 'due-more', t('minorCodes', minor)));
   }
+  // Repairs to do on its next visit: add one, mark one done or remove it.
+  body.append(todoSection(v));
   // 2. What's due.
   body.append(el('h3', 'section-title', t('dueHere')));
   const due = v.rows.filter(DUE);
@@ -1926,6 +1995,26 @@ function buildWork() {
 
   // Repair: what was done, and which fault codes it fixed.
   const repairText = Object.assign(el('textarea'), { rows: 2, placeholder: t('repairPlaceholder') });
+  // The repairs set for this visit: ticking one turns on Repair and writes
+  // it in; saving closes it, tied to this work.
+  work.todosDone ??= new Set();
+  const todoBox = el('div', 'work-todos');
+  if (v.todos.length) {
+    todoBox.append(el('div', 'section-title', t('todoTitle')), el('p', 'muted', t('todoInWork')));
+    for (const x of v.todos) {
+      todoBox.append(checkRow(x.text, work.todosDone.has(x.id), (checked) => {
+        const lines = repairText.value.split('\n').map((s) => s.trim()).filter(Boolean);
+        if (checked) {
+          work.todosDone.add(x.id);
+          if (!lines.includes(x.text)) repairText.value = [...lines, x.text].join('\n');
+          if (!work.parts.has('repair')) { work.parts.add('repair'); drawParts(); showParts(); }
+        } else {
+          work.todosDone.delete(x.id);
+          repairText.value = lines.filter((s) => s !== x.text).join('\n');
+        }
+      }, x.urgent ? t('todoUrgent') : null, x.urgent ? 'due-overdue' : ''));
+    }
+  }
   repairBox.append(field(t('repair'), repairText));
   const fixedCodes = new Set();
   if (v.faults?.major.length) {
@@ -2020,7 +2109,7 @@ function buildWork() {
   // Save stays at the bottom of the screen while scrolling.
   const actions = el('div', 'work-actions');
   actions.append(error, save, cancel);
-  form.append(...(faultBox ? [faultBox] : []), parts, serviceBox, tireBox, batteryBox, repairBox, details, actions);
+  form.append(...(faultBox ? [faultBox] : []), todoBox, parts, serviceBox, tireBox, batteryBox, repairBox, details, actions);
   body.append(form);
   drawParts();
   showParts();
@@ -2087,6 +2176,11 @@ function buildWork() {
       });
       refs.push(ref);
     }
+    // The repairs set for this visit that were ticked: closed, tied to this work.
+    const todosClosed = v.todos.filter((x) => work.todosDone?.has(x.id));
+    for (const x of todosClosed) {
+      batch.set(doc(db, 'repairTodos', x.id), { status: 'done', doneAt: serverTimestamp(), doneBy: loggedBy || null, logId: refs.at(-1)?.id ?? null }, { merge: true });
+    }
     if (tires.length) {
       const order = tires;
       const ref = doc(collection(db, 'serviceLog'));
@@ -2123,6 +2217,7 @@ function buildWork() {
         matching.cancel();
         const undo = writeBatch(db);
         refs.forEach((ref) => undo.delete(ref));
+        todosClosed.forEach((x) => undo.set(doc(db, 'repairTodos', x.id), { status: 'open', doneAt: null, doneBy: null, logId: null }, { merge: true }));
         if (oldMiles && m > (oldMiles.odometerMiles ?? -1)) undo.set(doc(db, 'vehicles', v.id), oldMiles, { merge: true });
         await undo.commit();
       });
@@ -5466,6 +5561,13 @@ function watchFleet() {
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'vehicleStatus'), (snap) => {
       statusDocs = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+      render();
+    }, (err) => console.error(err)),
+    onSnapshot(collection(db, 'repairTodos'), (snap) => {
+      repairTodos = snap.docs.map((d) => {
+        const x = d.data();
+        return { ...x, id: d.id, createdMs: x.createdAt?.toMillis?.() ?? 0 };
+      });
       render();
     }, (err) => console.error(err)),
     onSnapshot(collection(db, 'dutyCycles'), (snap) => {

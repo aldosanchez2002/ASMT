@@ -229,5 +229,7 @@ node scripts/seed-work-log.mjs --undo path/to/work-log.backup-….json
 
 ## Out of service
 
+**Repairs for next visit**: on a truck's page, anyone (admin or mechanic) types a repair to do when it's back, optionally urgent (`repairTodos/{id}`: text, who, when, `status` open/done/removed). An open one makes the truck "need service": it shows on its card ("To do: …"), and when Samsara shows the truck in the yard it's on the mechanics' **In the yard and needs work** list and admin's **To do today** (urgent ones first). Trucks with no GPS tracker show it until it's done. In **Record work**, the truck's open to-dos are checkboxes: ticking one turns on Repair and writes it in, and saving closes it tied to that work entry (`logId`). **Done** or **Remove** closes one directly; each has Undo.
+
 **Truck popup → Mark out of service** saves `vehicleStatus/{vehicleId}` (`outOfService`, `reason`, `since`). The truck shows **Out of service**, isn't counted as overdue or due soon, and the sync keeps it listed even after Samsara has been silent for 100+ days. **Back in service** in the popup undoes it.
 
