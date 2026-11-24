@@ -7,7 +7,8 @@
 //   { unitId, unitType: 'truck'|'trailer', name, plate, plateState, vin,
 //     inspectionExpires: 'YYYY-MM-DD', registrationExpires: 'YYYY-MM-DD',
 //     registrationState, multiYear (a registration good for several years),
-//     status: 'active'|'out'|'sold', note, checkDates: [text] (dates fixed on
+//     status: 'active'|'out'|'sold'|'exempt' (exempt: Mexican plates, no US
+//     inspection or registration; still in service), note, checkDates: [text] (dates fixed on
 //     import that a person should confirm), updatedAt }
 // The federal annual inspection (49 CFR 396.17) applies to every truck and
 // trailer in service; registrations follow the state (Maine trailer plates
@@ -17,7 +18,7 @@ export const DUE_DAYS = 30; // "due": act now
 export const SOON_DAYS = 90; // "coming up": plan for it
 // A registration more than this far out is a multi-year plate.
 export const MULTI_YEAR_DAYS = 400;
-export const STATUSES = ['active', 'out', 'sold'];
+export const STATUSES = ['active', 'out', 'sold', 'exempt'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const pad = (n) => String(n).padStart(2, '0');
@@ -63,7 +64,7 @@ const RANK = { expired: 0, due: 1, soon: 2, missing: 3, ok: 4 };
  * One unit: its inspection and registration, and the worst of the two.
  * Units out of service or sold need nothing renewed.
  * @returns { status, inspection: { expires, state, days }, registration: { expires, state, days, multiYear }, worst, group }
- *   group: 'action' (expired or due), 'soon', 'missing' (no dates on file), 'ok', 'out'
+ *   group: 'action' (expired or due), 'soon', 'missing' (no dates on file), 'ok', 'exempt', 'out'
  */
 export function unitCompliance(rec, today) {
   const status = STATUSES.includes(rec?.status) ? rec.status : 'active';
@@ -71,7 +72,7 @@ export function unitCompliance(rec, today) {
   const inspection = one(rec?.inspectionExpires);
   const registration = { ...one(rec?.registrationExpires), multiYear: Boolean(rec?.multiYear) || (rec?.registrationExpires ? daysUntil(rec.registrationExpires, today) > MULTI_YEAR_DAYS : false) };
   const worst = RANK[inspection.state] <= RANK[registration.state] ? inspection.state : registration.state;
-  const group = status !== 'active' ? 'out' : worst === 'expired' || worst === 'due' ? 'action' : worst;
+  const group = status === 'exempt' ? 'exempt' : status !== 'active' ? 'out' : worst === 'expired' || worst === 'due' ? 'action' : worst;
   return { status, inspection, registration, worst, group };
 }
 
@@ -82,7 +83,7 @@ export function unitCompliance(rec, today) {
  * @returns [{ ...unit, rec, ...unitCompliance }]
  */
 export function complianceList(units, records, today) {
-  const ORDER = { action: 0, soon: 1, missing: 2, ok: 3, out: 4 };
+  const ORDER = { action: 0, soon: 1, missing: 2, ok: 3, exempt: 4, out: 5 };
   const soonest = (x) => Math.min(...[x.inspection.days, x.registration.multiYear ? null : x.registration.days].filter((d) => d != null), Infinity);
   return units
     .map((u) => ({ ...u, rec: records[u.id] ?? null, ...unitCompliance(records[u.id], today) }))

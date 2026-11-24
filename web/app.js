@@ -4303,7 +4303,8 @@ function complianceBox(id, admin) {
   const x = unitCompliance(compliance[id], todayIso());
   const box = el('div', `cp-box cp-${x.group}`);
   box.append(el('h3', 'section-title', t('cpTitle')));
-  if (x.group === 'out') box.append(el('p', 'item-meta', x.status === 'sold' ? t('cpSold') : t('cpOut')));
+  if (x.group === 'exempt') box.append(el('p', 'item-meta', t('cpExempt')));
+  else if (x.group === 'out') box.append(el('p', 'item-meta', x.status === 'sold' ? t('cpSold') : t('cpOut')));
   else {
     const line = (label, item, multi) => el('div', `cp-line cp-${item.state}`, `${label}: ${!item.expires ? t('cpNone')
       : item.state === 'expired' ? t('cpExpired', dateText(item.expires)) : t('cpExpires', dateText(item.expires))}${multi ? ` · ${t('cpMulti')}` : ''}`);
@@ -4323,6 +4324,7 @@ const CP_GROUPS = [
   ['soon', 'Coming up', 'Expiring in the next 90 days.'],
   ['missing', 'No dates on file', 'Add the inspection and registration dates from the sticker and the cab card.'],
   ['ok', 'Up to date', null],
+  ['exempt', 'Exempt', 'No US inspection or registration (Mexican plates).'],
   ['out', 'Out of service or sold', 'Nothing to renew. Renew both before one goes back into service.'],
 ];
 let cpScope = 'all'; // all | truck | trailer
@@ -4401,7 +4403,9 @@ function cpRow(x) {
     el('span', 'cp-kind', [x.unitType === 'truck' ? 'Truck' : 'Trailer', x.rec?.plate ? `${x.rec.plate}${x.rec.plateState ? ` (${x.rec.plateState})` : ''}` : null, x.local ? 'no GPS tracker' : null].filter(Boolean).join(' · ')),
   );
   row.append(top);
-  if (x.group === 'out') {
+  if (x.group === 'exempt') {
+    row.append(el('span', 'cp-line', ['Exempt', x.rec?.note].filter(Boolean).join(' · ')));
+  } else if (x.group === 'out') {
     row.append(el('span', 'cp-line', [x.status === 'sold' ? 'Sold' : 'Out of service', x.rec?.note && x.rec.note !== 'SOLD' ? x.rec.note : null].filter(Boolean).join(' · ')));
   } else {
     const line = (label, item, extra) => {
@@ -4440,7 +4444,7 @@ function openCompliance(x) {
   const states = [['', '—'], ['TX', 'Texas'], ['OK', 'Oklahoma'], ['ME', 'Maine'], ['NM', 'New Mexico'], ['IRP', 'Apportioned (IRP cab card)']];
   const regState = selectOf(states, rec.registrationState ?? rec.plateState ?? '');
   const plate = text(rec.plate, 'Plate number');
-  const status = selectOf([['active', 'In service'], ['out', 'Out of service'], ['sold', 'Sold']], rec.status ?? 'active');
+  const status = selectOf([['active', 'In service'], ['exempt', 'Exempt (Mexican plates: no US inspection or registration)'], ['out', 'Out of service'], ['sold', 'Sold']], rec.status ?? 'active');
   const note = Object.assign(el('textarea'), { rows: 2, value: rec.note ?? '', placeholder: 'Anything to remember (title missing, waiting on plates…)' });
   form.append(
     field('Inspection expires', inspWrap), field('Registration expires', regWrap), field('Registered in', regState),
@@ -4504,7 +4508,7 @@ function openRenewTogether() {
   const body = partsDialog('Renew together', 'Several units, one transaction');
   const form = pform();
   const today = todayIso();
-  const units = complianceList(cpUnits(), compliance, today).filter((x) => x.group !== 'out');
+  const units = complianceList(cpUnits(), compliance, today).filter((x) => x.group !== 'out' && x.group !== 'exempt');
   const picked = new Set();
   const state = { kind: 'registration', split: false, shares: new Map() };
 

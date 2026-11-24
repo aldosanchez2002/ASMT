@@ -57,3 +57,11 @@ test('a sheet row becomes a compliance record; fixed dates are listed to check; 
   const sold = recordFromRow({ name: '54155', plate: '222C179', vin: 'V', inspection: '2026-11-30', registration: null, note: 'SOLD', status: 'sold' });
   assert.deepEqual([sold.status, sold.registrationExpires, sold.note], ['sold', null, 'SOLD']);
 });
+
+test('an exempt unit (Mexican plates) has its own group: never due, still in service', async () => {
+  const { unitCompliance, complianceList } = await import('../web/compliance.js');
+  const x = unitCompliance({ status: 'exempt', plate: '50EP9W' }, '2026-11-24');
+  assert.deepEqual([x.status, x.group], ['exempt', 'exempt']);
+  const list = complianceList([{ id: 'a', name: '01' }, { id: 'b', name: '07' }], { a: { status: 'exempt' }, b: { registrationExpires: '2027-03-31' } }, '2026-11-24');
+  assert.deepEqual(list.map((u) => u.group), ['missing', 'exempt']);
+});
