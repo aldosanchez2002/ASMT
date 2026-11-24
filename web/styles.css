@@ -1513,6 +1513,15 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
 .an-more { width: 100%; margin-top: 6px; }
 
+/* The part picker: "This part failed" */
+.fail-box { display: grid; gap: 6px; margin-top: 14px; padding-top: 10px; border-top: 2px solid var(--floor-track); }
+.fail-choice { display: grid; gap: 2px; padding: 10px 12px; border: 2px solid var(--floor-line); background: var(--floor-paper); color: var(--floor-ink); font: inherit; text-align: left; cursor: pointer; }
+.fail-choice strong { font: 800 16px var(--cond); }
+.fail-choice span { font-size: 13px; color: var(--floor-muted); }
+.fail-choice:hover, .fail-choice:focus-visible { background: var(--floor-track); outline: none; }
+.fail-hint { margin: 4px 0; padding: 6px 10px; background: var(--floor-yellow); color: #111; font-weight: 700; }
+.pick-list.pick-failed .pick-row { border-color: var(--floor-red); }
+
 /* Repairs for a truck's next visit */
 .todo-line { margin: 4px 0; padding: 4px 8px; border-left: 6px solid var(--floor-ink); background: var(--floor-track); font: 700 15px var(--cond); color: var(--floor-ink); }
 .todo-line.urgent { border-left-color: var(--floor-red); }

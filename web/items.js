@@ -435,6 +435,8 @@ export function receiptWork(receipt, uses, log) {
  *            tires: they wait for their tire change)
  *   noParts  repairs a week or more old that no item was tied to (only
  *            since the first receipt: older work had no receipts here)
+ *   noCredit parts returned for credit 30+ days ago with no credit from
+ *            that store since (a negative line of about the same amount)
  * Each use comes with its item and repair.
  */
 export function auditQueue({ items, uses, log, today }) {
@@ -455,7 +457,16 @@ export function auditQueue({ items, uses, log, today }) {
   const noParts = !start ? [] : repairEntries(log, { today, days: 60 })
     .filter((e) => e.date >= start && e.date <= weekAgo && !used.has(e.id) && !e.noParts)
     .sort((a, b) => b.date.localeCompare(a.date));
-  return { doubts, recent, noWork, noParts };
+  const monthAgo = Date.parse(`${addDays(today, -30)}T00:00:00Z`);
+  const credits = items.filter((it) => it.kind === 'credit' || (it.cost ?? 0) < 0);
+  const sameStore = (a, b) => String(a ?? '').trim().toLowerCase().slice(0, 12) === String(b ?? '').trim().toLowerCase().slice(0, 12);
+  const noCredit = uses.filter((u) => u.failed === 'returned' && COUNTED.includes(u.status) && !u.creditSeen && toMs(u.createdAt) && toMs(u.createdAt) <= monthAgo)
+    .map(join).filter((x) => x.item)
+    .filter(({ use, item }) => {
+      const owed = (item.unitCost ?? 0) * (Number(use.qty) || 0);
+      return !credits.some((c) => sameStore(c.vendor, item.vendor) && (c.date ?? '') >= (item.date ?? '') && Math.abs(Math.abs(c.cost ?? 0) - owed) <= Math.max(1, owed * 0.15));
+    });
+  return { doubts, recent, noWork, noParts, noCredit };
 }
 
 /**
@@ -536,10 +547,13 @@ export function costEvents({ receipts, uses, log }) {
       left -= Math.min(Number(u.qty) || 0, left);
       const entry = u.logId ? entryById.get(u.logId) : null;
       const amount = amounts.get(u) ?? 0;
-      if (u.shop) { out.push({ date: entry?.date ?? it.date, kind: 'supplies', amount, unitId: null, text: it.text, ...ref2, by: u.by }); continue; }
+      // A part that failed (u.failed): returned for credit or broken during
+      // install is the shop's; defective and not returned stays on the repair.
+      const failed = u.failed ? { failed: u.failed } : {};
+      if (u.shop) { out.push({ date: entry?.date ?? u.failedOn ?? it.date, kind: 'supplies', amount, unitId: null, text: it.text, ...ref2, by: u.by, ...failed }); continue; }
       const unitId = u.vehicleId ?? entry?.vehicleId;
       if (!unitId) continue;
-      out.push({ date: entry?.date ?? it.date, kind: 'parts', amount, unitId, unitName: u.vehicleName ?? entry?.vehicleName ?? null, assetType: u.assetType ?? assetOf(entry), text: it.text, qty: u.qty, logId: entry?.id ?? null, ...ref2, by: u.by ?? 'ai', sure: true });
+      out.push({ date: entry?.date ?? it.date, kind: 'parts', amount, unitId, unitName: u.vehicleName ?? entry?.vehicleName ?? null, assetType: u.assetType ?? assetOf(entry), text: it.text, qty: u.qty, logId: entry?.id ?? null, ...ref2, by: u.by ?? 'ai', sure: true, ...failed });
     }
     if (left <= 0) continue;
     const amount = round2(it.unitCost * left);

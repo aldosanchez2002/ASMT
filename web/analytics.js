@@ -197,10 +197,10 @@ export function trendMonths({ grain, periods, to }) {
 // What the money went to, in the order they're listed when tied:
 // maintenance (work that reset a maintenance schedule item, the miles
 // reminders), repairs (every other job, and parts tied to no logged work),
-// the shop's supplies and tools, paperwork fees, and parts on hand (receipt
-// items not tied to any work yet).
+// the shop's supplies and tools, shop losses (parts broken during install),
+// paperwork fees, and parts on hand (receipt items not tied to any work yet).
 export const SPEND_KINDS = [
-  ['maintenance', 'Maintenance'], ['repair', 'Repairs'], ['shop', 'Shop supplies'], ['paperwork', 'Inspection & registrations'], ['onhand', 'Parts on hand'],
+  ['maintenance', 'Maintenance'], ['repair', 'Repairs'], ['shop', 'Shop supplies'], ['losses', 'Shop losses'], ['paperwork', 'Inspection & registrations'], ['onhand', 'Parts on hand'],
 ];
 
 /**
@@ -220,7 +220,7 @@ export function spendByKind({ events, log, from, to, unitId, includeShop = true 
     if (ev.kind === 'parts' && (unitId === undefined ? ev.unitId : ev.unitId === unitId)) {
       const entry = ev.logId ? byId.get(ev.logId) : null;
       add(ev.paperwork ? 'paperwork' : entry && visitServices(entry).length ? 'maintenance' : 'repair', ev.amount);
-    } else if (unitId === undefined && includeShop && !ev.unitId && (ev.kind === 'supplies' || ev.kind === 'tools')) add('shop', ev.amount);
+    } else if (unitId === undefined && includeShop && !ev.unitId && (ev.kind === 'supplies' || ev.kind === 'tools')) add(ev.failed === 'misinstalled' || ev.failed === 'nocredit' ? 'losses' : 'shop', ev.amount);
     else if (unitId === undefined && ev.kind === 'open') add('onhand', ev.amount);
   }
   const order = SPEND_KINDS.map(([k]) => k);

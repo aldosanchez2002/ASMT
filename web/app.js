@@ -2797,7 +2797,7 @@ const matchQueue = () => auditQueue({ items: receiptItems(receipts), uses: itemU
 // receipts to check, unsure matches, parts no work explains, repairs with no parts.
 // Unsure matches count once per receipt: one question each.
 const doubtReceipts = (queue) => new Set(queue.doubts.map((x) => x.item.receiptId)).size;
-const partsToReview = (queue = matchQueue()) => toApprove().length + toCheck().length + doubtReceipts(queue) + queue.noWork.length + queue.noParts.length;
+const partsToReview = (queue = matchQueue()) => toApprove().length + toCheck().length + doubtReceipts(queue) + queue.noWork.length + queue.noParts.length + queue.noCredit.length;
 const unitName = (id) => vehicles.find((v) => v.id === id)?.name ?? trailers.find((c) => c.id === id)?.name ?? id;
 const SPEND_PERIODS = ['month', 'd90', 'year'];
 let spendPeriod = 'month';
@@ -2832,6 +2832,7 @@ function partsReview(queue) {
   section(t('secDoubts'), t('secDoubtsHint'), receiptQuestions(queue.doubts), t('nothingToCheck'));
   section(t('secNoWork'), t('secNoWorkHint'), queue.noWork.map(noWorkCard), t('nothingToCheck'));
   section(t('secNoParts'), t('secNoPartsHint'), queue.noParts.map(noPartsCard), t('nothingToCheck'));
+  if (queue.noCredit.length) section(t('secNoCredit'), t('secNoCreditHint'), queue.noCredit.map(noCreditCard));
 
   // The AI's own matches, folded: a spot check.
   const head = el('button', `shop-group section-toggle parts-work-head${showRecent ? ' open' : ''}`);
@@ -2952,12 +2953,32 @@ function noWorkCard(item) {
   pick.addEventListener('click', () => pickForItem(item, null));
   const shelf = Object.assign(el('button', 'btn btn-ghost', t('stillOnShelf')), { type: 'button' });
   shelf.addEventListener('click', () => snoozeItem(item, null));
+  const failed = Object.assign(el('button', 'btn btn-ghost', t('failButton')), { type: 'button' });
+  failed.addEventListener('click', () => pickForItem(item, null, { openFailed: true }));
   const actions = el('div', 'match-actions');
-  actions.append(pick, shelf, receiptLink(item));
+  actions.append(pick, shelf, failed, receiptLink(item));
   card.append(actions);
   return card;
 }
 
+
+// A part returned for credit 30+ days ago, with no credit from that store yet.
+function noCreditCard({ use, item }) {
+  const card = el('div', 'match-card match-nowork');
+  card.append(
+    el('p', 'match-item', itemLine(item, use.qty)),
+    el('p', 'match-cost', item.unitCost != null ? money(item.unitCost * use.qty) : ''),
+    el('p', 'match-meta', [item.vendor, t('returnedOn', dateText(use.failedOn ?? item.date))].filter(Boolean).join(' · ')),
+  );
+  const came = Object.assign(el('button', 'btn match-right', t('creditCame')), { type: 'button' });
+  came.addEventListener('click', () => setDoc(useRef(use.id), { creditSeen: true, checkedAt: serverTimestamp() }, { merge: true }).catch((err) => showAppError(t('couldNotSave', err.message))));
+  const loss = Object.assign(el('button', 'btn btn-ghost', t('writeOff')), { type: 'button' });
+  loss.addEventListener('click', () => setDoc(useRef(use.id), { failed: 'nocredit', checkedAt: serverTimestamp() }, { merge: true }).catch((err) => showAppError(t('couldNotSave', err.message))));
+  const actions = el('div', 'match-actions');
+  actions.append(came, loss, receiptLink(item));
+  card.append(actions);
+  return card;
+}
 
 // A repair a week or more old with no bought part tied to it.
 function noPartsCard(entry) {
@@ -3004,20 +3025,29 @@ async function confirmUse(use) {
 async function placeItem(item, fromUse, choice) {
   const batch = writeBatch(db);
   // Picking the same repair the AI picked just confirms it.
-  if (fromUse && choice.entry && fromUse.logId === choice.entry.id && choice.qty === fromUse.qty) {
+  if (fromUse && choice.entry && !choice.failed && fromUse.logId === choice.entry.id && choice.qty === fromUse.qty) {
     batch.set(useRef(fromUse.id), { status: 'confirmed', checkedAt: serverTimestamp() }, { merge: true });
     return batch.commit();
   }
   if (fromUse) batch.set(useRef(fromUse.id), { status: 'rejected', checkedAt: serverTimestamp() }, { merge: true });
   const e = choice.entry;
   const unitId = e?.vehicleId ?? choice.unitId;
+  // A part that failed: 'defective' stays on the repair it failed on; 'returned' (for
+  // credit) and 'misinstalled' (broken during install) are the shop's.
+  const failed = choice.failed ? { failed: choice.failed, failedOn: todayIso() } : {};
   if (unitId) {
     const ref = useRef(null);
     const trailer = e ? e.assetType === 'trailer' : trailers.some((c) => c.id === unitId);
     batch.set(ref, {
       id: ref.id, receiptId: item.receiptId, lineId: item.lineId, qty: choice.qty, logId: e?.id ?? null,
       vehicleId: unitId, vehicleName: e?.vehicleName ?? unitName(unitId), assetType: trailer ? 'trailer' : 'truck',
-      shop: false, by: 'admin', status: 'confirmed', itemText: item.text, createdAt: serverTimestamp(),
+      shop: false, by: 'admin', status: 'confirmed', itemText: item.text, createdAt: serverTimestamp(), ...failed,
+    });
+  } else if (choice.failed) {
+    const ref = useRef(null);
+    batch.set(ref, {
+      id: ref.id, receiptId: item.receiptId, lineId: item.lineId, qty: choice.qty, logId: null, vehicleId: null,
+      shop: true, by: 'admin', status: 'confirmed', itemText: item.text, createdAt: serverTimestamp(), ...failed,
     });
   }
   if (choice.shelf) {
@@ -3033,7 +3063,7 @@ async function placeItem(item, fromUse, choice) {
       type: 'match', at: new Date().toISOString(), itemText: item.text, partNumber: item.partNumber ?? null,
       vendor: item.vendor ?? null, itemDate: item.date ?? null,
       ai: fromUse ? { ...placeOf(fromUse), confidence: fromUse.confidence ?? null } : null,
-      admin: choice.shelf ? { shelf: true } : e ? { repair: repairText(e), truck: e.vehicleName ?? unitName(e.vehicleId), date: e.date } : { truck: unitName(unitId) },
+      admin: choice.shelf ? { shelf: true } : choice.failed && !e ? { shop: true } : e ? { repair: repairText(e), truck: e.vehicleName ?? unitName(e.vehicleId), date: e.date } : { truck: unitName(unitId) },
     });
   }
   return batch.commit();
@@ -3066,7 +3096,7 @@ async function shopItem(item, fromUse) {
 
 // Pick where an item went: the repairs around its date (its trucks first),
 // a truck with no repair recorded, shop supplies, or still on the shelf.
-function pickForItem(item, fromUse) {
+function pickForItem(item, fromUse, { openFailed = false } = {}) {
   const left = item.qty - itemUses.filter((u) => itemKey(u.receiptId, u.lineId) === item.key && ['auto', 'doubt', 'confirmed'].includes(u.status) && u.id !== fromUse?.id)
     .reduce((s, u) => s + (Number(u.qty) || 0), 0);
   const body = partsDialog(item.text || t('receipt'), [item.vendor, dateText(item.date), money(item.cost ?? 0)].filter(Boolean).join(' · '));
@@ -3085,14 +3115,38 @@ function pickForItem(item, fromUse) {
     .sort((a, b) => Number(b.id === fromUse?.logId) - Number(a.id === fromUse?.logId)
       || Number(allowed.includes(b.vehicleId)) - Number(allowed.includes(a.vehicleId))
       || Math.abs(daysBetween(item.date, a.date)) - Math.abs(daysBetween(item.date, b.date)));
-  body.append(el('div', 'section-title', t('repairsAround')));
+  // "This part failed": returned for credit and broken during install go to
+  // the shop now; defective (not returned) asks which repair it failed on.
+  let failedMode = false;
+  const failBox = el('div', 'fail-box');
+  const failHint = el('p', 'fail-hint');
+  failHint.hidden = true;
+  const failBtn = (label, hint, onClick) => {
+    const b = Object.assign(el('button', 'fail-choice'), { type: 'button' });
+    b.append(el('strong', null, label), el('span', null, hint));
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  failBox.append(
+    el('div', 'section-title', t('failTitle')),
+    failBtn(t('failReturned'), t('failReturnedHint'), () => done(placeItem(item, fromUse, { failed: 'returned', qty, teach: false }))),
+    failBtn(t('failDefective'), t('failDefectiveHint'), () => {
+      failedMode = true;
+      failHint.hidden = false;
+      list.classList.add('pick-failed');
+      list.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }),
+    failBtn(t('failInstall'), t('failInstallHint'), () => done(placeItem(item, fromUse, { failed: 'misinstalled', qty, teach: false }))),
+  );
+  body.append(el('div', 'section-title', t('repairsAround')), failHint);
+  failHint.textContent = t('failPickRepair');
   if (!around.length) body.append(el('p', 'muted', t('noRepairsAround')));
   const list = el('div', 'pick-list');
   for (const e of around) {
     const b = Object.assign(el('button', `pick-row${fromUse?.logId === e.id ? ' current' : ''}`), { type: 'button' });
     b.append(el('span', 'pick-main', repairLine(e)));
     if (fromUse?.logId === e.id) b.append(el('span', 'pick-tag', t('aiPick')));
-    b.addEventListener('click', () => done(placeItem(item, fromUse, { entry: e, qty, teach: true })));
+    b.addEventListener('click', () => done(placeItem(item, fromUse, failedMode ? { entry: e, qty, failed: 'defective' } : { entry: e, qty, teach: true })));
     list.append(b);
   }
   body.append(list);
@@ -3113,7 +3167,8 @@ function pickForItem(item, fromUse) {
   const shelf = Object.assign(el('button', 'btn btn-ghost', t('stillOnShelf')), { type: 'button' });
   shelf.addEventListener('click', () => done(placeItem(item, fromUse, { shelf: true, qty: 0 })));
   other.append(shop, shelf);
-  body.append(other);
+  body.append(other, failBox);
+  if (openFailed) failBox.scrollIntoView({ block: 'start' });
 }
 
 // Pick the parts a repair used, from the items bought around its date that
@@ -3750,9 +3805,11 @@ function anReceipts(unit, range, events) {
 }
 
 // "4 × Battery", "Brake drum DB1655B".
+const FAILED_LABEL = { defective: 'failed part', returned: 'returned for credit', misinstalled: 'broken during install', nocredit: 'returned, no credit' };
 const anCostName = (ev) => {
   const name = ev.part ? partById(ev.part)?.name ?? ev.part : ev.text || t('receipt');
-  return ev.qty && (ev.part || ev.qty !== 1) ? `${qtyText(ev.qty)} × ${name}` : name;
+  const shown = ev.qty && (ev.part || ev.qty !== 1) ? `${qtyText(ev.qty)} × ${name}` : name;
+  return ev.failed ? `${shown} (${FAILED_LABEL[ev.failed] ?? 'failed'})` : shown;
 };
 
 // The fleet's trucks and trailers for the dates, biggest spend first; tap one
