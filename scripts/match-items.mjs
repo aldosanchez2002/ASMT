@@ -19,7 +19,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { commit, getDoc, listDocs, mergeWrite, queryDocs, setWrite } from './firestore-rest.mjs';
 import { memoryText } from './ai-memory.mjs';
 import { MATCH_PROMPT, MATCH_SCHEMA, candidateRepairs, matchContext, matchSignature, usesFromAnswer } from './item-matcher.mjs';
-import { openItems, receiptItems, ruleUses, tireUses, workEntries } from '../web/items.js';
+import { AGE_DAYS, agedUses, openItems, receiptItems, ruleUses, tireUses, workEntries } from '../web/items.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const daysAgo = (n) => new Date(Date.now() - n * DAY_MS);
@@ -67,7 +67,8 @@ async function main() {
   const startedAt = new Date().toISOString();
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
   const last = await getDoc('meta/matcher');
-  if (!dryRun && last?.checkedAt) {
+  // Aging is about time, not new data: once a day the run goes on regardless.
+  if (!dryRun && last?.checkedAt && last.agedOn === today) {
     const why = await changedSince(last.checkedAt);
     if (!why) {
       console.log(`Nothing new since the last check (${last.checkedAt}).`);
@@ -109,8 +110,19 @@ async function main() {
     ruleWrites.push(setWrite(`itemUses/${id}`, { ...u, id }, 'createdAt'));
   }
   uses.push(...tires);
+  // 90 days with no work found: unassigned parts become shop supplies, parts
+  // bought for a truck become that truck's cost (tires keep waiting).
+  const names = new Map([...vehicles, ...trailers].map((x) => [x.id, x.name]));
+  const aged = agedUses({ items: receiptItems(receipts), uses, today, names });
+  for (const u of aged) console.log(`  AGED ${u.shop ? 'shop' : u.vehicleName ?? u.vehicleId}: ${u.qty} x "${u.itemText}" from receipt ${u.receiptId}`);
+  console.log(`${aged.length} item(s) not tied to work after ${AGE_DAYS} days.`);
+  for (const u of aged) {
+    const id = newId();
+    ruleWrites.push(setWrite(`itemUses/${id}`, { ...u, id }, 'createdAt'));
+  }
+  uses.push(...aged);
   // Remember this check (with the rule uses), so the next run only looks for what's newer.
-  const markChecked = (fields = {}) => (dryRun ? null : commit([...ruleWrites, mergeWrite('meta/matcher', { checkedAt: startedAt, ...fields })]));
+  const markChecked = (fields = {}) => (dryRun ? null : commit([...ruleWrites, mergeWrite('meta/matcher', { checkedAt: startedAt, agedOn: today, ...fields })]));
 
   // Pass 2: Claude, for repair parts, labor and cores (tires wait for their tire change).
   const allItems = receiptItems(receipts);
@@ -133,7 +145,6 @@ async function main() {
     return;
   }
 
-  const names = new Map([...vehicles, ...trailers].map((v) => [v.id, v.name]));
   const memory = memoryText('match', await getDoc('meta/aiMemory'), corrections, parts);
   const { text, refs } = matchContext(open, repairs, { names, uses, allItems, memory });
   const answer = await askClaude(new Anthropic(), text);
@@ -151,7 +162,7 @@ async function main() {
   // something new comes in (a receipt, a repair, admin freeing an item).
   const after = openItems(allItems, [...uses, ...found], { today }).filter((it) => !it.tire);
   const afterSignature = matchSignature(after, candidateRepairs(after, workEntries(log, { today, days: 90 })), today);
-  writes.push(mergeWrite('meta/matcher', { signature: afterSignature, lastRun: new Date().toISOString(), checkedAt: startedAt }));
+  writes.push(mergeWrite('meta/matcher', { signature: afterSignature, lastRun: new Date().toISOString(), checkedAt: startedAt, agedOn: today }));
   await commit(writes);
 }
 

@@ -325,6 +325,37 @@ const holdingQty = (key, uses) => usesFor(key, uses).filter((u) => HOLDING.inclu
 export const remainingQty = (item, uses) => round2(item.qty - holdingQty(item.key, uses));
 const snoozed = (item, uses, today) => usesFor(item.key, uses).some((u) => u.status === 'snooze' && (u.until ?? '') > today);
 
+// After this many days, what no work explains stops waiting (agedUses).
+export const AGE_DAYS = 90;
+
+/**
+ * Receipt items still not tied to anything AGE_DAYS after they were bought:
+ * an unassigned part becomes a shop expense; one bought for a truck (the
+ * receipt or the note said which) becomes that truck's cost. Tires are left
+ * alone (bought ahead, they wait for a tire change); so are items admin said
+ * are still on the shelf, until that runs out. Admin can move any of them
+ * like a match.
+ * @param names vehicleId -> name
+ * @returns new itemUses docs (no ids), by: 'rule', aged: true
+ */
+export function agedUses({ items, uses, today, names = new Map(), days = AGE_DAYS }) {
+  const cutoff = addDays(today, -days);
+  const out = [];
+  for (const it of items) {
+    if (!POOL_KINDS.includes(it.kind) || it.tire || !it.date || it.date > cutoff || snoozed(it, uses, today)) continue;
+    const qty = remainingQty(it, uses);
+    if (!(qty > 0)) continue;
+    const base = {
+      receiptId: it.receiptId, lineId: it.lineId, qty, logId: null, by: 'rule', status: 'auto', confidence: 100, aged: true,
+      itemText: it.text, reason: `Not tied to any work ${days} days after it was bought`,
+    };
+    out.push(it.vehicleId
+      ? { ...base, vehicleId: it.vehicleId, vehicleName: names.get(it.vehicleId) ?? null, assetType: it.assetType === 'trailer' ? 'trailer' : 'truck', shop: false }
+      : { ...base, vehicleId: null, shop: true });
+  }
+  return out;
+}
+
 /**
  * Pool items not (fully) tied to work yet, bought in the last `days` days.
  * Items admin said are still on the shelf wait until that runs out.
@@ -549,7 +580,7 @@ export function costEvents({ receipts, uses, log }) {
       const amount = amounts.get(u) ?? 0;
       // A part that failed (u.failed): returned for credit or broken during
       // install is the shop's; defective and not returned stays on the repair.
-      const failed = u.failed ? { failed: u.failed } : {};
+      const failed = { ...(u.failed ? { failed: u.failed } : {}), ...(u.aged ? { aged: true } : {}) };
       if (u.shop) { out.push({ date: entry?.date ?? u.failedOn ?? it.date, kind: 'supplies', amount, unitId: null, text: it.text, ...ref2, by: u.by, ...failed }); continue; }
       const unitId = u.vehicleId ?? entry?.vehicleId;
       if (!unitId) continue;

@@ -3814,7 +3814,8 @@ const FAILED_LABEL = { defective: 'failed part', returned: 'returned for credit'
 const anCostName = (ev) => {
   const name = ev.part ? partById(ev.part)?.name ?? ev.part : ev.text || t('receipt');
   const shown = ev.qty && (ev.part || ev.qty !== 1) ? `${qtyText(ev.qty)} × ${name}` : name;
-  return ev.failed ? `${shown} (${FAILED_LABEL[ev.failed] ?? 'failed'})` : shown;
+  if (ev.failed) return `${shown} (${FAILED_LABEL[ev.failed] ?? 'failed'})`;
+  return ev.aged ? `${shown} (not matched in 90 days)` : shown;
 };
 
 // The fleet's trucks and trailers for the dates, biggest spend first; tap one
