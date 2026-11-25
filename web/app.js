@@ -3143,18 +3143,34 @@ function pickForItem(item, fromUse, { openFailed = false } = {}) {
     }),
     failBtn(t('failInstall'), t('failInstallHint'), () => done(placeItem(item, fromUse, { failed: 'misinstalled', qty, teach: false }))),
   );
-  body.append(el('div', 'section-title', t('repairsAround')), failHint);
+  // Work done before it was bought: the AI never picks these (a part bought
+  // after the work can't usually have gone into it), but admin knows better
+  // sometimes (a part taken from the shelf, then bought to replace it).
+  const earlier = serviceLog.filter((e) => isWork(e) && !inWindow(item, e) && e.date && item.date && daysBetween(item.date, e.date) < 0 && daysBetween(item.date, e.date) >= -30)
+    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+  const search = Object.assign(el('input', 'pick-search'), { type: 'search', placeholder: t('pickSearch') });
+  search.setAttribute('aria-label', t('pickSearch'));
+  body.append(el('div', 'section-title', t('repairsAround')), failHint, search);
   failHint.textContent = t('failPickRepair');
   if (!around.length) body.append(el('p', 'muted', t('noRepairsAround')));
-  const list = el('div', 'pick-list');
-  for (const e of around) {
+  const row = (e) => {
     const b = Object.assign(el('button', `pick-row${fromUse?.logId === e.id ? ' current' : ''}`), { type: 'button' });
+    b.dataset.find = `${e.vehicleName ?? unitName(e.vehicleId)} ${repairText(e)}`.toLowerCase();
     b.append(el('span', 'pick-main', repairLine(e)));
     if (fromUse?.logId === e.id) b.append(el('span', 'pick-tag', t('aiPick')));
     b.addEventListener('click', () => done(placeItem(item, fromUse, failedMode ? { entry: e, qty, failed: 'defective' } : { entry: e, qty, teach: true })));
-    list.append(b);
-  }
+    return b;
+  };
+  const list = el('div', 'pick-list');
+  list.append(...around.map(row));
   body.append(list);
+  const earlierList = el('div', 'pick-list pick-earlier');
+  earlierList.append(...earlier.map(row));
+  if (earlier.length) body.append(el('div', 'section-title', t('repairsEarlier')), el('p', 'muted pick-note', t('repairsEarlierHint')), earlierList);
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase().replace(/^t-?/, '');
+    for (const b of body.querySelectorAll('.pick-list .pick-row')) b.hidden = Boolean(q) && !b.dataset.find.replace(/\bt-?/g, '').includes(q);
+  });
 
   // Bought for a truck, but no repair was recorded for it.
   body.append(el('div', 'section-title', t('truckNoRepair')));
@@ -3183,20 +3199,37 @@ function pickForRepair(entry) {
   const open = openItems(receiptItems(receipts), itemUses, { today: todayIso(), days: 120 })
     .filter((it) => inWindow(it, entry))
     .sort((a, b) => Number(b.vehicleId === entry.vehicleId) - Number(a.vehicleId === entry.vehicleId) || Math.abs(daysBetween(a.date, entry.date)) - Math.abs(daysBetween(b.date, entry.date)));
-  body.append(el('div', 'section-title', t('partsAround')));
+  // Parts bought up to 30 days after the work: the AI never picks these, admin can.
+  const later = openItems(receiptItems(receipts), itemUses, { today: todayIso(), days: 120 })
+    .filter((it) => !inWindow(it, entry) && it.date && entry.date && daysBetween(it.date, entry.date) < 0 && daysBetween(it.date, entry.date) >= -30)
+    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+  const search = Object.assign(el('input', 'pick-search'), { type: 'search', placeholder: t('pickPartSearch') });
+  search.setAttribute('aria-label', t('pickPartSearch'));
+  body.append(el('div', 'section-title', t('partsAround')), search);
   if (!open.length) body.append(el('p', 'muted', t('noPartsAround')));
-  const list = el('div', 'pick-list');
-  for (const it of open) {
+  const row = (it) => {
     const b = Object.assign(el('button', 'pick-row'), { type: 'button' });
+    b.dataset.find = `${it.text} ${it.partNumber ?? ''} ${it.vendor ?? ''}`.toLowerCase();
     b.append(
       el('span', 'pick-main', itemLine(it, it.remaining)),
       el('span', 'pick-sub', [it.vendor, dateText(it.date), it.unitCost != null ? money(it.unitCost * it.remaining) : null, it.vehicleId ? t('boughtFor', unitName(it.vehicleId)) : null].filter(Boolean).join(' · ')),
     );
     b.addEventListener('click', () => placeItem(it, null, { entry, qty: it.remaining, teach: true })
       .then(() => $('pdlg').close()).catch((err) => showAppError(t('couldNotSave', err.message))));
-    list.append(b);
-  }
+    return b;
+  };
+  const list = el('div', 'pick-list');
+  list.append(...open.map(row));
   body.append(list);
+  if (later.length) {
+    const laterList = el('div', 'pick-list pick-earlier');
+    laterList.append(...later.map(row));
+    body.append(el('div', 'section-title', t('partsLater')), el('p', 'muted pick-note', t('partsLaterHint')), laterList);
+  }
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    for (const b of body.querySelectorAll('.pick-list .pick-row')) b.hidden = Boolean(q) && !b.dataset.find.includes(q);
+  });
 }
 
 // What each truck cost: everything its work used, each from a receipt.

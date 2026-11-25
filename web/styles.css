@@ -1513,6 +1513,11 @@ body:not(.shop-mode) #parts-view .section-count { font: 700 15px var(--mono); bo
 .an-unit-note { grid-area: note; font-size: 13px; color: var(--floor-muted); }
 .an-more { width: 100%; margin-top: 6px; }
 
+/* The pickers: search, and work or parts outside the AI's dates */
+.pick-search { width: 100%; box-sizing: border-box; min-height: 44px; margin: 4px 0 8px; padding: 0 10px; border: 2px solid var(--floor-line); background: var(--floor-field); color: var(--floor-ink); font-size: 15px; }
+.pick-earlier .pick-row { border-style: dashed; }
+.pick-note { margin: 0 0 6px; font-size: 13px; }
+
 /* The part picker: "This part failed" */
 .fail-box { display: grid; gap: 6px; margin-top: 14px; padding-top: 10px; border-top: 2px solid var(--floor-track); }
 .fail-choice { display: grid; gap: 2px; padding: 10px 12px; border: 2px solid var(--floor-line); background: var(--floor-paper); color: var(--floor-ink); font: inherit; text-align: left; cursor: pointer; }

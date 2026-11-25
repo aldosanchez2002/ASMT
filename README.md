@@ -229,6 +229,8 @@ node scripts/seed-work-log.mjs --undo path/to/work-log.backup-….json
 
 ## Out of service
 
+**The pickers** (Change on a match, Pick repair, Pick parts) have a search box (truck number, repair or part text) and also offer what the AI never picks: work in the 30 days *before* a part was bought (**Earlier work, before it was bought**), and parts bought in the 30 days *after* a repair (**Parts bought after this work**), for a part taken from the shelf and bought later to replace it.
+
 **After 90 days** (`AGE_DAYS`, `agedUses` in `web/items.js`, run by the matcher at least once a day): a receipt item still not tied to any work becomes a cost anyway. An unassigned part becomes shop supplies; one the receipt or note said was for a truck becomes that truck's cost ("not matched in 90 days"). Tires keep waiting for their tire change, and items admin marked still on the shelf wait until that runs out. Admin can move any of them with Change, like a match.
 
 **A part that failed** (a second part was bought because the first broke): in the part picker (Change, or **This part failed** on a Bought, no work found card) the admin picks what happened, saved as `failed` on the part's itemUses: **Returned for credit** goes to shop supplies, where the store's credit line cancels it out (if no credit from that store of about that amount comes in 30 days, it's back in To review as **Returned, no credit yet**: *Credit came*, or *No credit: shop loss*); **Defective, not returned** is tied to the repair it failed on (that truck's cost, labeled "failed part"); **Broke during install** is a shop cost under **Shop losses** (its own category in Analytics → Where it went).
